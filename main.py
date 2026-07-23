@@ -44,6 +44,11 @@ from bot.db import (
     get_archive_message
 )
 from bot.scheduler import setup_scheduler, send_daily_horoscopes
+from bot.keyboards.keyboards import get_profile_keyboard
+from asgiref.sync import sync_to_async
+from core.models import User
+from bot.yookassa_client import yookassa
+from bot.db import save_payment_db, activate_subscription_db, add_natal_chart_db
 
 
 MESSAGE_TYPES_DISPLAY = {
@@ -995,42 +1000,43 @@ async def natal_payment(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.answer()
 
-    # ✅ Сохраняем статус оплаты в состояние
-    await state.update_data(natal_paid=True)
+    user_id = callback.from_user.id
 
-    await callback.message.answer(
-        "✅ Оплата прошла успешно!\n\n"
-        "🌌 Теперь выберите, какие данные использовать для натальной карты."
+    if not yookassa.is_configured:
+        await callback.message.answer(
+            "⚠️ Платежная система временно недоступна.\n"
+            "Пожалуйста, попробуйте позже."
+        )
+        return
+
+    # Создаем платеж
+    result = yookassa.create_payment(
+        user_id=user_id,
+        amount=999.00,
+        description=f"Натальная карта (ID: {user_id})",
+        payment_type='natal_chart'
     )
 
-    user_id = callback.from_user.id
-    user_data_from_db = await get_user_data(user_id)
+    if result['success']:
+        # Сохраняем платеж как pending
+        await save_payment_db(user_id, result['payment_id'], 999.00, 'natal_chart', 'pending')
 
-    if user_data_from_db and user_data_from_db.get('name'):
-        zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
-
-        profile_text = (
-            f"👤 Ваши сохраненные данные:\n"
-            f"Имя: {user_data_from_db.get('name', 'Не указано')}\n"
-            f"📅 Дата рождения: {user_data_from_db.get('birth_date', 'Не указана')}\n"
-            f"🕒 Время рождения: {user_data_from_db.get('birth_time', 'Не указано')}\n"
-            f"📍 Место рождения: {user_data_from_db.get('birth_place', 'Не указано')}\n"
-            f"👤 Пол: {'Мужской' if user_data_from_db.get('gender') == 'М' else 'Женский'}\n"
-            f"{zodiac_emoji} Знак зодиака: {user_data_from_db.get('zodiac', 'Неизвестно')}\n\n"
-            "Хотите использовать эти данные?"
-        )
+        # Сохраняем флаг, что оплата начата
+        await state.update_data(payment_id=result['payment_id'])
 
         await callback.message.answer(
-            profile_text,
-            reply_markup=get_natal_use_data_keyboard()
+            "💳 Оплата 999 ₽\n\n"
+            "Нажмите на кнопку ниже, чтобы перейти к оплате.\n\n"
+            "⚠️ После оплаты натальная карта будет доступна сразу.\n"
+            "Это может занять до 1 минуты.",
+            reply_markup=get_payment_url_keyboard(result['confirmation_url'])
         )
-        await state.update_data(natal_data_from_profile=user_data_from_db)
-        await state.set_state(NatalStates.CONFIRM_DATA)
+
+        # Сохраняем состояние для проверки оплаты после возврата
+        await state.set_state(NatalStates.PAYMENT)
     else:
-        await state.set_state(NatalStates.WAITING_NAME)
         await callback.message.answer(
-            "❓ Как вас зовут?",
-            reply_markup=get_cancel_keyboard()
+            f"❌ Ошибка при создании платежа: {result['error']}"
         )
 
 # ==================== СБОР ДАННЫХ ДЛЯ НАТАЛЬНОЙ КАРТЫ ====================
@@ -1297,7 +1303,6 @@ async def profile(message: Message):
     """Показать профиль пользователя"""
     user_id = message.from_user.id
 
-    # Получаем данные из БД
     user_data = await get_user_data(user_id)
 
     if user_data and user_data.get('name'):
@@ -1310,10 +1315,20 @@ async def profile(message: Message):
             f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
             f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
             f"👤 Пол: {'Мужской' if user_data.get('gender') == 'М' else 'Женский'}\n"
-            f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n\n"
-            "📌 Нажмите 🔮 Гороскоп на сегодня, чтобы получить новый прогноз."
+            f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n"
         )
-        await message.answer(profile_text)
+
+        # Проверяем подписку
+        is_subscribed = await check_subscription_db(user_id)
+        if is_subscribed:
+            profile_text += "\n\n⭐ Подписка: **Активна** ✅"
+            await message.answer(
+                profile_text,
+                reply_markup=get_profile_keyboard()
+            )
+        else:
+            profile_text += "\n\n⭐ Подписка: Не активна ❌"
+            await message.answer(profile_text)
     else:
         await message.answer(
             "📝 У вас пока нет сохраненных данных.\n"
@@ -1362,16 +1377,18 @@ async def expert_request(message: Message):
     username = message.from_user.username or "Не указан"
     first_name = message.from_user.first_name or "Не указано"
 
-    # Получаем данные пользователя, если есть
+    # ✅ Получаем данные пользователя из БД
+    user_data_from_db = await get_user_data(user_id)
+
+    # Формируем информацию о пользователе
     user_info = ""
-    if user_id in user_data:
-        data = user_data[user_id]
+    if user_data_from_db:
         user_info = (
-            f"\n👤 Имя: {data.get('name', 'Не указано')}"
-            f"\n📅 Дата рождения: {data.get('birth_date', 'Не указана')}"
-            f"\n🕒 Время рождения: {data.get('birth_time', 'Не указано')}"
-            f"\n📍 Место рождения: {data.get('birth_place', 'Не указано')}"
-            f"\n♈ Знак зодиака: {data.get('zodiac', 'Неизвестно')}"
+            f"\n👤 Имя: {user_data_from_db.get('name', 'Не указано')}"
+            f"\n📅 Дата рождения: {user_data_from_db.get('birth_date', 'Не указана')}"
+            f"\n🕒 Время рождения: {user_data_from_db.get('birth_time', 'Не указано')}"
+            f"\n📍 Место рождения: {user_data_from_db.get('birth_place', 'Не указано')}"
+            f"\n♈ Знак зодиака: {user_data_from_db.get('zodiac', 'Неизвестно')}"
         )
 
     expert_text = (
@@ -1386,6 +1403,54 @@ async def expert_request(message: Message):
         expert_text,
         reply_markup=get_expert_keyboard()
     )
+
+
+@dp.callback_query(F.data == "expert_request")
+async def send_expert_request(callback: CallbackQuery):
+    """Отправка заявки эксперту"""
+    await callback.message.delete()
+    await callback.answer()
+
+    user_id = callback.from_user.id
+    username = callback.from_user.username or "Не указан"
+    first_name = callback.from_user.first_name or "Не указано"
+
+    # ✅ Получаем данные пользователя из БД
+    user_data_from_db = await get_user_data(user_id)
+
+    # Формируем информацию о пользователе
+    user_info = ""
+    if user_data_from_db:
+        user_info = (
+            f"\n👤 Имя: {user_data_from_db.get('name', 'Не указано')}"
+            f"\n📅 Дата рождения: {user_data_from_db.get('birth_date', 'Не указана')}"
+            f"\n🕒 Время рождения: {user_data_from_db.get('birth_time', 'Не указано')}"
+            f"\n📍 Место рождения: {user_data_from_db.get('birth_place', 'Не указано')}"
+            f"\n♈ Знак зодиака: {user_data_from_db.get('zodiac', 'Неизвестно')}"
+        )
+
+    # Сообщение пользователю
+    await callback.message.answer(
+        "✅ Заявка отправлена! 📩\n\n"
+        "Эксперт свяжется с вами в ближайшее время.",
+        reply_markup=get_main_menu()
+    )
+
+    # Отправляем уведомление эксперту
+    expert_chat_id = os.getenv('EXPERT_CHAT_ID')
+    if expert_chat_id:
+        try:
+            expert_message = (
+                f"📩 НОВАЯ ЗАЯВКА НА КОНСУЛЬТАЦИЮ!\n\n"
+                f"👤 Пользователь: @{username}\n"
+                f"📛 Имя: {first_name}\n"
+                f"🆔 ID: {user_id}{user_info}\n\n"
+                f"💰 Услуга: Экспертный разбор (5000 ₽)\n"
+                f"📅 Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+            )
+            await bot.send_message(expert_chat_id, expert_message)
+        except Exception as e:
+            logger.error(f"Ошибка отправки эксперту: {e}")
 
 
 @dp.callback_query(F.data == "expert_request")
@@ -1470,30 +1535,41 @@ async def show_subscription(message: Message):
 @dp.callback_query(F.data == "subscribe_pay")
 async def subscribe_payment(callback: CallbackQuery):
     """Обработка оплаты подписки"""
-    await callback.message.delete()
     await callback.answer()
 
     user_id = callback.from_user.id
 
-    # TODO: Интеграция с ЮKassa
-    await callback.message.answer(
-        "💳 Оплата 299 ₽\n\n"
-        "⚠️ Это демо-версия. Считаем, что оплата прошла успешно!"
+    if not yookassa.is_configured:
+        await callback.message.answer(
+            "⚠️ Платежная система временно недоступна.\n"
+            "Пожалуйста, попробуйте позже или свяжитесь с поддержкой."
+        )
+        return
+
+    # Создаем платеж
+    result = yookassa.create_payment(
+        user_id=user_id,
+        amount=299.00,
+        description=f"Подписка на астробота (ID: {user_id})",
+        payment_type='subscription'
     )
 
-    # Активируем подписку в БД
-    await activate_subscription_db(user_id, days=30)
+    if result['success']:
+        # Сохраняем платеж как pending
+        await save_payment_db(user_id, result['payment_id'], 299.00, 'subscription', 'pending')
 
-    await callback.message.answer(
-        "🎉 Поздравляем! Подписка активирована!\n\n"
-        "Теперь вам доступны все функции Premium:\n"
-        "✓ Ежедневный гороскоп\n"
-        "✓ Совместимость без ограничений\n"
-        "✓ Архив прогнозов\n"
-        "✓ Автоматическая отправка в 8:00\n\n"
-        "📅 Подписка активна на 30 дней",
-        reply_markup=get_main_menu()
-    )
+        # Отправляем ссылку на оплату
+        await callback.message.answer(
+            "💳 Оплата 299 ₽\n\n"
+            "Нажмите на кнопку ниже, чтобы перейти к оплате.\n\n"
+            "⚠️ После оплаты подписка активируется автоматически.\n"
+            "Это может занять до 1 минуты.",
+            reply_markup=get_payment_url_keyboard(result['confirmation_url'])
+        )
+    else:
+        await callback.message.answer(
+            f"❌ Ошибка при создании платежа: {result['error']}"
+        )
 
 @dp.callback_query(F.data == "subscribe_extend")
 async def subscribe_extend(callback: CallbackQuery):
@@ -1685,6 +1761,109 @@ async def refresh_archive(callback: CallbackQuery):
 
     fake_msg = FakeMessage(callback)
     await show_archive(fake_msg)
+
+
+@dp.callback_query(F.data == "cancel_subscription")
+async def cancel_subscription_callback(callback: CallbackQuery):
+    """Отмена подписки через профиль"""
+    await callback.answer()
+
+    user_id = callback.from_user.id
+
+    try:
+        from core.models import User
+
+        @sync_to_async
+        def get_user(uid):
+            try:
+                return User.objects.get(telegram_id=uid)
+            except User.DoesNotExist:
+                return None
+
+        user = await get_user(user_id)
+
+        if not user:
+            await callback.message.answer(
+                "❌ Пользователь не найден в базе данных.",
+                reply_markup=get_main_menu()
+            )
+            return
+
+        if not user.is_subscribed:
+            await callback.message.answer(
+                "📌 У вас нет активной подписки.\n"
+                "Оформить подписку можно в разделе ⭐ Подписка.",
+                reply_markup=get_main_menu()
+            )
+            # Удаляем сообщение с кнопками
+            await callback.message.delete()
+            return
+
+        # Отменяем подписку
+        @sync_to_async
+        def cancel_subscription(user_obj):
+            user_obj.is_subscribed = False
+            user_obj.subscription_until = None
+            user_obj.save()
+            return True
+
+        await cancel_subscription(user)
+
+        # ✅ Удаляем старое сообщение с инлайн-клавиатурой
+        await callback.message.delete()
+
+        # ✅ Отправляем новое сообщение с обычной клавиатурой
+        await callback.message.answer(
+            "❌ Ваша подписка отменена.\n\n"
+            "Вы больше не будете получать ежедневные гороскопы.\n"
+            "Вы можете оформить подписку снова в любой момент в разделе ⭐ Подписка.",
+            reply_markup=get_main_menu()
+        )
+
+    except Exception as e:
+        await callback.message.answer(
+            f"❌ Ошибка при отмене подписки: {str(e)}",
+            reply_markup=get_main_menu()
+        )
+
+
+@dp.callback_query(F.data == "check_payment")
+async def check_payment(callback: CallbackQuery, state: FSMContext):
+    """Проверка статуса оплаты"""
+    await callback.answer()
+
+    data = await state.get_data()
+    payment_id = data.get('payment_id')
+
+    if not payment_id:
+        await callback.message.answer(
+            "❌ Информация о платеже не найдена."
+        )
+        return
+
+    result = yookassa.check_payment(payment_id)
+
+    if result['success'] and result['paid']:
+        await callback.message.answer(
+            "✅ Оплата прошла успешно!\n\n"
+            "Теперь вы можете получить натальную карту.",
+            reply_markup=get_main_menu()
+        )
+
+        # Проверяем, что произошла активация
+        user_id = callback.from_user.id
+
+        # Проверяем через вебхук, или активируем вручную
+        from bot.db import add_natal_chart_db
+        await add_natal_chart_db(user_id, 1)
+
+        await state.clear()
+    else:
+        await callback.message.answer(
+            "⏳ Оплата пока не подтверждена.\n"
+            "Пожалуйста, завершите оплату или проверьте статус позже.",
+            reply_markup=get_payment_url_keyboard(callback.message.text)
+        )
 
 
 #@dp.message(Command("test_send"))

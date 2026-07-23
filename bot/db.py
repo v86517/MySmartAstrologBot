@@ -212,6 +212,34 @@ def _get_all_subscribed_users():
         return []
 
 
+def _save_payment_db(user_id, payment_id, amount, payment_type, status):
+    """Сохранить платеж в БД"""
+    try:
+        user = User.objects.get(telegram_id=user_id)
+        Payment.objects.create(
+            user=user,
+            payment_id=payment_id,
+            amount=amount,
+            payment_type=payment_type,
+            status=status
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка сохранения платежа: {e}")
+        return False
+
+def _add_natal_chart_db(user_id, count=1):
+    """Добавить натальные карты пользователю"""
+    try:
+        user = User.objects.get(telegram_id=user_id)
+        user.natal_chart_count += count
+        user.save()
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка добавления натальной карты: {e}")
+        return False
+
+
 # ==================== АСИНХРОННЫЕ ОБЁРТКИ ====================
 
 get_or_create_user = sync_to_async(_get_or_create_user)
@@ -227,3 +255,5 @@ get_archive_message = sync_to_async(_get_archive_message)
 save_payment_db = sync_to_async(_save_payment_db)
 add_natal_chart_db = sync_to_async(_add_natal_chart_db)
 get_all_subscribed_users = sync_to_async(_get_all_subscribed_users)
+save_payment_db = sync_to_async(_save_payment_db)
+add_natal_chart_db = sync_to_async(_add_natal_chart_db)

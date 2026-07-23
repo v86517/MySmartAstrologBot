@@ -205,3 +205,20 @@ def get_archive_keyboard(messages):
     builder.adjust(1)
 
     return builder.as_markup()
+
+def get_profile_keyboard():
+    """Клавиатура для профиля"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отменить подписку", callback_data="cancel_subscription")
+    builder.button(text="🏠 Главное меню", callback_data="main_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_payment_url_keyboard(url):
+    """Клавиатура со ссылкой на оплату"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💳 Перейти к оплате", url=url)
+    builder.button(text="🔄 Проверить оплату", callback_data="check_payment")
+    builder.button(text="❌ Отмена", callback_data="cancel")
+    builder.adjust(1)
+    return builder.as_markup()
