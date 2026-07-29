@@ -118,7 +118,7 @@ def get_continue_keyboard():
 def get_natal_payment_keyboard():
     """Клавиатура для оплаты натальной карты"""
     builder = InlineKeyboardBuilder()
-    builder.button(text="💳 Оплатить 999 ₽", callback_data="natal_pay")
+    builder.button(text="💳 Оплатить 888 ₽", callback_data="natal_pay")
     builder.button(text="❌ Отмена", callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
@@ -156,7 +156,7 @@ def get_expert_keyboard():
 def get_subscription_keyboard():
     """Клавиатура для подписки"""
     builder = InlineKeyboardBuilder()
-    builder.button(text="⭐ Оформить подписку 299 ₽", callback_data="subscribe_pay")
+    builder.button(text="⭐ Оформить подписку 333 ₽", callback_data="subscribe_pay")
     builder.button(text="❌ Отмена", callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
@@ -206,19 +206,28 @@ def get_archive_keyboard(messages):
 
     return builder.as_markup()
 
+
 def get_profile_keyboard():
-    """Клавиатура для профиля"""
+    """Клавиатура для профиля (изменить данные + отменить подписку)"""
     builder = InlineKeyboardBuilder()
+    builder.button(text="✏️ Изменить данные", callback_data="edit_profile")
     builder.button(text="❌ Отменить подписку", callback_data="cancel_subscription")
-    builder.button(text="🏠 Главное меню", callback_data="main_menu")
     builder.adjust(1)
     return builder.as_markup()
 
-def get_payment_url_keyboard(url):
+
+def get_payment_url_keyboard(url: str) -> InlineKeyboardMarkup:
     """Клавиатура со ссылкой на оплату"""
     builder = InlineKeyboardBuilder()
     builder.button(text="💳 Перейти к оплате", url=url)
-    builder.button(text="🔄 Проверить оплату", callback_data="check_payment")
     builder.button(text="❌ Отмена", callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def get_skip_keyboard():
+    """Клавиатура с кнопкой 'Пропустить' для редактирования"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⏩ Пропустить", callback_data="skip_edit")
+    return builder.as_markup()
+

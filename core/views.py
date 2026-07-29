@@ -1,73 +1,170 @@
+import os
 import json
 import logging
+import traceback
+import asyncio
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from aiogram import Bot
+from asgiref.sync import async_to_sync
+
+from bot.yookassa_client import yookassa
+from bot.db import save_payment_db, activate_subscription_db, add_natal_chart_db
 
 logger = logging.getLogger(__name__)
+
+
+def send_payment_notification(user_id: int, payment_type: str, amount: float):
+    """
+    Отправляет пользователю уведомление об успешной оплате в Telegram.
+    """
+    token = os.getenv('BOT_TOKEN')
+    if not token:
+        logger.error("❌ BOT_TOKEN не найден в .env, уведомление не отправлено")
+        return
+
+    try:
+        bot = Bot(token=token)
+
+        if payment_type == 'subscription':
+            text = (
+                "🎉 Оплата прошла успешно!\n\n"
+                "⭐ Ваша подписка активирована!\n"
+                "Теперь вам доступны все функции Premium:\n"
+                "✓ Ежедневный персональный гороскоп\n"
+                "✓ Авто отправка гороскопа в 8:00\n\n"
+                "✓ Совместимость без ограничений\n"
+                "✓ Архив прогнозов\n"
+                f"💰 Сумма: {amount} ₽\n"
+                "📅 Подписка активна 30 дней.\n\n"
+                "Спасибо, что выбрали нас! 🌟"
+            )
+        elif payment_type == 'natal_chart':
+            text = (
+                "🎉 Оплата прошла успешно!\n\n"
+                "🌌 Ваша натальная карта готова к построению!\n"
+                f"💰 Сумма: {amount} ₽\n\n"
+                "Нажмите кнопку '🌌 Натальная карта', чтобы получить разбор."
+            )
+        else:
+            text = (
+                f"🎉 Оплата прошла успешно!\n"
+                f"💰 Сумма: {amount} ₽\n"
+                "Благодарим за доверие!"
+            )
+
+        # Асинхронная отправка без блокировки
+        asyncio.create_task(bot.send_message(user_id, text))
+        logger.info(f"✅ Уведомление отправлено пользователю {user_id}")
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки уведомления пользователю {user_id}: {e}")
 
 
 @csrf_exempt
 @require_POST
 def yookassa_webhook(request):
     """
-    Обработка вебхука от ЮKassa
+    Обработчик вебхуков от ЮKassa.
+    Поддерживает события:
+    - payment.waiting_for_capture
+    - payment.succeeded
     """
+    logger.info(f"📨 Входящий вебхук от {request.META.get('REMOTE_ADDR')}, метод {request.method}")
+
     try:
-        data = json.loads(request.body)
-        logger.info(f"📨 Получен вебхук от ЮKassa: {data.get('event')}")
+        # Парсим JSON
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Ошибка парсинга JSON: {e}, тело: {request.body[:200]}")
+            return HttpResponse('Bad Request', status=400)
 
-        # Проверяем, что это уведомление об успешном платеже
-        if data.get('event') == 'payment.succeeded':
+        event = data.get('event')
+        logger.info(f"📨 Вебхук получен, событие: {event}")
+
+        # Логируем данные для важных событий (первые 500 символов)
+        if event in ('payment.waiting_for_capture', 'payment.succeeded'):
+            logger.debug(f"Данные вебхука: {json.dumps(data, indent=2)[:500]}...")
+
+        # ---- 1. Обработка ожидания захвата ----
+        if event == 'payment.waiting_for_capture':
             payment_id = data['object']['id']
+            logger.info(f"⏳ Платёж ожидает захвата: {payment_id}")
 
-            # Обрабатываем платеж
-            import asyncio
-            from bot.yookassa_client import yookassa
-            from bot.db import save_payment_db, activate_subscription_db, add_natal_chart_db
+            try:
+                amount = float(data['object']['amount']['value'])
+                currency = data['object']['amount']['currency']
+            except (KeyError, ValueError) as e:
+                logger.error(f"❌ Ошибка извлечения суммы из вебхука: {e}")
+                return HttpResponse('Bad Request', status=400)
 
-            # Получаем информацию о платеже
-            result = yookassa.handle_successful_payment(payment_id)
+            result = yookassa.capture_payment(payment_id, amount, currency)
+            if result['success']:
+                logger.info(f"✅ Платёж {payment_id} захвачен")
+            else:
+                logger.error(f"❌ Ошибка захвата платежа {payment_id}: {result.get('error')}")
+
+            return HttpResponse('OK', status=200)
+
+        # ---- 2. Обработка успешного платежа ----
+        elif event == 'payment.succeeded':
+            payment_id = data['object']['id']
+            logger.info(f"✅ Платёж успешен: {payment_id}")
+
+            try:
+                result = yookassa.handle_successful_payment(payment_id)
+                logger.info(f"Результат обработки: {result}")
+            except Exception as e:
+                logger.error(f"❌ Исключение при вызове handle_successful_payment: {e}")
+                logger.error(traceback.format_exc())
+                return HttpResponse('OK', status=200)
 
             if result['success']:
                 user_id = result['user_id']
                 payment_type = result['payment_type']
                 amount = result['amount']
 
-                # Сохраняем платеж в БД
-                # Используем sync_to_async для вызова в синхронном контексте
-                from asgiref.sync import async_to_sync
+                logger.info(f"👤 Пользователь {user_id}, тип {payment_type}, сумма {amount}")
 
-                # Сохраняем платеж
-                async_to_sync(save_payment_db)(
-                    user_id,
-                    payment_id,
-                    amount,
-                    payment_type,
-                    'success'
-                )
+                # Сохраняем платёж в БД
+                try:
+                    async_to_sync(save_payment_db)(user_id, payment_id, amount, payment_type, 'success')
+                except Exception as e:
+                    logger.error(f"❌ Ошибка сохранения платежа в БД: {e}")
+                    logger.error(traceback.format_exc())
 
-                # Активируем соответствующий продукт
-                if payment_type == 'subscription':
-                    async_to_sync(activate_subscription_db)(user_id, days=30)
-                    logger.info(f"✅ Подписка активирована для пользователя {user_id}")
-                elif payment_type == 'natal_chart':
-                    async_to_sync(add_natal_chart_db)(user_id, 1)
-                    logger.info(f"✅ Натальная карта добавлена пользователю {user_id}")
-                elif payment_type == 'expert':
-                    # Для эксперта ничего не активируем, просто уведомление
-                    logger.info(f"✅ Оплачен экспертный разбор для пользователя {user_id}")
+                # Активируем продукт
+                try:
+                    if payment_type == 'subscription':
+                        async_to_sync(activate_subscription_db)(user_id, 30)
+                        logger.info(f"✅ Подписка активирована для {user_id}")
+                        send_payment_notification(user_id, payment_type, amount)
+
+                    elif payment_type == 'natal_chart':
+                        async_to_sync(add_natal_chart_db)(user_id, 1)
+                        logger.info(f"✅ Натальная карта добавлена для {user_id}")
+                        send_payment_notification(user_id, payment_type, amount)
+
+                    else:
+                        logger.warning(f"⚠️ Неизвестный тип платежа: {payment_type}")
+                        send_payment_notification(user_id, 'unknown', amount)
+
+                except Exception as e:
+                    logger.error(f"❌ Ошибка активации продукта для пользователя {user_id}: {e}")
+                    logger.error(traceback.format_exc())
 
                 return HttpResponse('OK', status=200)
             else:
-                logger.error(f"❌ Ошибка обработки платежа {payment_id}: {result.get('error')}")
-                return HttpResponse('OK', status=200)  # Возвращаем OK, чтобы ЮKassa не повторяла запрос
+                logger.error(f"❌ Ошибка обработки платежа: {result.get('error')}")
+                return HttpResponse('OK', status=200)
 
+        # ---- 3. Другие события ----
+        logger.info(f"ℹ️ Событие '{event}' проигнорировано")
         return HttpResponse('OK', status=200)
 
-    except json.JSONDecodeError as e:
-        logger.error(f"❌ Ошибка парсинга JSON: {e}")
-        return HttpResponse('Bad Request', status=400)
     except Exception as e:
-        logger.error(f"❌ Ошибка обработки вебхука: {e}")
-        return HttpResponse('Internal Server Error', status=500)
+        logger.error(f"❌ Необработанное исключение в вебхуке: {e}")
+        logger.error(traceback.format_exc())
+        return HttpResponse('Error', status=500)

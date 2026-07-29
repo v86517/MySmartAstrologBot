@@ -8,7 +8,8 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()
 
 from core.models import User, DailyUsage, UserMessage, Payment
-
+import logging
+logger = logging.getLogger(__name__)
 
 # ==================== СИНХРОННЫЕ ФУНКЦИИ ====================
 
@@ -25,24 +26,28 @@ def _get_or_create_user(telegram_id, username=None, first_name=None, last_name=N
 
 
 def _save_user_data(telegram_id, data):
+    logger.info(f"📝 Сохранение данных для пользователя {telegram_id}: {data}")
     try:
         user = User.objects.get(telegram_id=telegram_id)
-        if data.get('name'):
-            user.name = data.get('name')
-        if data.get('birth_date'):
-            user.date_of_birth = datetime.strptime(data.get('birth_date'), '%d.%m.%Y').date()
-        if data.get('birth_time'):
-            user.birth_time = datetime.strptime(data.get('birth_time'), '%H:%M').time()
-        if data.get('birth_place'):
-            user.birth_place = data.get('birth_place')
-        if data.get('gender'):
-            user.gender = data.get('gender')
-        if data.get('zodiac'):
-            user.zodiac_sign = data.get('zodiac')
-        user.save()
-        return True
     except User.DoesNotExist:
-        return False
+        user = User(telegram_id=telegram_id)
+        logger.info(f"👤 Создан новый пользователь {telegram_id}")
+
+    if data.get('name'):
+        user.name = data.get('name')
+    if data.get('birth_date'):
+        user.date_of_birth = datetime.strptime(data.get('birth_date'), '%d.%m.%Y').date()
+    if data.get('birth_time'):
+        user.birth_time = datetime.strptime(data.get('birth_time'), '%H:%M').time()
+    if data.get('birth_place'):
+        user.birth_place = data.get('birth_place')
+    if data.get('gender'):
+        user.gender = data.get('gender')
+    if data.get('zodiac'):
+        user.zodiac_sign = data.get('zodiac')
+    user.save()
+    logger.info(f"✅ Данные пользователя {telegram_id} сохранены")
+    return True
 
 
 def _get_user_data(telegram_id):
@@ -57,6 +62,7 @@ def _get_user_data(telegram_id):
             'zodiac': user.zodiac_sign,
             'is_subscribed': user.is_subscribed,
             'subscription_until': user.subscription_until,
+            'natal_chart_count': user.natal_chart_count,
         }
     except User.DoesNotExist:
         return None
@@ -90,31 +96,31 @@ def _activate_subscription(telegram_id, days=30):
 
 
 def _can_use_feature(telegram_id, feature):
+    # Проверяем подписку
     if _check_subscription(telegram_id):
         return True
 
     try:
         user = User.objects.get(telegram_id=telegram_id)
-        # ✅ Используем timezone.now() вместо datetime.now()
-        today = timezone.now().date()
-
-        usage, created = DailyUsage.objects.get_or_create(
-            user=user,
-            date=today,
-            defaults={
-                'horoscope_used': False,
-                'compatibility_used': False
-            }
-        )
-
-        if feature == 'horoscope':
-            return not usage.horoscope_used
-        elif feature == 'compatibility':
-            return not usage.compatibility_used
-        return False
-
     except User.DoesNotExist:
-        return False
+        # Если пользователя нет в БД, значит, он не мог использовать функцию сегодня
+        return True
+
+    today = timezone.now().date()
+    usage, created = DailyUsage.objects.get_or_create(
+        user=user,
+        date=today,
+        defaults={
+            'horoscope_used': False,
+            'compatibility_used': False
+        }
+    )
+
+    if feature == 'horoscope':
+        return not usage.horoscope_used
+    elif feature == 'compatibility':
+        return not usage.compatibility_used
+    return False
 
 
 def _mark_feature_used(telegram_id, feature):
@@ -176,17 +182,25 @@ def _get_archive_message(message_id, user_id):
 
 
 def _save_payment_db(user_id, payment_id, amount, payment_type, status):
+    """Сохранить или обновить платеж в БД"""
     try:
         user = User.objects.get(telegram_id=user_id)
-        Payment.objects.create(
-            user=user,
+        obj, created = Payment.objects.update_or_create(
             payment_id=payment_id,
-            amount=amount,
-            payment_type=payment_type,
-            status=status
+            defaults={
+                'user': user,
+                'amount': amount,
+                'payment_type': payment_type,
+                'status': status,
+            }
         )
+        if created:
+            logger.info(f"✅ Платёж {payment_id} сохранён")
+        else:
+            logger.info(f"🔄 Платёж {payment_id} уже существовал, обновлён")
         return True
     except Exception as e:
+        logger.error(f"Ошибка сохранения платежа: {e}")
         return False
 
 
@@ -213,20 +227,27 @@ def _get_all_subscribed_users():
 
 
 def _save_payment_db(user_id, payment_id, amount, payment_type, status):
-    """Сохранить платеж в БД"""
+    """Сохранить или обновить платеж в БД"""
     try:
         user = User.objects.get(telegram_id=user_id)
-        Payment.objects.create(
-            user=user,
+        obj, created = Payment.objects.update_or_create(
             payment_id=payment_id,
-            amount=amount,
-            payment_type=payment_type,
-            status=status
+            defaults={
+                'user': user,
+                'amount': amount,
+                'payment_type': payment_type,
+                'status': status,
+            }
         )
+        if created:
+            logger.info(f"✅ Платёж {payment_id} сохранён")
+        else:
+            logger.info(f"🔄 Платёж {payment_id} уже существовал, обновлён")
         return True
     except Exception as e:
         logger.error(f"Ошибка сохранения платежа: {e}")
         return False
+
 
 def _add_natal_chart_db(user_id, count=1):
     """Добавить натальные карты пользователю"""
@@ -255,5 +276,4 @@ get_archive_message = sync_to_async(_get_archive_message)
 save_payment_db = sync_to_async(_save_payment_db)
 add_natal_chart_db = sync_to_async(_add_natal_chart_db)
 get_all_subscribed_users = sync_to_async(_get_all_subscribed_users)
-save_payment_db = sync_to_async(_save_payment_db)
 add_natal_chart_db = sync_to_async(_add_natal_chart_db)
