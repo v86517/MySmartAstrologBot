@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo  # для Python 3.9+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from bot.services.gemini import GeminiService
@@ -9,6 +10,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 async def send_daily_horoscopes(bot: Bot):
     logger.info("📨 Запуск ежедневной рассылки гороскопов...")
     subscribers = await get_all_subscribed_users()
@@ -16,7 +18,11 @@ async def send_daily_horoscopes(bot: Bot):
         logger.info("📭 Нет активных подписчиков")
         return
 
-    today = datetime.now().strftime("%d.%m.%Y")
+    # Используем владивостокское время для даты
+    tz_vlad = ZoneInfo("Asia/Vladivostok")
+    today = datetime.now(tz_vlad).strftime("%d.%m.%Y")
+    logger.info(f"📅 Сегодняшняя дата по Владивостоку: {today}")
+
     gemini = GeminiService()
     sent = 0
     errors = 0
@@ -38,15 +44,24 @@ async def send_daily_horoscopes(bot: Bot):
 
     logger.info(f"📨 Рассылка завершена. Отправлено: {sent}, Ошибок: {errors}")
 
+
 def setup_scheduler(bot: Bot):
     scheduler = AsyncIOScheduler(timezone="Asia/Vladivostok")
     scheduler.add_job(
         send_daily_horoscopes,
-        CronTrigger(hour=8, minute=0),
+        CronTrigger(hour=8, minute=0, timezone="Asia/Vladivostok"),
         args=[bot],
         id="daily_horoscope",
         replace_existing=True
     )
     scheduler.start()
     logger.info("⏰ Планировщик запущен! Рассылка будет выполняться каждый день в 8:00 по Владивостоку")
+
+    job = scheduler.get_job("daily_horoscope")
+    if job and job.next_run_time:
+        logger.info(f"Следующий запуск (UTC): {job.next_run_time}")
+        logger.info(f"Следующий запуск (VLAT): {job.next_run_time.astimezone(ZoneInfo('Asia/Vladivostok'))}")
+    else:
+        logger.warning("Не удалось получить информацию о задаче планировщика")
+
     return scheduler

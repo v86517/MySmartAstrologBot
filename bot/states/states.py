@@ -25,8 +25,19 @@ class CompatibilityStates(StatesGroup):
     WAITING_PERSON2_ZODIAC = State()
     CONFIRM_DATA = State()
 
-class NatalStates(StatesGroup):
-    """Состояния для натальной карты"""
+class NumerologyStates(StatesGroup):
+    """Состояния для нумерологии"""
+    WAITING_NAME = State()
+    WAITING_BIRTH_DATE = State()
+    WAITING_BIRTH_TIME = State()
+    WAITING_BIRTH_PLACE = State()
+    WAITING_GENDER = State()
+    WAITING_ZODIAC = State()
+    CONFIRM_DATA = State()
+    PAYMENT = State()
+
+class AstrologyStates(StatesGroup):
+    """Состояния для астрологии"""
     WAITING_NAME = State()
     WAITING_BIRTH_DATE = State()
     WAITING_BIRTH_TIME = State()

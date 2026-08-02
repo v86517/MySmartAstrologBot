@@ -3,8 +3,8 @@ from .models import User, DailyUsage, UserMessage, Payment
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ['telegram_id', 'username', 'name', 'zodiac_sign', 'is_subscribed', 'created_at']
-    search_fields = ['telegram_id', 'username', 'name']
+    list_display = ['telegram_id', 'username', 'name', 'zodiac_sign', 'numerology_count', 'astrology_count', 'is_subscribed', 'created_at']
+    search_fields = ['telegram_id', 'username', 'name', 'numerology_count', 'astrology_count']
     list_filter = ['is_subscribed', 'zodiac_sign', 'gender']
 
 @admin.register(DailyUsage)

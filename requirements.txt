@@ -4,6 +4,8 @@ python-dotenv==1.0.1
 google-generativeai==0.4.0
 requests==2.31.0
 aiofiles==23.2.1
+kerykeion==0.4.4
+timezonefinder>=6.2.0
 
 # Django и база данных
 Django==4.2.11

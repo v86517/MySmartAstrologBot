@@ -25,7 +25,8 @@ class User(models.Model):
     is_remembered = models.BooleanField(default=False)
     is_subscribed = models.BooleanField(default=False)
     subscription_until = models.DateTimeField(null=True, blank=True)
-    natal_chart_count = models.IntegerField(default=0)
+    numerology_count = models.IntegerField(default=0)
+    astrology_count = models.IntegerField(default=0)
     expert_count = models.IntegerField(default=0)
 
     created_at = models.DateTimeField(auto_now_add=True)

@@ -11,18 +11,16 @@ from core.models import UserMessage
 
 
 def get_main_menu():
-    """Главное меню в стиле Premium Dark Mystic"""
     builder = ReplyKeyboardBuilder()
-
     builder.add(KeyboardButton(text="🔮 Гороскоп на сегодня"))
     builder.add(KeyboardButton(text="💕 Совместимость"))
-    builder.add(KeyboardButton(text="🌌 Натальная карта"))
+    builder.add(KeyboardButton(text="🌌 Нумерология — познай себя"))   # переименовано
+    builder.add(KeyboardButton(text="🌙 Астрология — узнай судьбу"))   # новая кнопка
     builder.add(KeyboardButton(text="⭐ Подписка"))
     builder.add(KeyboardButton(text="👤 Эксперт"))
     builder.add(KeyboardButton(text="📚 Архив"))
     builder.add(KeyboardButton(text="⚙️ Мой профиль"))
-
-    builder.adjust(2, 2, 3)
+    builder.adjust(2, 2, 3)   # расположение кнопок: 2, 2, 3 (подберите под своё меню)
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -139,6 +137,60 @@ def get_natal_use_data_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="👤 Использовать мои данные", callback_data="natal_use_my_data")
     builder.button(text="✏️ Заполнить другие данные", callback_data="natal_fill_new_data")
+    builder.button(text="❌ Отмена", callback_data="cancel")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def get_numerology_payment_keyboard():
+    """Клавиатура для оплаты нумерологии (888 ₽)"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💳 Оплатить 888 ₽", callback_data="numerology_pay")
+    builder.button(text="❌ Отмена", callback_data="cancel")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_numerology_confirm_keyboard():
+    """Клавиатура для подтверждения данных нумерологии"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Получить разбор", callback_data="numerology_confirm")
+    builder.button(text="✏️ Изменить данные", callback_data="edit_numerology_data")
+    builder.button(text="❌ Отмена", callback_data="cancel")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_numerology_use_data_keyboard():
+    """Клавиатура для выбора использования сохранённых данных (нумерология)"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👤 Использовать мои данные", callback_data="numerology_use_my_data")
+    builder.button(text="✏️ Заполнить другие данные", callback_data="numerology_fill_new_data")
+    builder.button(text="❌ Отмена", callback_data="cancel")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def get_astrology_payment_keyboard():
+    """Клавиатура для оплаты астрологии (999 ₽)"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💳 Оплатить 999 ₽", callback_data="astrology_pay")
+    builder.button(text="❌ Отмена", callback_data="cancel")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_astrology_confirm_keyboard():
+    """Клавиатура для подтверждения данных астрологии"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Получить разбор", callback_data="astrology_confirm")
+    builder.button(text="✏️ Изменить данные", callback_data="edit_astrology_data")
+    builder.button(text="❌ Отмена", callback_data="cancel")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_astrology_use_data_keyboard():
+    """Клавиатура для выбора использования сохранённых данных (астрология)"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👤 Использовать мои данные", callback_data="astrology_use_my_data")
+    builder.button(text="✏️ Заполнить другие данные", callback_data="astrology_fill_new_data")
     builder.button(text="❌ Отмена", callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()

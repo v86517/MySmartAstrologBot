@@ -1,14 +1,15 @@
 import os
 import django
 from datetime import datetime, timedelta
-from django.utils import timezone  # ← ДОБАВЬТЕ ЭТОТ ИМПОРТ
+from django.utils import timezone
 from asgiref.sync import sync_to_async
+import logging
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()
 
 from core.models import User, DailyUsage, UserMessage, Payment
-import logging
+
 logger = logging.getLogger(__name__)
 
 # ==================== СИНХРОННЫЕ ФУНКЦИИ ====================
@@ -62,7 +63,8 @@ def _get_user_data(telegram_id):
             'zodiac': user.zodiac_sign,
             'is_subscribed': user.is_subscribed,
             'subscription_until': user.subscription_until,
-            'natal_chart_count': user.natal_chart_count,
+            'numerology_count': user.numerology_count,
+            'astrology_count': user.astrology_count,
         }
     except User.DoesNotExist:
         return None
@@ -73,7 +75,6 @@ def _check_subscription(telegram_id):
         user = User.objects.get(telegram_id=telegram_id)
         if not user.is_subscribed:
             return False
-        # ✅ Используем timezone.now() вместо datetime.now()
         if user.subscription_until and user.subscription_until < timezone.now():
             user.is_subscribed = False
             user.save()
@@ -87,7 +88,6 @@ def _activate_subscription(telegram_id, days=30):
     try:
         user = User.objects.get(telegram_id=telegram_id)
         user.is_subscribed = True
-        # ✅ Используем timezone.now() вместо datetime.now()
         user.subscription_until = timezone.now() + timedelta(days=days)
         user.save()
         return True
@@ -96,14 +96,12 @@ def _activate_subscription(telegram_id, days=30):
 
 
 def _can_use_feature(telegram_id, feature):
-    # Проверяем подписку
     if _check_subscription(telegram_id):
         return True
 
     try:
         user = User.objects.get(telegram_id=telegram_id)
     except User.DoesNotExist:
-        # Если пользователя нет в БД, значит, он не мог использовать функцию сегодня
         return True
 
     today = timezone.now().date()
@@ -126,7 +124,6 @@ def _can_use_feature(telegram_id, feature):
 def _mark_feature_used(telegram_id, feature):
     try:
         user = User.objects.get(telegram_id=telegram_id)
-        # ✅ Используем timezone.now() вместо datetime.now()
         today = timezone.now().date()
 
         usage, created = DailyUsage.objects.get_or_create(
@@ -204,19 +201,46 @@ def _save_payment_db(user_id, payment_id, amount, payment_type, status):
         return False
 
 
-def _add_natal_chart_db(user_id, count=1):
+def _add_numerology_count(telegram_id, count=1):
+    """Добавить нумерологию пользователю"""
     try:
-        user = User.objects.get(telegram_id=user_id)
-        user.natal_chart_count += count
+        user = User.objects.get(telegram_id=telegram_id)
+        user.numerology_count += count
         user.save()
         return True
-    except Exception as e:
+    except User.DoesNotExist:
         return False
+
+
+def _add_astrology_count(telegram_id, count=1):
+    """Добавить астрологию пользователю"""
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        user.astrology_count += count
+        user.save()
+        return True
+    except User.DoesNotExist:
+        return False
+
+
+def _get_numerology_count(telegram_id):
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        return user.numerology_count
+    except User.DoesNotExist:
+        return 0
+
+
+def _get_astrology_count(telegram_id):
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        return user.astrology_count
+    except User.DoesNotExist:
+        return 0
 
 
 def _get_all_subscribed_users():
     try:
-        # ✅ Используем timezone.now() вместо datetime.now()
         users = list(User.objects.filter(
             is_subscribed=True,
             subscription_until__gt=timezone.now()
@@ -224,41 +248,6 @@ def _get_all_subscribed_users():
         return users
     except Exception as e:
         return []
-
-
-def _save_payment_db(user_id, payment_id, amount, payment_type, status):
-    """Сохранить или обновить платеж в БД"""
-    try:
-        user = User.objects.get(telegram_id=user_id)
-        obj, created = Payment.objects.update_or_create(
-            payment_id=payment_id,
-            defaults={
-                'user': user,
-                'amount': amount,
-                'payment_type': payment_type,
-                'status': status,
-            }
-        )
-        if created:
-            logger.info(f"✅ Платёж {payment_id} сохранён")
-        else:
-            logger.info(f"🔄 Платёж {payment_id} уже существовал, обновлён")
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка сохранения платежа: {e}")
-        return False
-
-
-def _add_natal_chart_db(user_id, count=1):
-    """Добавить натальные карты пользователю"""
-    try:
-        user = User.objects.get(telegram_id=user_id)
-        user.natal_chart_count += count
-        user.save()
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка добавления натальной карты: {e}")
-        return False
 
 
 # ==================== АСИНХРОННЫЕ ОБЁРТКИ ====================
@@ -274,6 +263,8 @@ save_message_to_archive = sync_to_async(_save_message_to_archive)
 get_user_archive = sync_to_async(_get_user_archive)
 get_archive_message = sync_to_async(_get_archive_message)
 save_payment_db = sync_to_async(_save_payment_db)
-add_natal_chart_db = sync_to_async(_add_natal_chart_db)
+add_numerology_count = sync_to_async(_add_numerology_count)
+add_astrology_count = sync_to_async(_add_astrology_count)
+get_numerology_count = sync_to_async(_get_numerology_count)
+get_astrology_count = sync_to_async(_get_astrology_count)
 get_all_subscribed_users = sync_to_async(_get_all_subscribed_users)
-add_natal_chart_db = sync_to_async(_add_natal_chart_db)

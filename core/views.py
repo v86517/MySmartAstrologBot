@@ -10,7 +10,7 @@ from aiogram import Bot
 from asgiref.sync import async_to_sync
 
 from bot.yookassa_client import yookassa
-from bot.db import save_payment_db, activate_subscription_db, add_natal_chart_db
+from bot.db import save_payment_db, activate_subscription_db, add_numerology_count, add_astrology_count
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,22 @@ def send_payment_notification(user_id: int, payment_type: str, amount: float):
                 f"💰 Сумма: {amount} ₽\n\n"
                 "Нажмите кнопку '🌌 Натальная карта', чтобы получить разбор."
             )
+        elif payment_type == 'numerology':
+            text = (
+                "🎉 Оплата прошла успешно!\n\n"
+                "🔢 Ваш нумерологический разбор готов!\n"
+                "Вы можете получить его, нажав кнопку '🌌 Нумерология — познай себя'.\n"
+                f"💰 Сумма: {amount} ₽\n\n"
+                "Благодарим за доверие!"
+            )
+        elif payment_type == 'astrology':
+            text = (
+                "🎉 Оплата прошла успешно!\n\n"
+                "🌙 Ваш астрологический разбор готов!\n"
+                "Вы можете получить его, нажав кнопку '🌙 Астрология — узнай судьбу'.\n"
+                f"💰 Сумма: {amount} ₽\n\n"
+                "Благодарим за доверие!"
+            )
         else:
             text = (
                 f"🎉 Оплата прошла успешно!\n"
@@ -54,7 +70,6 @@ def send_payment_notification(user_id: int, payment_type: str, amount: float):
                 "Благодарим за доверие!"
             )
 
-        # Асинхронная отправка без блокировки
         asyncio.create_task(bot.send_message(user_id, text))
         logger.info(f"✅ Уведомление отправлено пользователю {user_id}")
 
@@ -74,7 +89,6 @@ def yookassa_webhook(request):
     logger.info(f"📨 Входящий вебхук от {request.META.get('REMOTE_ADDR')}, метод {request.method}")
 
     try:
-        # Парсим JSON
         try:
             data = json.loads(request.body)
         except json.JSONDecodeError as e:
@@ -84,7 +98,6 @@ def yookassa_webhook(request):
         event = data.get('event')
         logger.info(f"📨 Вебхук получен, событие: {event}")
 
-        # Логируем данные для важных событий (первые 500 символов)
         if event in ('payment.waiting_for_capture', 'payment.succeeded'):
             logger.debug(f"Данные вебхука: {json.dumps(data, indent=2)[:500]}...")
 
@@ -135,7 +148,7 @@ def yookassa_webhook(request):
                     logger.error(f"❌ Ошибка сохранения платежа в БД: {e}")
                     logger.error(traceback.format_exc())
 
-                # Активируем продукт
+                # Активируем продукт и отправляем уведомление
                 try:
                     if payment_type == 'subscription':
                         async_to_sync(activate_subscription_db)(user_id, 30)
@@ -143,8 +156,22 @@ def yookassa_webhook(request):
                         send_payment_notification(user_id, payment_type, amount)
 
                     elif payment_type == 'natal_chart':
-                        async_to_sync(add_natal_chart_db)(user_id, 1)
-                        logger.info(f"✅ Натальная карта добавлена для {user_id}")
+                        # Для обратной совместимости (если ещё есть старые платежи)
+                        # Но мы заменили add_natal_chart_db на новые функции, поэтому этот блок можно удалить,
+                        # но оставим на всякий случай, если кто-то оплатит старую натальную карту.
+                        # Вместо этого лучше использовать нумерологию или астрологию.
+                        # Если у вас есть ещё старая логика, вы можете её здесь заменить или удалить.
+                        logger.warning(f"⚠️ Получен платёж типа 'natal_chart' (устаревший). Ничего не активируем.")
+                        send_payment_notification(user_id, 'unknown', amount)
+
+                    elif payment_type == 'numerology':
+                        async_to_sync(add_numerology_count)(user_id, 1)
+                        logger.info(f"✅ Нумерология добавлена для {user_id}")
+                        send_payment_notification(user_id, payment_type, amount)
+
+                    elif payment_type == 'astrology':
+                        async_to_sync(add_astrology_count)(user_id, 1)
+                        logger.info(f"✅ Астрология добавлена для {user_id}")
                         send_payment_notification(user_id, payment_type, amount)
 
                     else:
