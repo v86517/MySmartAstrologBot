@@ -1,19 +1,49 @@
 # Основные пакеты
-aiogram==3.4.1
-python-dotenv==1.0.1
-google-generativeai==0.4.0
-requests==2.31.0
-aiofiles==23.2.1
-kerykeion==0.4.4
+#aiogram==3.4.1
+#python-dotenv==1.0.1
+#google-generativeai==0.4.0
+#requests==2.31.0
+#aiofiles==23.2.1
+#kerykeion==0.4.4
+#timezonefinder>=6.2.0
+#
+# Django и база данных
+#Django==4.2.11
+#psycopg2-binary==2.9.9
+#
+# Celery для фоновых задач
+#celery==5.3.6
+#redis==5.0.1
+#django-celery-beat==2.5.0
+#
+#apscheduler==3.10.4
+
+wheel>=0.40.0
+setuptools>=65.0.0
+
+# Основные
+aiogram>=3.4.1,<4.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+aiofiles>=23.2.1
+
+# Django и БД
+Django>=4.2.11,<5.0  # или просто Django (если не используете celery-beat)
+psycopg2-binary>=2.9.0
+
+# Платежи
+yookassa>=3.0.0
+
+# ИИ
+google-generativeai>=0.8.0
+
+# Астрология
+kerykeion>=5.12.9
 timezonefinder>=6.2.0
 
-# Django и база данных
-Django==4.2.11
-psycopg2-binary==2.9.9
+# Планировщик
+apscheduler>=3.10.4
 
-# Celery для фоновых задач
-celery==5.3.6
-redis==5.0.1
-django-celery-beat==2.5.0
-
-apscheduler==3.10.4
+# Часовые пояса (для zoneinfo)
+pytz>=2024.1
+tzdata>=2024.1
