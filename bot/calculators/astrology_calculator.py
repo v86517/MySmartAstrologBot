@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-from kerykeion import AstrologicalSubjectFactory, ChartDataFactory
+from kerykeion import AstrologicalSubject
 from timezonefinder import TimezoneFinder
 
 logger = logging.getLogger(__name__)
@@ -132,7 +132,7 @@ class AstrologyCalculator:
     # ---------- Расчёт карты ----------
     def _calculate_chart(self) -> Dict[str, Any]:
         """
-        Выполняет расчёт натальной карты с помощью kerykeion.
+        Выполняет расчёт натальной карты с помощью kerykeion (AstrologicalSubject).
         Все недостающие данные подставлены ранее.
         """
         if self._chart_data is not None:
@@ -150,8 +150,8 @@ class AstrologyCalculator:
         tz_str = self._get_timezone(coords['lat'], coords['lng'])
         self._timezone = tz_str
 
-        # Строим карту (используем subject напрямую)
-        subject = AstrologicalSubjectFactory.from_birth_data(
+        # Создаём объект AstrologicalSubject напрямую
+        subject = AstrologicalSubject(
             name=self.name,
             year=year,
             month=month,
@@ -161,6 +161,9 @@ class AstrologyCalculator:
             lat=coords['lat'],
             lng=coords['lng'],
             tz_str=tz_str,
+            # city и country не обязательны, но можно передать для отладки
+            city=city,
+            country=country,
         )
 
         # Извлекаем данные из subject
@@ -182,8 +185,7 @@ class AstrologyCalculator:
             })
 
         aspects = []
-        # Аспекты можно получить через subject.aspects (если есть)
-        if hasattr(subject, 'aspects'):
+        if hasattr(subject, 'aspects') and subject.aspects:
             for a in subject.aspects:
                 aspects.append({
                     "p1": a.p1_name,
@@ -191,18 +193,6 @@ class AstrologyCalculator:
                     "aspect": a.aspect,
                     "orb": a.orb,
                 })
-        # Если аспекты не сохранились, можно попробовать использовать ChartDataFactory для них
-        else:
-            # Альтернативный способ (если subject.aspects отсутствует)
-            chart_data = ChartDataFactory.create_natal_chart_data(subject)
-            if hasattr(chart_data, 'aspects'):
-                for a in chart_data.aspects:
-                    aspects.append({
-                        "p1": a.p1_name,
-                        "p2": a.p2_name,
-                        "aspect": a.aspect,
-                        "orb": a.orb,
-                    })
 
         result = {
             "name": subject.name,
