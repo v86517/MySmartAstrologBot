@@ -151,7 +151,8 @@ class AstrologyCalculator:
         tz_str = self._get_timezone(coords['lat'], coords['lng'])
         self._timezone = tz_str
 
-        # Создаём субъект через фабрику (правильный способ)
+        # Создаём субъект через фабрику
+        from kerykeion import AstrologicalSubjectFactory
         subject = AstrologicalSubjectFactory.from_birth_data(
             name=self.name,
             year=year,
@@ -162,13 +163,14 @@ class AstrologyCalculator:
             lat=coords['lat'],
             lng=coords['lng'],
             tz_str=tz_str,
-            online=False,  # отключаем онлайн-запросы для скорости
+            online=False,
         )
 
         # Получаем структурированные данные через ChartDataFactory
+        from kerykeion.chart_data_factory import ChartDataFactory
         chart_data = ChartDataFactory.create_natal_chart_data(subject)
 
-        # Извлекаем дома
+        # --- Извлечение домов ---
         houses = []
         if hasattr(chart_data, 'houses') and chart_data.houses:
             for h in chart_data.houses:
@@ -177,18 +179,15 @@ class AstrologyCalculator:
                     "sign": h.sign,
                     "degree": h.position,
                 })
-        # Альтернативный способ через utilities (если chart_data.houses пуст)
         elif hasattr(subject, 'houses') and subject.houses:
-            from kerykeion.utilities import get_houses_list
-            houses_list = get_houses_list(subject)
-            for h in houses_list:
+            for h in subject.houses:
                 houses.append({
                     "number": h.number,
                     "sign": h.sign,
                     "degree": h.position,
                 })
 
-        # Извлекаем планеты
+        # --- Извлечение планет ---
         planets = []
         if hasattr(chart_data, 'planets') and chart_data.planets:
             for p in chart_data.planets:
@@ -207,23 +206,28 @@ class AstrologyCalculator:
                     "house": p.house,
                 })
 
-        # Извлекаем аспекты
+        # --- Извлечение аспектов (с учётом возможных названий полей) ---
         aspects = []
+        aspects_source = None
         if hasattr(chart_data, 'aspects') and chart_data.aspects:
-            for a in chart_data.aspects:
-                aspects.append({
-                    "p1": a.p1_name,
-                    "p2": a.p2_name,
-                    "aspect": a.aspect,
-                    "orb": a.orb,
-                })
+            aspects_source = chart_data.aspects
         elif hasattr(subject, 'aspects') and subject.aspects:
-            for a in subject.aspects:
+            aspects_source = subject.aspects
+
+        if aspects_source:
+            for a in aspects_source:
+                # Пытаемся получить значение орбиса из возможных атрибутов
+                orb_value = getattr(a, 'orbis', None) or getattr(a, 'orb', None) or 0.0
+                # Название аспекта
+                aspect_name = getattr(a, 'aspect', None) or getattr(a, 'aspect_type', None) or 'unknown'
+                # Имена планет
+                p1 = getattr(a, 'p1_name', None) or getattr(a, 'planet1', None) or 'unknown'
+                p2 = getattr(a, 'p2_name', None) or getattr(a, 'planet2', None) or 'unknown'
                 aspects.append({
-                    "p1": a.p1_name,
-                    "p2": a.p2_name,
-                    "aspect": a.aspect,
-                    "orb": a.orb,
+                    "p1": p1,
+                    "p2": p2,
+                    "aspect": aspect_name,
+                    "orb": orb_value,
                 })
 
         # Формируем результат
