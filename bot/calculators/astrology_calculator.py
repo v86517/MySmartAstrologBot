@@ -131,26 +131,17 @@ class AstrologyCalculator:
 
     # ---------- Расчёт карты ----------
     def _calculate_chart(self) -> Dict[str, Any]:
-        """
-        Выполняет расчёт натальной карты с помощью kerykeion (AstrologicalSubject).
-        Все недостающие данные подставлены ранее.
-        """
         if self._chart_data is not None:
             return self._chart_data
 
-        # Разбираем дату/время
         year, month, day, hour, minute = self._parse_birth_datetime()
-
-        # Получаем координаты
         city, country = self._parse_birth_place()
         coords = self._get_coordinates(city, country)
         self._coords = coords
-
-        # Определяем часовой пояс по координатам
         tz_str = self._get_timezone(coords['lat'], coords['lng'])
         self._timezone = tz_str
 
-        # Создаём объект AstrologicalSubject напрямую
+        # Создаём объект AstrologicalSubject (без country)
         subject = AstrologicalSubject(
             name=self.name,
             year=year,
@@ -161,38 +152,14 @@ class AstrologyCalculator:
             lat=coords['lat'],
             lng=coords['lng'],
             tz_str=tz_str,
-            # city и country не обязательны, но можно передать для отладки
-            city=city,
-            country=country,
         )
 
-        # Извлекаем данные из subject
-        houses = []
-        for h in subject.houses:
-            houses.append({
-                "number": h.number,
-                "sign": h.sign,
-                "degree": h.position,
-            })
-
-        planets = []
-        for p in subject.planets:
-            planets.append({
-                "name": p.name,
-                "sign": p.sign,
-                "degree": p.position,
-                "house": p.house,
-            })
-
+        # Извлекаем данные
+        houses = [{"number": h.number, "sign": h.sign, "degree": h.position} for h in subject.houses]
+        planets = [{"name": p.name, "sign": p.sign, "degree": p.position, "house": p.house} for p in subject.planets]
         aspects = []
         if hasattr(subject, 'aspects') and subject.aspects:
-            for a in subject.aspects:
-                aspects.append({
-                    "p1": a.p1_name,
-                    "p2": a.p2_name,
-                    "aspect": a.aspect,
-                    "orb": a.orb,
-                })
+            aspects = [{"p1": a.p1_name, "p2": a.p2_name, "aspect": a.aspect, "orb": a.orb} for a in subject.aspects]
 
         result = {
             "name": subject.name,
