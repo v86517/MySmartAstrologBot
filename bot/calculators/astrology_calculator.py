@@ -150,7 +150,7 @@ class AstrologyCalculator:
         tz_str = self._get_timezone(coords['lat'], coords['lng'])
         self._timezone = tz_str
 
-        # Строим карту
+        # Строим карту (используем subject напрямую)
         subject = AstrologicalSubjectFactory.from_birth_data(
             name=self.name,
             year=year,
@@ -162,42 +162,57 @@ class AstrologyCalculator:
             lng=coords['lng'],
             tz_str=tz_str,
         )
-        chart_data = ChartDataFactory.create_natal_chart_data(subject)
 
-        # Преобразуем в словарь
+        # Извлекаем данные из subject
+        houses = []
+        for h in subject.houses:
+            houses.append({
+                "number": h.number,
+                "sign": h.sign,
+                "degree": h.position,
+            })
+
+        planets = []
+        for p in subject.planets:
+            planets.append({
+                "name": p.name,
+                "sign": p.sign,
+                "degree": p.position,
+                "house": p.house,
+            })
+
+        aspects = []
+        # Аспекты можно получить через subject.aspects (если есть)
+        if hasattr(subject, 'aspects'):
+            for a in subject.aspects:
+                aspects.append({
+                    "p1": a.p1_name,
+                    "p2": a.p2_name,
+                    "aspect": a.aspect,
+                    "orb": a.orb,
+                })
+        # Если аспекты не сохранились, можно попробовать использовать ChartDataFactory для них
+        else:
+            # Альтернативный способ (если subject.aspects отсутствует)
+            chart_data = ChartDataFactory.create_natal_chart_data(subject)
+            if hasattr(chart_data, 'aspects'):
+                for a in chart_data.aspects:
+                    aspects.append({
+                        "p1": a.p1_name,
+                        "p2": a.p2_name,
+                        "aspect": a.aspect,
+                        "orb": a.orb,
+                    })
+
         result = {
             "name": subject.name,
             "datetime": f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}",
             "timezone": tz_str,
             "location": {"lat": coords['lat'], "lng": coords['lng']},
-            "houses": [],
-            "planets": [],
-            "aspects": [],
+            "houses": houses,
+            "planets": planets,
+            "aspects": aspects,
         }
-
-        for house in chart_data.houses:
-            result["houses"].append({
-                "number": house.number,
-                "sign": house.sign,
-                "degree": house.position,
-            })
-
-        for planet in chart_data.planets:
-            result["planets"].append({
-                "name": planet.name,
-                "sign": planet.sign,
-                "degree": planet.position,
-                "house": planet.house,
-            })
-
-        if hasattr(chart_data, 'aspects'):
-            for asp in chart_data.aspects:
-                result["aspects"].append({
-                    "p1": asp.p1_name,
-                    "p2": asp.p2_name,
-                    "aspect": asp.aspect,
-                    "orb": asp.orb,
-                })
 
         self._chart_data = result
         return result
