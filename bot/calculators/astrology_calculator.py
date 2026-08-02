@@ -131,17 +131,27 @@ class AstrologyCalculator:
 
     # ---------- Расчёт карты ----------
     def _calculate_chart(self) -> Dict[str, Any]:
+        """
+        Выполняет расчёт натальной карты с помощью kerykeion.
+        Все недостающие данные подставлены ранее.
+        """
         if self._chart_data is not None:
             return self._chart_data
 
+        # Разбираем дату/время
         year, month, day, hour, minute = self._parse_birth_datetime()
+
+        # Получаем координаты
         city, country = self._parse_birth_place()
         coords = self._get_coordinates(city, country)
         self._coords = coords
+
+        # Определяем часовой пояс по координатам
         tz_str = self._get_timezone(coords['lat'], coords['lng'])
         self._timezone = tz_str
 
-        # Создаём объект AstrologicalSubject (без country)
+        # Создаём объект AstrologicalSubject
+        from kerykeion import AstrologicalSubject, ChartDataFactory
         subject = AstrologicalSubject(
             name=self.name,
             year=year,
@@ -152,15 +162,71 @@ class AstrologyCalculator:
             lat=coords['lat'],
             lng=coords['lng'],
             tz_str=tz_str,
+            city=city,  # city может быть полезен, но country не поддерживается
         )
 
-        # Извлекаем данные
-        houses = [{"number": h.number, "sign": h.sign, "degree": h.position} for h in subject.houses]
-        planets = [{"name": p.name, "sign": p.sign, "degree": p.position, "house": p.house} for p in subject.planets]
+        # Пытаемся извлечь данные различными способами
+        houses = []
+        planets = []
         aspects = []
+
+        # 1. Пробуем прямой доступ к атрибутам
+        if hasattr(subject, 'houses') and subject.houses:
+            houses = [{"number": h.number, "sign": h.sign, "degree": h.position} for h in subject.houses]
+            logger.info("Данные домов получены из subject.houses")
+        elif hasattr(subject, 'get_houses'):  # Если это метод
+            houses_data = subject.get_houses()
+            houses = [{"number": h.number, "sign": h.sign, "degree": h.position} for h in houses_data]
+            logger.info("Данные домов получены через subject.get_houses()")
+        else:
+            # 2. Резервный вариант через ChartDataFactory
+            chart_data = ChartDataFactory.create_natal_chart_data(subject)
+            if hasattr(chart_data, 'houses') and chart_data.houses:
+                houses = [{"number": h.number, "sign": h.sign, "degree": h.position} for h in chart_data.houses]
+                logger.info("Данные домов получены из chart_data.houses")
+            elif hasattr(chart_data, 'get_houses'):
+                houses_data = chart_data.get_houses()
+                houses = [{"number": h.number, "sign": h.sign, "degree": h.position} for h in houses_data]
+                logger.info("Данные домов получены через chart_data.get_houses()")
+            else:
+                logger.warning("Не удалось получить данные домов. Используем пустой список.")
+
+        # Аналогично для планет
+        if hasattr(subject, 'planets') and subject.planets:
+            planets = [{"name": p.name, "sign": p.sign, "degree": p.position, "house": p.house} for p in
+                       subject.planets]
+            logger.info("Данные планет получены из subject.planets")
+        elif hasattr(subject, 'get_planets'):
+            planets_data = subject.get_planets()
+            planets = [{"name": p.name, "sign": p.sign, "degree": p.position, "house": p.house} for p in planets_data]
+            logger.info("Данные планет получены через subject.get_planets()")
+        else:
+            chart_data = ChartDataFactory.create_natal_chart_data(subject)
+            if hasattr(chart_data, 'planets') and chart_data.planets:
+                planets = [{"name": p.name, "sign": p.sign, "degree": p.position, "house": p.house} for p in
+                           chart_data.planets]
+                logger.info("Данные планет получены из chart_data.planets")
+            else:
+                logger.warning("Не удалось получить данные планет. Используем пустой список.")
+
+        # Аспекты
         if hasattr(subject, 'aspects') and subject.aspects:
             aspects = [{"p1": a.p1_name, "p2": a.p2_name, "aspect": a.aspect, "orb": a.orb} for a in subject.aspects]
+            logger.info("Данные аспектов получены из subject.aspects")
+        elif hasattr(subject, 'get_aspects'):
+            aspects_data = subject.get_aspects()
+            aspects = [{"p1": a.p1_name, "p2": a.p2_name, "aspect": a.aspect, "orb": a.orb} for a in aspects_data]
+            logger.info("Данные аспектов получены через subject.get_aspects()")
+        else:
+            chart_data = ChartDataFactory.create_natal_chart_data(subject)
+            if hasattr(chart_data, 'aspects') and chart_data.aspects:
+                aspects = [{"p1": a.p1_name, "p2": a.p2_name, "aspect": a.aspect, "orb": a.orb} for a in
+                           chart_data.aspects]
+                logger.info("Данные аспектов получены из chart_data.aspects")
+            else:
+                logger.info("Аспекты не найдены или отсутствуют.")
 
+        # Формируем результат
         result = {
             "name": subject.name,
             "datetime": f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}",
