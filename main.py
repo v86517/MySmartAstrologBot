@@ -1981,7 +1981,7 @@ async def fill_and_save(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "📝 Давайте заполним ваш профиль.\n\n"
         "❓ Как вас зовут?",
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard()  # ← добавлено
     )
 
 
