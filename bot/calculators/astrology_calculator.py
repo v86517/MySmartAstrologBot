@@ -108,51 +108,82 @@ class AstrologyCalculator:
             tz_str=tz_str,
         )
 
-        # Получаем модель с данными
-        model = subject.model
-        logger.info(f"Атрибуты модели: {dir(model)}")
+        # Пробуем получить данные через модель как вызываемый объект
+        if hasattr(subject, 'model') and callable(subject.model):
+            try:
+                model_data = subject.model()
+                logger.info(f"Получены данные через subject.model(): {type(model_data)}")
+                if isinstance(model_data, dict):
+                    # Используем данные из словаря
+                    data = model_data
+                else:
+                    # Если это объект с атрибутами
+                    data = model_data
+            except Exception as e:
+                logger.error(f"Ошибка при вызове subject.model(): {e}")
+                data = None
+        else:
+            # Если модель не вызывается, пробуем использовать subject.json()
+            data = subject.json() if hasattr(subject, 'json') else None
+            logger.info(f"Данные через subject.json(): {type(data)}")
 
-        # --- Планеты ---
+        # Если данные не получены, используем subject.__dict__ для диагностики
+        if data is None:
+            logger.error(f"Не удалось получить данные. Содержимое subject.__dict__: {subject.__dict__}")
+            # Возвращаем пустые списки, чтобы не падать
+            result = {
+                "name": subject.name,
+                "datetime": f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}",
+                "timezone": tz_str,
+                "location": {"lat": coords['lat'], "lng": coords['lng']},
+                "planets": [],
+                "houses": [],
+                "aspects": [],
+            }
+            self._chart_data = result
+            return result
+
+        # Извлекаем планеты из данных
         planets = []
-        if hasattr(model, 'planets') and model.planets:
-            for p in model.planets:
+        if 'planets' in data:
+            for p in data['planets']:
                 planets.append({
-                    "name": p.name,
-                    "sign": p.sign,
-                    "degree": p.position,
-                    "house": p.house,
+                    "name": p['name'],
+                    "sign": p['sign'],
+                    "degree": p['position'],
+                    "house": p['house'],
                 })
             logger.info(f"Планеты получены: {len(planets)} планет")
         else:
-            logger.warning("Нет планет в модели")
+            logger.warning("Ключ 'planets' отсутствует в данных")
 
-        # --- Дома ---
+        # Дома
         houses = []
-        if hasattr(model, 'houses') and model.houses:
-            for h in model.houses:
+        if 'houses' in data:
+            for h in data['houses']:
                 houses.append({
-                    "number": h.number,
-                    "sign": h.sign,
-                    "degree": h.position,
+                    "number": h['number'],
+                    "sign": h['sign'],
+                    "degree": h['position'],
                 })
             logger.info(f"Дома получены: {len(houses)} домов")
         else:
-            logger.warning("Нет домов в модели")
+            logger.warning("Ключ 'houses' отсутствует в данных")
 
-        # --- Аспекты ---
+        # Аспекты
         aspects = []
-        if hasattr(model, 'aspects') and model.aspects:
-            for a in model.aspects:
-                orb_val = getattr(a, 'orb', None) or getattr(a, 'orbis', None) or 0.0
+        if 'aspects' in data:
+            for a in data['aspects']:
+                orb_val = a.get('orb', a.get('orbis', 0.0))
                 aspects.append({
-                    "p1": a.p1_name,
-                    "p2": a.p2_name,
-                    "aspect": a.aspect,
+                    "p1": a.get('p1_name', 'unknown'),
+                    "p2": a.get('p2_name', 'unknown'),
+                    "aspect": a.get('aspect', 'unknown'),
                     "orb": orb_val,
                 })
             logger.info(f"Аспекты получены: {len(aspects)} аспектов")
         else:
-            logger.warning("Нет аспектов в модели")
+            logger.warning("Ключ 'aspects' отсутствует в данных")
 
         result = {
             "name": subject.name,
