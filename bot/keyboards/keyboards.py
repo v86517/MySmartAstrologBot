@@ -286,9 +286,10 @@ def get_payment_url_keyboard(url: str) -> InlineKeyboardMarkup:
 
 
 def get_skip_keyboard():
-    """Клавиатура с кнопкой 'Пропустить' для редактирования"""
     builder = InlineKeyboardBuilder()
     builder.button(text="⏩ Пропустить", callback_data="skip_edit")
+    builder.button(text="❌ Отмена", callback_data="cancel")
+    builder.adjust(1)
     return builder.as_markup()
 
 
