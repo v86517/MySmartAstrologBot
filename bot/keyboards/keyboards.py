@@ -14,13 +14,13 @@ def get_main_menu():
     builder = ReplyKeyboardBuilder()
     builder.add(KeyboardButton(text="🔮 Гороскоп на сегодня"))
     builder.add(KeyboardButton(text="💕 Совместимость"))
-    builder.add(KeyboardButton(text="🌌 Нумерология — познай себя"))   # переименовано
-    builder.add(KeyboardButton(text="🌙 Астрология — узнай судьбу"))   # новая кнопка
-    builder.add(KeyboardButton(text="⭐ Подписка"))
-    builder.add(KeyboardButton(text="👤 Эксперт"))
-    builder.add(KeyboardButton(text="📚 Архив"))
-    builder.add(KeyboardButton(text="⚙️ Мой профиль"))
-    builder.adjust(2, 2, 3)   # расположение кнопок: 2, 2, 3 (подберите под своё меню)
+    builder.add(KeyboardButton(text="🔢 Нумерология — познай себя"))   # изменено
+    builder.add(KeyboardButton(text="🌌 Натальная карта"))              # изменено (было Астрология)
+    builder.add(KeyboardButton(text="⭐ Premium"))                      # изменено (было Подписка)
+    builder.add(KeyboardButton(text="👩‍🏫 Личный астролог"))            # изменено (было Эксперт)
+    builder.add(KeyboardButton(text="📖 Мои прогнозы"))                 # изменено (было Архив)
+    builder.add(KeyboardButton(text="👤 Мой профиль"))                 # изменено (было ⚙️ Мой профиль)
+    builder.adjust(2, 2, 2, 2)  # 4 ряда по 2 кнопки
     return builder.as_markup(resize_keyboard=True)
 
 

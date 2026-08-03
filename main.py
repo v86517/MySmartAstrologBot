@@ -112,16 +112,10 @@ async def cmd_start(message: Message, state: FSMContext):
     welcome_text = (
         "✨ Добро пожаловать в <b>«Мой астролог»</b>!\n\n"
         "🌙 Узнайте, что звёзды приготовили <b>именно для вас сегодня</b>.\n\n"
-        "Я помогу получить:\n"
-        "🔮 <b>персональный гороскоп на день</b>,\n"
-        "💕 <b>проверку совместимости с любимым человеком</b>,\n"
-        "🌌 <b>подробную натальную карту</b> с разбором талантов, отношений и предназначения.\n\n"
-        "⚡ Всё рассчитывается по вашим данным и занимает меньше минуты.\n\n"
-        "<b>Выберите, с чего начнём</b> 👇"
+        "Выберите раздел ниже <b>👇</b>"
     )
 
     photo_path = "images/welcome.png"
-
     await message.answer_photo(
         photo=FSInputFile(photo_path),
         caption=welcome_text,
@@ -969,7 +963,7 @@ async def process_person2_gender(message: Message, state: FSMContext):
 
 # ==================== НУМЕРОЛОГИЯ ====================
 
-@dp.message(F.text == "🌌 Нумерология — познай себя")
+@dp.message(F.text == "🔢 Нумерология — познай себя")
 async def start_numerology(message: Message, state: FSMContext):
     """Начало оформления нумерологии"""
     user_id = message.from_user.id
@@ -1377,7 +1371,7 @@ async def edit_timezone(callback: CallbackQuery, state: FSMContext):
 
 # ==================== АСТРОЛОГИЯ ====================
 
-@dp.message(F.text == "🌙 Астрология — узнай судьбу")
+@dp.message(F.text == "🌌 Натальная карта")
 async def start_astrology(message: Message, state: FSMContext):
     """Начало оформления астрологии"""
     user_id = message.from_user.id
@@ -1510,7 +1504,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
             await status_msg.delete()
 
             # 7. Формируем финальное сообщение
-            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n💬 Интерпретация нейросети:\n\n{interpretation}"
+            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n{interpretation}"
             await send_long_message(callback.message, final_message)
         else:
             await status_msg.edit_text("❌ Сервис временно недоступен.")
@@ -1795,15 +1789,14 @@ async def edit_astrology_data(callback: CallbackQuery, state: FSMContext):
 # ==================== ОБРАБОТКА ДРУГИХ КНОПОК МЕНЮ ====================
 
 @dp.message(F.text.in_([
-    "📚 Архив",
-    "⚙️ Мой профиль"
+    "📖 Мои прогнозы",
+    "👤 Мой профиль"
 ]))
 async def handle_menu_buttons(message: Message, state: FSMContext):
     text = message.text
-
-    if text == "📚 Архив":
+    if text == "📖 Мои прогнозы":
         await show_archive(message)
-    elif text == "⚙️ Мой профиль":
+    elif text == "👤 Мой профиль":
         await profile(message)
 
 
@@ -1996,7 +1989,7 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
 
 # ==================== ЭКСПЕРТ ====================
 
-@dp.message(F.text == "👤 Эксперт")
+@dp.message(F.text == "👩‍🏫 Личный астролог")
 async def expert_request(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or "Не указан"
@@ -2073,7 +2066,7 @@ async def send_expert_request(callback: CallbackQuery):
 
 # ==================== ПОДПИСКА ====================
 
-@dp.message(F.text == "⭐ Подписка")
+@dp.message(F.text == "⭐ Premium")
 async def show_subscription(message: Message):
     user_id = message.from_user.id
 
