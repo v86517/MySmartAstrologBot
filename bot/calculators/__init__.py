@@ -1,12 +1,6 @@
 from .base_calculator import BaseCalculator
 from .horoscope_calculator import HoroscopeCalculator
-from .compatibility_calculator import CompatibilityCalculator, PersonData
+from .compatibility_calculator import CompatibilityCalculator
 from .natal_calculator import NatalCalculator
-
-__all__ = [
-    'BaseCalculator',
-    'HoroscopeCalculator',
-    'CompatibilityCalculator',
-    'PersonData',
-    'NatalCalculator',
-]
+from .astrology_calculator import AstrologyCalculator
+from .transit_horoscope_calculator import TransitHoroscopeCalculator
