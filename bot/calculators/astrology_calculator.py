@@ -23,6 +23,10 @@ class AstrologyCalculator:
     DEFAULT_LNG = 37.6173
     DEFAULT_TZ = "Europe/Moscow"
 
+    # Мажорные аспекты (и их синонимы в данных)
+    MAJOR_ASPECTS = {'conjunction', 'opposition', 'trine', 'square', 'sextile'}
+    MAX_ORB = 5.0  # градусов
+
     def __init__(self, user_data: Dict[str, Any]):
         self.user_data = user_data
         self.name = user_data.get('name', 'Человек')
@@ -215,15 +219,14 @@ class AstrologyCalculator:
                         })
         logger.info(f"Дома получены: {len(houses)} домов")
 
-        # --- Аспекты через AspectsFactory ---
+        # --- Аспекты ---
         aspects = []
+        # Основной способ: через AspectsFactory (может не работать, но пробуем)
         try:
             from kerykeion import AspectsFactory
-            # Используем правильный метод для получения аспектов в одной карте
             aspects_data = AspectsFactory.single_chart_aspects(subject)
             if aspects_data and hasattr(aspects_data, 'aspects') and aspects_data.aspects:
                 for a in aspects_data.aspects:
-                    # В документации поле называется 'orbit' (не 'orb' или 'orbis')
                     orb_val = getattr(a, 'orbit', getattr(a, 'orb', getattr(a, 'orbis', 0.0)))
                     aspects.append({
                         "p1": getattr(a, 'p1_name', 'unknown'),
@@ -232,12 +235,10 @@ class AstrologyCalculator:
                         "orb": orb_val,
                     })
                 logger.info(f"Аспекты получены через AspectsFactory: {len(aspects)} аспектов")
-            else:
-                logger.warning("AspectsFactory вернул пустой результат")
         except Exception as e:
             logger.warning(f"Ошибка при AspectsFactory: {e}")
 
-        # Если аспекты не получены — пробуем альтернативный способ
+        # Резерв: NatalAspects
         if not aspects:
             try:
                 from kerykeion import NatalAspects
@@ -258,6 +259,14 @@ class AstrologyCalculator:
         if not aspects:
             logger.warning("Не удалось получить аспекты. Они будут пустыми.")
 
+        # --- UTC время ---
+        utc_datetime = None
+        # Пробуем получить из разных мест
+        if hasattr(subject.model, 'iso_formatted_utc_datetime'):
+            utc_datetime = subject.model.iso_formatted_utc_datetime
+        elif hasattr(subject, 'iso_formatted_utc_datetime'):
+            utc_datetime = subject.iso_formatted_utc_datetime
+
         result = {
             "name": subject.name,
             "datetime": f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}",
@@ -266,6 +275,7 @@ class AstrologyCalculator:
             "planets": planets,
             "houses": houses,
             "aspects": aspects,
+            "utc_datetime": utc_datetime,
         }
 
         self._chart_data = result
@@ -300,10 +310,17 @@ class AstrologyCalculator:
             for p in chart['planets']
         )
 
+        # Фильтрация аспектов
+        filtered_aspects = []
+        for a in chart['aspects']:
+            aspect_name = a['aspect'].lower()
+            if aspect_name in self.MAJOR_ASPECTS and a['orb'] <= self.MAX_ORB:
+                filtered_aspects.append(a)
+
         aspects_str = ""
-        if chart['aspects']:
+        if filtered_aspects:
             aspects_str = "\n".join(
-                f"- {a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)" for a in chart['aspects']
+                f"- {a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)" for a in filtered_aspects
             )
 
         gender_display = "Мужчина" if self.gender == 'M' else "Женщина"
@@ -375,16 +392,25 @@ class AstrologyCalculator:
             for p in chart['planets']
         )
 
+        # Фильтрация аспектов для отображения
+        filtered_aspects = []
+        for a in chart['aspects']:
+            aspect_name = a['aspect'].lower()
+            if aspect_name in self.MAJOR_ASPECTS and a['orb'] <= self.MAX_ORB:
+                filtered_aspects.append(a)
+
         aspects_str = ""
-        if chart['aspects']:
+        if filtered_aspects:
             aspects_str = "\n".join(
-                f"  • {a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)" for a in chart['aspects']
+                f"  • {a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)" for a in filtered_aspects
             )
 
         datetime_used = chart['datetime']
         timezone_used = chart['timezone']
         lat = chart['location']['lat']
         lng = chart['location']['lng']
+        utc_display = chart.get('utc_datetime', 'не известно')
+
         city, country = self._parse_birth_place()
         place_display = f"{city}, {country}" if city else "не указано (использованы координаты по умолчанию)"
 
@@ -394,8 +420,9 @@ class AstrologyCalculator:
             "━━━━━━━━━━━━━━━━━━━━━",
             f"👤 Имя: {self.name}",
             f"⚥ Пол: {gender_display}",
-            f"📅 Дата и время (UTC): {datetime_used}",
+            f"📅 Локальное время: {datetime_used}",
             f"🕒 Часовой пояс: {timezone_used}",
+            f"🕒 Время UTC: {utc_display}",
             f"📍 Место: {place_display}",
             f"🌐 Координаты: {lat:.4f}, {lng:.4f}",
             "━━━━━━━━━━━━━━━━━━━━━",
@@ -409,7 +436,7 @@ class AstrologyCalculator:
 
         if aspects_str:
             lines.append("")
-            lines.append("🔮 Аспекты между планетами:")
+            lines.append("🔮 Аспекты между планетами (мажорные, орбис ≤ 5°):")
             lines.append(aspects_str)
 
         lines.append("━━━━━━━━━━━━━━━━━━━━━")
