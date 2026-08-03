@@ -125,20 +125,17 @@ class GeminiService:
 
     def generate_horoscope(self, user_data: Dict[str, Any], date: str = None) -> str:
         """
-        Генерация гороскопа с использованием расчетов
+        Генерация гороскопа с использованием транзитов
         """
-        from bot.calculators import HoroscopeCalculator
+        from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
 
-        calculator = HoroscopeCalculator(
-            birth_date=user_data.get('birth_date'),
-            target_date=date or datetime.now().strftime('%d.%m.%Y'),
-            name=user_data.get('name'),
-            birth_time=user_data.get('birth_time'),
-            birth_place=user_data.get('birth_place'),
-            gender=user_data.get('gender')
-        )
+        calculator = TransitHoroscopeCalculator(user_data)
+        prompt_data = calculator.calculate()
 
-        prompt_data = calculator.get_prompt_data()
+        # Если дата передана, заменяем target_date (для тестов)
+        if date:
+            prompt_data['target_date'] = date
+
         return self.generate_from_prompt(prompt_data, 'prompt_horoscope.txt')
 
     def generate_compatibility_from_prompt(self, person1: Dict[str, Any], person2: Dict[str, Any]) -> str:
