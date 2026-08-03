@@ -953,10 +953,9 @@ async def process_person2_gender(message: Message, state: FSMContext):
             user_id = message.from_user.id
             await save_message_to_archive(user_id, 'compatibility', result)
 
-            await status_msg.edit_text(
-                f"💕 Анализ совместимости\n\n{result}",
-                reply_markup=None
-            )
+            await status_msg.delete()
+            await send_long_message(message, f"💕 Анализ совместимости\n\n{result}")
+
         else:
             await status_msg.edit_text(
                 "❌ Сервис астролога временно недоступен."

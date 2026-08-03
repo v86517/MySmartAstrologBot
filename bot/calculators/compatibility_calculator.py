@@ -85,8 +85,10 @@ class CompatibilityCalculator(BaseCalculator):
         return aspects
 
     def _get_synastry_aspects(self, subj1: AstrologicalSubject, subj2: AstrologicalSubject) -> List[Dict]:
-        """Получает синастрические аспекты через AspectsFactory.dual_chart_aspects"""
+        """Получает синастрические аспекты с fallback"""
         aspects = []
+
+        # Способ 1: dual_chart_aspects
         try:
             synastry = AspectsFactory.dual_chart_aspects(subj1, subj2)
             if hasattr(synastry, 'aspects'):
@@ -98,11 +100,31 @@ class CompatibilityCalculator(BaseCalculator):
                         "aspect": getattr(a, 'aspect', 'unknown'),
                         "orb": orb,
                     })
-                logger.info(f"Синастрические аспекты: {len(aspects)}")
-            else:
-                logger.warning("Синастрические аспекты не найдены")
+                logger.info(f"Синастрические аспекты (dual_chart_aspects): {len(aspects)}")
+                return aspects
         except Exception as e:
-            logger.error(f"Ошибка получения синастрических аспектов: {e}")
+            logger.warning(f"dual_chart_aspects не сработал: {e}")
+
+        # Способ 2: synastry_aspects (резерв)
+        try:
+            synastry = AspectsFactory.synastry_aspects(subj1, subj2)
+            if hasattr(synastry, 'aspects'):
+                for a in synastry.aspects:
+                    orb = getattr(a, 'orbit', getattr(a, 'orb', getattr(a, 'orbis', 0.0)))
+                    aspects.append({
+                        "p1": getattr(a, 'p1_name', 'unknown'),
+                        "p2": getattr(a, 'p2_name', 'unknown'),
+                        "aspect": getattr(a, 'aspect', 'unknown'),
+                        "orb": orb,
+                    })
+                logger.info(f"Синастрические аспекты (synastry_aspects): {len(aspects)}")
+                return aspects
+        except Exception as e:
+            logger.warning(f"synastry_aspects не сработал: {e}")
+
+        # Если ничего не сработало, возвращаем пустой список
+        logger.warning(
+            "Не удалось получить синастрические аспекты. Анализ будет основан на нумерологии и натальных картах.")
         return aspects
 
     def _format_planets(self, subject: AstrologicalSubject) -> str:
