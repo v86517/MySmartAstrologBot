@@ -108,79 +108,41 @@ class AstrologyCalculator:
             tz_str=tz_str,
         )
 
-        # --- Диагностика: посмотрим, что есть в subject ---
-        logger.info(f"Атрибуты subject: {dir(subject)}")
+        # Получаем модель с данными
+        model = subject.model
+        logger.info(f"Атрибуты модели: {dir(model)}")
 
-        # --- Получение планет ---
+        # --- Планеты ---
         planets = []
-        if hasattr(subject, 'get_planets'):
-            raw_planets = subject.get_planets()
-            if raw_planets:
-                for p in raw_planets:
-                    planets.append({
-                        "name": p.name,
-                        "sign": p.sign,
-                        "degree": p.position,
-                        "house": p.house,
-                    })
-                logger.info(f"Планеты получены через get_planets(): {len(planets)} планет")
-            else:
-                logger.warning("get_planets() вернул пустой список")
-        elif hasattr(subject, 'planets') and subject.planets:
-            for p in subject.planets:
+        if hasattr(model, 'planets') and model.planets:
+            for p in model.planets:
                 planets.append({
                     "name": p.name,
                     "sign": p.sign,
                     "degree": p.position,
                     "house": p.house,
                 })
-            logger.info(f"Планеты получены из subject.planets: {len(planets)} планет")
+            logger.info(f"Планеты получены: {len(planets)} планет")
         else:
-            logger.warning("Не удалось получить планеты ни через get_planets(), ни через атрибут planets")
+            logger.warning("Нет планет в модели")
 
-        # --- Получение домов ---
+        # --- Дома ---
         houses = []
-        if hasattr(subject, 'get_houses'):
-            raw_houses = subject.get_houses()
-            if raw_houses:
-                for h in raw_houses:
-                    houses.append({
-                        "number": h.number,
-                        "sign": h.sign,
-                        "degree": h.position,
-                    })
-                logger.info(f"Дома получены через get_houses(): {len(houses)} домов")
-            else:
-                logger.warning("get_houses() вернул пустой список")
-        elif hasattr(subject, 'houses') and subject.houses:
-            for h in subject.houses:
+        if hasattr(model, 'houses') and model.houses:
+            for h in model.houses:
                 houses.append({
                     "number": h.number,
                     "sign": h.sign,
                     "degree": h.position,
                 })
-            logger.info(f"Дома получены из subject.houses: {len(houses)} домов")
+            logger.info(f"Дома получены: {len(houses)} домов")
         else:
-            logger.warning("Не удалось получить дома ни через get_houses(), ни через атрибут houses")
+            logger.warning("Нет домов в модели")
 
-        # --- Получение аспектов ---
+        # --- Аспекты ---
         aspects = []
-        if hasattr(subject, 'get_aspects'):
-            raw_aspects = subject.get_aspects()
-            if raw_aspects:
-                for a in raw_aspects:
-                    orb_val = getattr(a, 'orb', None) or getattr(a, 'orbis', None) or 0.0
-                    aspects.append({
-                        "p1": a.p1_name,
-                        "p2": a.p2_name,
-                        "aspect": a.aspect,
-                        "orb": orb_val,
-                    })
-                logger.info(f"Аспекты получены через get_aspects(): {len(aspects)} аспектов")
-            else:
-                logger.warning("get_aspects() вернул пустой список")
-        elif hasattr(subject, 'aspects') and subject.aspects:
-            for a in subject.aspects:
+        if hasattr(model, 'aspects') and model.aspects:
+            for a in model.aspects:
                 orb_val = getattr(a, 'orb', None) or getattr(a, 'orbis', None) or 0.0
                 aspects.append({
                     "p1": a.p1_name,
@@ -188,9 +150,9 @@ class AstrologyCalculator:
                     "aspect": a.aspect,
                     "orb": orb_val,
                 })
-            logger.info(f"Аспекты получены из subject.aspects: {len(aspects)} аспектов")
+            logger.info(f"Аспекты получены: {len(aspects)} аспектов")
         else:
-            logger.warning("Не удалось получить аспекты ни через get_aspects(), ни через атрибут aspects")
+            logger.warning("Нет аспектов в модели")
 
         result = {
             "name": subject.name,
