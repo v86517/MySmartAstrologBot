@@ -99,21 +99,73 @@ class TransitHoroscopeCalculator(BaseCalculator):
                 )
         return self.transit_subject
 
-    def _get_transit_aspects(self) -> list:
-        """Получает аспекты между натальными и транзитными планетами"""
-        if not self.aspects:
-            transit = self._get_transit_subject()
-            if hasattr(transit, 'aspects') and transit.aspects:
-                for a in transit.aspects:
-                    # Извлекаем данные аспекта
+    def _get_transit_aspects(self):
+        if self.aspects:
+            return self.aspects
+
+        natal = self._get_natal_subject()
+        transit = self._get_transit_subject()
+        aspects = []
+
+        try:
+            # Способ 1: TransitAspects (если доступен)
+            from kerykeion import TransitAspects
+            transit_aspects = TransitAspects(natal, transit)
+            if transit_aspects and hasattr(transit_aspects, 'aspects'):
+                for a in transit_aspects.aspects:
                     orb = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
-                    self.aspects.append({
+                    aspects.append({
                         "transit_planet": getattr(a, 'p1_name', 'unknown'),
                         "natal_planet": getattr(a, 'p2_name', 'unknown'),
                         "aspect": getattr(a, 'aspect', 'unknown'),
                         "orb": orb,
                     })
-            logger.info(f"Получено транзитных аспектов: {len(self.aspects)}")
+                logger.info(f"✅ Транзитные аспекты (TransitAspects): {len(aspects)}")
+                self.aspects = aspects
+                return aspects
+        except Exception as e:
+            logger.warning(f"TransitAspects не сработал: {e}")
+
+        try:
+            # Способ 2: AspectsFactory.synastry_aspects
+            from kerykeion import AspectsFactory
+            aspects_data = AspectsFactory.synastry_aspects(natal, transit)
+            if aspects_data and hasattr(aspects_data, 'aspects'):
+                for a in aspects_data.aspects:
+                    orb = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
+                    aspects.append({
+                        "transit_planet": getattr(a, 'p1_name', 'unknown'),
+                        "natal_planet": getattr(a, 'p2_name', 'unknown'),
+                        "aspect": getattr(a, 'aspect', 'unknown'),
+                        "orb": orb,
+                    })
+                logger.info(f"✅ Транзитные аспекты (synastry_aspects): {len(aspects)}")
+                self.aspects = aspects
+                return aspects
+        except Exception as e:
+            logger.warning(f"AspectsFactory.synastry_aspects не сработал: {e}")
+
+        # Если ничего не сработало, пробуем вычислить вручную (базово)
+        try:
+            from kerykeion import TransitCalculator
+            transit_calc = TransitCalculator(natal, transit)
+            if hasattr(transit_calc, 'aspects'):
+                for a in transit_calc.aspects:
+                    orb = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
+                    aspects.append({
+                        "transit_planet": getattr(a, 'p1_name', 'unknown'),
+                        "natal_planet": getattr(a, 'p2_name', 'unknown'),
+                        "aspect": getattr(a, 'aspect', 'unknown'),
+                        "orb": orb,
+                    })
+                logger.info(f"✅ Транзитные аспекты (TransitCalculator): {len(aspects)}")
+                self.aspects = aspects
+                return aspects
+        except Exception as e:
+            logger.warning(f"TransitCalculator не сработал: {e}")
+
+        logger.warning("❌ Не удалось получить транзитные аспекты ни одним способом.")
+        self.aspects = []
         return self.aspects
 
     def calculate(self) -> Dict[str, Any]:
