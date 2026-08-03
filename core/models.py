@@ -19,6 +19,7 @@ class User(models.Model):
     birth_time = models.TimeField(null=True, blank=True)
     birth_place = models.CharField(max_length=200, null=True, blank=True)
     gender = models.CharField(max_length=1, choices=GENDER_CHOICES, null=True, blank=True)
+    timezone_offset = models.IntegerField(default=3)  # смещение в часах от UTC (1..12)
     zodiac_sign = models.CharField(max_length=20, null=True, blank=True)
     extra_info = models.TextField(null=True, blank=True)
 

@@ -65,6 +65,7 @@ def _get_user_data(telegram_id):
             'subscription_until': user.subscription_until,
             'numerology_count': user.numerology_count,
             'astrology_count': user.astrology_count,
+            'timezone_offset': user.timezone_offset,
         }
     except User.DoesNotExist:
         return None

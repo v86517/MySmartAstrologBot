@@ -263,6 +263,7 @@ def get_profile_keyboard():
     """Клавиатура для профиля (изменить данные + отменить подписку)"""
     builder = InlineKeyboardBuilder()
     builder.button(text="✏️ Изменить данные", callback_data="edit_profile")
+    builder.button(text="🕒 Сменить часовой пояс", callback_data="edit_timezone")
     builder.button(text="❌ Отменить подписку", callback_data="cancel_subscription")
     builder.adjust(1)
     return builder.as_markup()
@@ -283,3 +284,11 @@ def get_skip_keyboard():
     builder.button(text="⏩ Пропустить", callback_data="skip_edit")
     return builder.as_markup()
 
+
+def get_timezone_keyboard():
+    """Клавиатура с выбором часового пояса UTC+1..UTC+12"""
+    builder = InlineKeyboardBuilder()
+    for i in range(1, 13):
+        builder.button(text=f"UTC+{i}", callback_data=f"tz_{i}")
+    builder.adjust(3, 3, 3, 3)  # 4 ряда по 3 кнопки
+    return builder.as_markup()
