@@ -7,8 +7,9 @@ class UserDataStates(StatesGroup):
     WAITING_BIRTH_TIME = State()
     WAITING_BIRTH_PLACE = State()
     WAITING_GENDER = State()
-    WAITING_TIMEZONE = State()
     WAITING_ZODIAC = State()
+    WAITING_TIMEZONE = State()
+    ASKING_SAVE = State()
 
 class CompatibilityStates(StatesGroup):
     """Состояния для сбора данных совместимости"""

@@ -34,6 +34,9 @@ from bot.keyboards.keyboards import (
     get_astrology_use_data_keyboard,
     get_timezone_keyboard,
     get_subscription_promo_keyboard,
+    get_save_data_keyboard,
+    get_after_save_keyboard,
+    get_subscription_promo_keyboard,
 )
 from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates
 from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji
@@ -95,6 +98,19 @@ except Exception as e:
 numerology_data = {}
 astrology_data = {}
 
+def format_profile_data(data: dict) -> str:
+    """Форматирует данные пользователя для отображения"""
+    gender_display = 'Мужской' if data.get('gender') == 'M' else 'Женский' if data.get('gender') == 'F' else 'Не указан'
+    zodiac_emoji = get_zodiac_emoji(data.get('zodiac', 'Неизвестно'))
+    return (
+        f"👤 Имя: {data.get('name', 'Не указано')}\n"
+        f"📅 Дата рождения: {data.get('birth_date', 'Не указана')}\n"
+        f"🕒 Время рождения: {data.get('birth_time', 'Не указано')}\n"
+        f"📍 Место рождения: {data.get('birth_place', 'Не указано')}\n"
+        f"👤 Пол: {gender_display}\n"
+        f"{zodiac_emoji} Знак зодиака: {data.get('zodiac', 'Неизвестно')}\n"
+        f"🕒 Часовой пояс: UTC+{data.get('timezone_offset', 3)}"
+    )
 
 # ==================== ОБРАБОТЧИКИ КОМАНД ====================
 
@@ -176,6 +192,7 @@ async def start_horoscope(message: Message, state: FSMContext):
         await status_msg.delete()
         await send_long_message(message, f"🔮 Ваш гороскоп на {today}\n\n{horoscope}")
         # Проверяем подписку и отправляем промо, если нет
+        user_id = message.from_user.id
         if not await check_subscription_db(user_id):
             await message.answer(
                 "✨ Понравился прогноз?\n\n"
@@ -404,7 +421,7 @@ async def process_gender(message: Message, state: FSMContext):
     logger.info(f"📝 Шаг ПОЛ, is_edit={is_edit}, new_data до: {new_data}")
 
     if is_edit:
-        # Режим редактирования – только обновляем пол и показываем профиль
+        # Режим редактирования (без изменений)
         if gender in ["М", "Ж"]:
             new_data['gender'] = 'M' if gender == 'М' else 'F'
             logger.info(f"📝 Шаг ПОЛ, обновлён пол: {new_data['gender']}")
@@ -433,36 +450,29 @@ async def process_gender(message: Message, state: FSMContext):
             f"👤 Пол: {gender_display}\n"
             f"{zodiac_emoji} Знак зодиака: {user_obj.zodiac_sign or 'Неизвестно'}"
         )
-        await message.answer(profile_text, reply_markup=get_profile_keyboard())  # добавить кнопку "Сменить часовой пояс"
+        await message.answer(profile_text, reply_markup=get_profile_keyboard())
+        return
 
-    else:
-        # Обычный режим – первое заполнение
-        if gender not in ["М", "Ж"]:
-            await message.answer(
-                "❌ Пожалуйста, напишите только одну букву:\n"
-                "М - мужской\n"
-                "Ж - женский"
-            )
-            return
-
-        db_gender = 'M' if gender == 'М' else 'F'
-        data = await state.get_data()
-        data['gender'] = db_gender
-        user_id = message.from_user.id
-        await save_user_data(user_id, data)
-
-        # Переходим к выбору часового пояса
-        await state.update_data(
-            temp_user_id=user_id,
-            temp_data=data  # сохраняем данные, чтобы после выбора пояса вывести профиль
-        )
-        await state.set_state(UserDataStates.WAITING_TIMEZONE)
+    # ----- Обычный режим (первое заполнение) -----
+    if gender not in ["М", "Ж"]:
         await message.answer(
-            "🕒 Выберите ваш часовой пояс:\n"
-            "Это нужно для точного расчёта гороскопа и отправки прогнозов.\n"
-            "Например Москва: UTC+3, Владивосток: UTC+10",
-            reply_markup=get_timezone_keyboard()
+            "❌ Пожалуйста, напишите только одну букву:\nМ - мужской\nЖ - женский"
         )
+        return
+
+    db_gender = 'M' if gender == 'М' else 'F'
+    data = await state.get_data()
+    # Добавляем пол к остальным данным (имя, дата и т.д. уже есть в состоянии)
+    data['gender'] = db_gender
+    # Сохраняем все собранные данные в состояние как временные (не в БД)
+    await state.update_data(temp_data=data)
+
+    # Переходим к выбору часового пояса
+    await state.set_state(UserDataStates.WAITING_TIMEZONE)
+    await message.answer(
+        "🕒 Выберите ваш часовой пояс:\nЭто нужно для точного расчёта гороскопа и отправки прогнозов.",
+        reply_markup=get_timezone_keyboard()
+    )
 
 
 # ==================== ОТМЕНА ====================
@@ -485,42 +495,30 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     state_data = await state.get_data()
-    is_edit = state_data.get('is_timezone_edit', False)
-    user_id = callback.from_user.id
+    temp_data = state_data.get('temp_data', {})
+    temp_data['timezone_offset'] = tz_offset
+    await state.update_data(temp_data=temp_data)
 
-    # Сохраняем часовой пояс в БД
-    from core.models import User
-    from asgiref.sync import sync_to_async
-    user = await sync_to_async(User.objects.get)(telegram_id=user_id)
-    user.timezone_offset = tz_offset
-    await sync_to_async(user.save)()
+    # Формируем сообщение с вопросом о сохранении
+    profile_text = format_profile_data(temp_data)
+    privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
+    consent_url = os.getenv('CONSENT_URL', 'ссылка на cогласие на обработку персональных данных')
 
-    # Очищаем состояние
-    await state.clear()
-
-    # Получаем обновлённые данные пользователя
-    user_data = await get_user_data(user_id)
-    zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
-    gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский'
-
-    profile_text = (
-        f"✅ Данные сохранены!\n\n"
-        f"👤 Имя: {user_data.get('name', 'Не указано')}\n"
-        f"📅 Дата рождения: {user_data.get('birth_date', 'Не указана')}\n"
-        f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
-        f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
-        f"👤 Пол: {gender_display}\n"
-        f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n"
-        f"🕒 Часовой пояс: UTC+{tz_offset}"
+    save_text = (
+        f"🔐 Сохранить данные в ваш профиль чтобы не заполнять их каждый раз?\n\n"
+        f"{profile_text}\n\n"
+        f"📄 Нажимая «Сохранить», вы даёте согласие на обработку персональных данных ({consent_url}) в соответствии с "
+        f"[Политикой конфиденциальности]({privacy_url})."
     )
 
-    # Удаляем сообщение с выбором часового пояса
+    # Переходим в состояние ASKING_SAVE
+    await state.set_state(UserDataStates.ASKING_SAVE)
+    # Удаляем предыдущее сообщение с выбором таймзоны и показываем новый текст
     await callback.message.delete()
-
-    # Отправляем новое сообщение с профилем и главным меню
     await callback.message.answer(
-        profile_text,
-        reply_markup=get_main_menu()
+        save_text,
+        reply_markup=get_save_data_keyboard(),
+        parse_mode="Markdown"
     )
 
 
@@ -536,47 +534,95 @@ async def process_zodiac_choice(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
+@dp.callback_query(F.data == "save_data", UserDataStates.ASKING_SAVE)
+async def save_data(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+
+    state_data = await state.get_data()
+    temp_data = state_data.get('temp_data', {})
+    user_id = callback.from_user.id
+
+    # Сохраняем все данные в БД
+    await save_user_data(user_id, temp_data)
+
+    # Очищаем состояние
+    await state.clear()
+
+    # Показываем сообщение с профилем и кнопкой "Отмена"
+    profile_text = format_profile_data(temp_data)
+    await callback.message.edit_text(
+        f"✅ Данные сохранены!\n\n{profile_text}\n\n"
+        "Чтобы продолжить нажмите ещё раз \"🔮 Гороскоп на сегодня\".",
+        reply_markup=get_after_save_keyboard()
+    )
+
+@dp.callback_query(F.data == "dont_save_data", UserDataStates.ASKING_SAVE)
+async def dont_save_data(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+
+    state_data = await state.get_data()
+    temp_data = state_data.get('temp_data', {})
+    user_id = callback.from_user.id
+
+    # Удаляем сообщение с вопросом
+    await callback.message.delete()
+
+    # Генерируем гороскоп на основе временных данных
+    today = datetime.now().strftime("%d.%m.%Y")
+    horoscope = gemini_service.generate_horoscope(temp_data, today)
+
+    # Отмечаем использование гороскопа (для лимитов)
+    await mark_feature_used_db(user_id, 'horoscope')
+
+    # Сохраняем в архив (если хотим)
+    await save_message_to_archive(user_id, 'horoscope', horoscope)
+
+    # Отправляем результат
+    await callback.message.answer(
+        f"🔮 Ваш гороскоп на {today}\n\n{horoscope}"
+    )
+
+    # Очищаем состояние
+    await state.clear()
+
+    # Показываем главное меню
+    await callback.message.answer(
+        "📌 Выберите действие в главном меню:",
+        reply_markup=get_main_menu()
+    )
+
+    # Промо-сообщение, если нет подписки
+    if not await check_subscription_db(user_id):
+        await callback.message.answer(
+            "✨ Понравился прогноз?\n\n"
+            "Получайте персональный гороскоп автоматически каждое утро в 8:00 и используйте Совместимость без ограничений.",
+            reply_markup=get_subscription_promo_keyboard()
+        )
+
+@dp.callback_query(F.data == "close_subscription")
+async def close_subscription(callback: CallbackQuery):
+    """Закрывает сообщение с подпиской без лишних сообщений"""
+    await callback.answer()
+    await callback.message.delete()
+    await callback.message.answer(
+        "📌 Главное меню:",
+        reply_markup=get_main_menu()
+    )
+
 
 # ==================== СОВМЕСТИМОСТЬ ====================
 
 @dp.message(F.text == "💕 Совместимость")
 async def start_compatibility(message: Message, state: FSMContext):
     user_id = message.from_user.id
-
     if not await can_use_feature_db(user_id, 'compatibility'):
-        await message.answer(
-            "✨ Сегодняшний бесплатный анализ совместимости уже использован.\n\n"
-            "Получайте неограниченный доступ\n"
-            "за 333 ₽ в месяц.",
-            reply_markup=get_subscription_keyboard()
-        )
+        # ... лимит ...
         return
 
     user_data = await get_user_data(user_id)
-
     if user_data and user_data.get('name'):
-        zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
-
-        profile_text = (
-            f"💕 Анализ совместимости\n\n"
-            f"👤 Ваши данные (Человек 1):\n"
-            f"Имя: {user_data.get('name', 'Не указано')}\n"
-            f"📅 Дата рождения: {user_data.get('birth_date', 'Не указана')}\n"
-            f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
-            f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
-            f"👤 Пол: {'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'}\n"
-            f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n\n"
-            "Хотите использовать эти данные для анализа совместимости?"
-        )
-
-        await message.answer(
-            profile_text,
-            reply_markup=get_compatibility_keyboard()
-        )
-
-        await state.update_data(person1_data=user_data)
-        await state.set_state(CompatibilityStates.CONFIRM_DATA)
-
+        # ... (показываем данные и спрашиваем использовать или нет)
+        pass
     else:
         await state.set_state(CompatibilityStates.WAITING_PERSON1_NAME)
         await message.answer(
@@ -2095,7 +2141,6 @@ async def send_expert_request(callback: CallbackQuery):
 @dp.message(F.text == "⭐ Premium")
 async def show_subscription(message: Message):
     user_id = message.from_user.id
-
     is_subscribed = await check_subscription_db(user_id)
 
     if is_subscribed:

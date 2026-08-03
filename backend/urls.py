@@ -17,8 +17,11 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from core.views import yookassa_webhook
+from pages.views import privacy_policy, consent
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('webhook/yookassa/', yookassa_webhook, name='yookassa_webhook'),
+    path('privacy-policy/', privacy_policy, name='privacy_policy'),
+    path('consent/', consent, name='consent'),
 ]

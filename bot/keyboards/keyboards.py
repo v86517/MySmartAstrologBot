@@ -14,13 +14,13 @@ def get_main_menu():
     builder = ReplyKeyboardBuilder()
     builder.add(KeyboardButton(text="🔮 Гороскоп на сегодня"))
     builder.add(KeyboardButton(text="💕 Совместимость"))
-    builder.add(KeyboardButton(text="🔢 Нумерология"))                 # изменено
-    builder.add(KeyboardButton(text="🌌 Натальная карта"))              # изменено (было Астрология)
-    builder.add(KeyboardButton(text="⭐ Premium"))                      # изменено (было Подписка)
-    builder.add(KeyboardButton(text="👩‍🏫 Личный астролог"))            # изменено (было Эксперт)
-    builder.add(KeyboardButton(text="📖 Мои прогнозы"))                 # изменено (было Архив)
-    builder.add(KeyboardButton(text="👤 Мой профиль"))                 # изменено (было ⚙️ Мой профиль)
-    builder.adjust(2, 2, 2, 2)  # 4 ряда по 2 кнопки
+    builder.add(KeyboardButton(text="🔢 Нумерология"))
+    builder.add(KeyboardButton(text="🌌 Натальная карта"))
+    builder.add(KeyboardButton(text="⭐ Premium"))
+    builder.add(KeyboardButton(text="👩‍🏫 Личный астролог"))
+    builder.add(KeyboardButton(text="📖 Мои прогнозы"))
+    builder.add(KeyboardButton(text="👤 Мой профиль"))
+    builder.adjust(2, 2, 2, 2)
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -218,7 +218,14 @@ def get_subscription_active_keyboard():
     """Клавиатура для активной подписки"""
     builder = InlineKeyboardBuilder()
     builder.button(text="📅 Продлить подписку", callback_data="subscribe_extend")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    builder.button(text="❌ Отмена", callback_data="close_subscription")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_save_data_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Сохранить", callback_data="save_data")
+    builder.button(text="❌ Не сохранять", callback_data="dont_save_data")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -298,6 +305,11 @@ def get_after_timezone_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="🏠 Главное меню", callback_data="main_menu")
     builder.adjust(1)
+    return builder.as_markup()
+
+def get_after_save_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="main_menu")
     return builder.as_markup()
 
 def get_subscription_promo_keyboard():
