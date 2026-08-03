@@ -209,7 +209,7 @@ def get_subscription_keyboard():
     """Клавиатура для подписки"""
     builder = InlineKeyboardBuilder()
     builder.button(text="⭐ Оформить подписку 333 ₽", callback_data="subscribe_pay")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    builder.button(text="❌ Отмена", callback_data="close_subscription")  # изменено
     builder.adjust(1)
     return builder.as_markup()
 
@@ -316,4 +316,12 @@ def get_subscription_promo_keyboard():
     """Клавиатура с одной кнопкой для оформления подписки (используется в промо)"""
     builder = InlineKeyboardBuilder()
     builder.button(text="⭐ Оформить подписку 333 ₽", callback_data="subscribe_pay")
+    return builder.as_markup()
+
+def get_subscription_payment_keyboard(url: str):
+    """Клавиатура для оплаты подписки со ссылкой и кнопкой отмены без сообщения"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💳 Перейти к оплате", url=url)
+    builder.button(text="❌ Отмена", callback_data="close_subscription")
+    builder.adjust(1)
     return builder.as_markup()

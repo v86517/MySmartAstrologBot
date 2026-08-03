@@ -37,6 +37,7 @@ from bot.keyboards.keyboards import (
     get_save_data_keyboard,
     get_after_save_keyboard,
     get_subscription_promo_keyboard,
+    get_subscription_payment_keyboard,
 )
 from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates
 from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji
@@ -577,7 +578,7 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     # Сохраняем в архив (если хотим)
     await save_message_to_archive(user_id, 'horoscope', horoscope)
 
-    # Отправляем результат
+    # 1. Отправляем результат
     await callback.message.answer(
         f"🔮 Ваш гороскоп на {today}\n\n{horoscope}"
     )
@@ -585,19 +586,19 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     # Очищаем состояние
     await state.clear()
 
-    # Показываем главное меню
-    await callback.message.answer(
-        "📌 Выберите действие в главном меню:",
-        reply_markup=get_main_menu()
-    )
-
-    # Промо-сообщение, если нет подписки
+    # 2. Если нет подписки – показываем промо с инлайн-кнопкой
     if not await check_subscription_db(user_id):
         await callback.message.answer(
             "✨ Понравился прогноз?\n\n"
             "Получайте персональный гороскоп автоматически каждое утро в 8:00 и используйте Совместимость без ограничений.",
             reply_markup=get_subscription_promo_keyboard()
         )
+
+    # 3. Показываем главное меню (ReplyKeyboardMarkup) отдельным сообщением
+    await callback.message.answer(
+        "📌 Главное меню:",
+        reply_markup=get_main_menu()
+    )
 
 @dp.callback_query(F.data == "close_subscription")
 async def close_subscription(callback: CallbackQuery):
@@ -2193,7 +2194,7 @@ async def subscribe_payment(callback: CallbackQuery):
             "Нажмите на кнопку ниже, чтобы перейти к оплате.\n\n"
             "⚠️ После оплаты подписка активируется автоматически.\n"
             "Это может занять до 1 минуты.",
-            reply_markup=get_payment_url_keyboard(result['confirmation_url'])
+            reply_markup=get_subscription_payment_keyboard(result['confirmation_url'])
         )
     else:
         await callback.message.answer(
