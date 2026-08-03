@@ -947,6 +947,7 @@ async def process_person2_gender(message: Message, state: FSMContext):
         await asyncio.sleep(1)
 
         if gemini_service:
+            # Вызываем обновлённый метод (использует новый CompatibilityCalculator)
             result = gemini_service.generate_compatibility_from_prompt(person1, person2)
 
             user_id = message.from_user.id

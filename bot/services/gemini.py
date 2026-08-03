@@ -140,27 +140,11 @@ class GeminiService:
 
     def generate_compatibility_from_prompt(self, person1: Dict[str, Any], person2: Dict[str, Any]) -> str:
         """
-        Генерация совместимости с использованием расчетов
+        Генерация совместимости с использованием астрологических данных.
         """
-        from bot.calculators import CompatibilityCalculator, PersonData
+        from bot.calculators.compatibility_calculator import CompatibilityCalculator
 
-        p1 = PersonData(
-            birth_date=person1.get('birth_date'),
-            name=person1.get('name'),
-            birth_time=person1.get('birth_time'),
-            birth_place=person1.get('birth_place'),
-            gender=person1.get('gender')
-        )
-
-        p2 = PersonData(
-            birth_date=person2.get('birth_date'),
-            name=person2.get('name'),
-            birth_time=person2.get('birth_time'),
-            birth_place=person2.get('birth_place'),
-            gender=person2.get('gender')
-        )
-
-        calculator = CompatibilityCalculator(p1, p2)
+        calculator = CompatibilityCalculator(person1, person2)
         prompt_data = calculator.get_prompt_data()
         return self.generate_from_prompt(prompt_data, 'prompt_connect.txt')
 
@@ -212,11 +196,11 @@ class GeminiService:
         except Exception as e:
             return f"❌ Ошибка при расчёте астрологии: {str(e)}"
 
+    def send_raw_prompt(self, prompt: str) -> str:
+        """Отправляет готовый промпт в нейросеть (без повторных расчётов)."""
+        return self._send_prompt(prompt)
+
     # Резервный метод для обратной совместимости
     def generate_compatibility(self, person1: Dict[str, Any], person2: Dict[str, Any]) -> str:
         """Резервный метод"""
         return self.generate_compatibility_from_prompt(person1, person2)
-
-    def send_raw_prompt(self, prompt: str) -> str:
-        """Отправляет готовый промпт в нейросеть (без повторных расчётов)."""
-        return self._send_prompt(prompt)
