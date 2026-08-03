@@ -105,68 +105,57 @@ class TransitHoroscopeCalculator(BaseCalculator):
 
         natal = self._get_natal_subject()
         transit = self._get_transit_subject()
-        aspects = []
 
-        try:
-            # Способ 1: TransitAspects (если доступен)
-            from kerykeion import TransitAspects
-            transit_aspects = TransitAspects(natal, transit)
-            if transit_aspects and hasattr(transit_aspects, 'aspects'):
-                for a in transit_aspects.aspects:
-                    orb = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
-                    aspects.append({
-                        "transit_planet": getattr(a, 'p1_name', 'unknown'),
-                        "natal_planet": getattr(a, 'p2_name', 'unknown'),
-                        "aspect": getattr(a, 'aspect', 'unknown'),
-                        "orb": orb,
-                    })
-                logger.info(f"✅ Транзитные аспекты (TransitAspects): {len(aspects)}")
-                self.aspects = aspects
-                return aspects
-        except Exception as e:
-            logger.warning(f"TransitAspects не сработал: {e}")
+        # Извлекаем планеты из натального субъекта
+        natal_planets = []
+        if hasattr(natal, 'planets') and natal.planets:
+            for p in natal.planets:
+                natal_planets.append({"name": p.name, "degree": p.position})
+        else:
+            # Если нет атрибута planets, пробуем через модель
+            model = natal.model() if callable(natal.model) else natal.model
+            data = model.dict() if hasattr(model, 'dict') else model.__dict__
+            planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
+                           'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith']
+            for key in planet_keys:
+                if key in data:
+                    obj = data[key]
+                    if isinstance(obj, dict):
+                        if 'position' in obj:
+                            natal_planets.append({"name": key.capitalize(), "degree": obj['position']})
+                    else:
+                        if hasattr(obj, 'position'):
+                            natal_planets.append({"name": key.capitalize(), "degree": obj.position})
 
-        try:
-            # Способ 2: AspectsFactory.synastry_aspects
-            from kerykeion import AspectsFactory
-            aspects_data = AspectsFactory.synastry_aspects(natal, transit)
-            if aspects_data and hasattr(aspects_data, 'aspects'):
-                for a in aspects_data.aspects:
-                    orb = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
-                    aspects.append({
-                        "transit_planet": getattr(a, 'p1_name', 'unknown'),
-                        "natal_planet": getattr(a, 'p2_name', 'unknown'),
-                        "aspect": getattr(a, 'aspect', 'unknown'),
-                        "orb": orb,
-                    })
-                logger.info(f"✅ Транзитные аспекты (synastry_aspects): {len(aspects)}")
-                self.aspects = aspects
-                return aspects
-        except Exception as e:
-            logger.warning(f"AspectsFactory.synastry_aspects не сработал: {e}")
+        # Извлекаем транзитные планеты
+        transit_planets = []
+        if hasattr(transit, 'planets') and transit.planets:
+            for p in transit.planets:
+                transit_planets.append({"name": p.name, "degree": p.position})
+        else:
+            model = transit.model() if callable(transit.model) else transit.model
+            data = model.dict() if hasattr(model, 'dict') else model.__dict__
+            planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
+                           'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith']
+            for key in planet_keys:
+                if key in data:
+                    obj = data[key]
+                    if isinstance(obj, dict):
+                        if 'position' in obj:
+                            transit_planets.append({"name": key.capitalize(), "degree": obj['position']})
+                    else:
+                        if hasattr(obj, 'position'):
+                            transit_planets.append({"name": key.capitalize(), "degree": obj.position})
 
-        # Если ничего не сработало, пробуем вычислить вручную (базово)
-        try:
-            from kerykeion import TransitCalculator
-            transit_calc = TransitCalculator(natal, transit)
-            if hasattr(transit_calc, 'aspects'):
-                for a in transit_calc.aspects:
-                    orb = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
-                    aspects.append({
-                        "transit_planet": getattr(a, 'p1_name', 'unknown'),
-                        "natal_planet": getattr(a, 'p2_name', 'unknown'),
-                        "aspect": getattr(a, 'aspect', 'unknown'),
-                        "orb": orb,
-                    })
-                logger.info(f"✅ Транзитные аспекты (TransitCalculator): {len(aspects)}")
-                self.aspects = aspects
-                return aspects
-        except Exception as e:
-            logger.warning(f"TransitCalculator не сработал: {e}")
+        logger.info(f"Натальные планеты для транзитов: {len(natal_planets)}")
+        logger.info(f"Транзитные планеты: {len(transit_planets)}")
 
-        logger.warning("❌ Не удалось получить транзитные аспекты ни одним способом.")
-        self.aspects = []
-        return self.aspects
+        # Вычисляем аспекты вручную
+        aspects = self._get_transit_aspects_manual(natal_planets, transit_planets)
+        logger.info(f"✅ Транзитные аспекты (ручной расчёт): {len(aspects)}")
+
+        self.aspects = aspects
+        return aspects
 
     def calculate(self) -> Dict[str, Any]:
         """
@@ -355,3 +344,70 @@ class TransitHoroscopeCalculator(BaseCalculator):
             "planets_list": planets_str,
             "aspects_list": aspects_str,
         }
+
+    def _get_transit_aspects_manual(self, natal_planets: list, transit_planets: list) -> list:
+        """
+        Ручной расчёт аспектов между натальными и транзитными планетами.
+        Используется, если библиотечные методы не работают.
+        """
+        aspects = []
+        # Список мажорных аспектов с допустимыми орбисами (в градусах)
+        aspect_types = {
+            'conjunction': 8,
+            'opposition': 8,
+            'trine': 6,
+            'square': 6,
+            'sextile': 5,
+        }
+
+        for n_planet in natal_planets:
+            n_deg = n_planet['degree']
+            for t_planet in transit_planets:
+                t_deg = t_planet['degree']
+                diff = abs(n_deg - t_deg) % 360
+                if diff > 180:
+                    diff = 360 - diff
+
+                for aspect_name, orb in aspect_types.items():
+                    if aspect_name == 'conjunction' and diff <= orb:
+                        aspects.append({
+                            'transit_planet': t_planet['name'],
+                            'natal_planet': n_planet['name'],
+                            'aspect': aspect_name,
+                            'orb': diff,
+                        })
+                        break
+                    elif aspect_name == 'opposition' and abs(diff - 180) <= orb:
+                        aspects.append({
+                            'transit_planet': t_planet['name'],
+                            'natal_planet': n_planet['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 180),
+                        })
+                        break
+                    elif aspect_name == 'trine' and abs(diff - 120) <= orb:
+                        aspects.append({
+                            'transit_planet': t_planet['name'],
+                            'natal_planet': n_planet['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 120),
+                        })
+                        break
+                    elif aspect_name == 'square' and abs(diff - 90) <= orb:
+                        aspects.append({
+                            'transit_planet': t_planet['name'],
+                            'natal_planet': n_planet['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 90),
+                        })
+                        break
+                    elif aspect_name == 'sextile' and abs(diff - 60) <= orb:
+                        aspects.append({
+                            'transit_planet': t_planet['name'],
+                            'natal_planet': n_planet['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 60),
+                        })
+                        break
+
+        return aspects
