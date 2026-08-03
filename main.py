@@ -37,7 +37,7 @@ from bot.keyboards.keyboards import (
     get_save_data_keyboard,
     get_after_save_keyboard,
     get_subscription_promo_keyboard,
-    get_subscription_payment_keyboard,
+    get_subscription_payment_keyboard, get_fill_profile_keyboard,
 )
 from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates
 from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji
@@ -148,7 +148,7 @@ async def cmd_menu(message: Message, state: FSMContext):
     """Показать главное меню"""
     await state.clear()
     await message.answer(
-        "📌 Главное меню:",
+        " ",
         reply_markup=get_main_menu()
     )
 
@@ -497,24 +497,36 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
 
     state_data = await state.get_data()
     temp_data = state_data.get('temp_data', {})
+    fill_mode = state_data.get('fill_mode', False)
     temp_data['timezone_offset'] = tz_offset
     await state.update_data(temp_data=temp_data)
 
-    # Формируем сообщение с вопросом о сохранении
+    if fill_mode:
+        # Режим заполнения профиля – сразу сохраняем и показываем профиль
+        user_id = callback.from_user.id
+        await save_user_data(user_id, temp_data)
+        await state.clear()
+
+        profile_text = format_profile_data(temp_data)
+        await callback.message.delete()
+        await callback.message.answer(
+            f"✅ Данные сохранены!\n\n{profile_text}",
+            reply_markup=get_profile_keyboard()
+        )
+        return
+
+    # Обычный режим – вопрос о сохранении
     profile_text = format_profile_data(temp_data)
     privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
-    consent_url = os.getenv('CONSENT_URL', 'ссылка на cогласие на обработку персональных данных')
 
     save_text = (
         f"🔐 Сохранить данные в ваш профиль чтобы не заполнять их каждый раз?\n\n"
         f"{profile_text}\n\n"
-        f"📄 Нажимая «Сохранить», вы даёте [согласие на обработку персональных данных]({consent_url}) в соответствии с "
+        f"📄 Нажимая «Сохранить», вы даёте согласие на обработку персональных данных в соответствии с "
         f"[Политикой конфиденциальности]({privacy_url})."
     )
 
-    # Переходим в состояние ASKING_SAVE
     await state.set_state(UserDataStates.ASKING_SAVE)
-    # Удаляем предыдущее сообщение с выбором таймзоны и показываем новый текст
     await callback.message.delete()
     await callback.message.answer(
         save_text,
@@ -612,7 +624,7 @@ async def close_subscription(callback: CallbackQuery):
     await callback.answer()
     await callback.message.delete()
     await callback.message.answer(
-        "📌 Главное меню:",
+        " ",
         reply_markup=get_main_menu()
     )
 
@@ -1887,17 +1899,10 @@ async def profile(message: Message):
     user_data = await get_user_data(user_id)
 
     if user_data and user_data.get('name'):
+        # ... (существующий код показа профиля)
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
-
-        if user_data.get('gender') == 'M':
-            gender_display = 'Мужской'
-        elif user_data.get('gender') == 'F':
-            gender_display = 'Женский'
-        else:
-            gender_display = 'Не указан'
-
-        timezone = user_data.get('timezone_offset', 3) # по умолчанию UTC+3
-
+        gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'
+        timezone = user_data.get('timezone_offset', 3)
         profile_text = (
             f"👤 Ваш профиль\n\n"
             f"Имя: {user_data.get('name', 'Не указано')}\n"
@@ -1908,20 +1913,31 @@ async def profile(message: Message):
             f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n"
             f"🕒 Часовой пояс: UTC+{timezone}"
         )
-
         is_subscribed = await check_subscription_db(user_id)
         if is_subscribed:
             profile_text += "\n\n⭐ Подписка: **Активна** ✅"
-
-        await message.answer(
-            profile_text,
-            reply_markup=get_profile_keyboard()
-        )
+        await message.answer(profile_text, reply_markup=get_profile_keyboard())
     else:
-        await message.answer(
-            "📝 У вас пока нет сохраненных данных.\n"
-            "Нажмите 🔮 Гороскоп на сегодня, чтобы заполнить профиль."
-        )
+        # Нет данных – предлагаем заполнить
+        consent_url = os.getenv('CONSENT_URL', 'ссылка на согласие')
+        privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику')
+        can_use = await can_use_feature_db(user_id, 'horoscope')
+
+        if can_use:
+            text = (
+                "📝 У вас пока нет сохраненных данных.\n"
+                "Чтобы заполнить профиль, нажмите 🔮 Гороскоп на сегодня или Заполнить и Сохранить.\n\n"
+                f"📄 Нажимая «Заполнить и Сохранить», вы даёте [согласие на обработку персональных данных]({consent_url}) "
+                f"в соответствии с [Политикой конфиденциальности]({privacy_url})."
+            )
+        else:
+            text = (
+                "📝 У вас пока нет сохраненных данных.\n"
+                "Чтобы заполнить профиль, нажмите Заполнить и Сохранить.\n\n"
+                f"📄 Нажимая «Заполнить и Сохранить», вы даёте [согласие на обработку персональных данных]({consent_url}) "
+                f"в соответствии с [Политикой конфиденциальности]({privacy_url})."
+            )
+        await message.answer(text, reply_markup=get_fill_profile_keyboard(), parse_mode="Markdown")
 
 
 @dp.callback_query(F.data == "edit_profile")
@@ -1950,6 +1966,24 @@ async def edit_profile(callback: CallbackQuery, state: FSMContext):
         "Введите новое имя или нажмите «Пропустить».",
         reply_markup=get_skip_keyboard()
     )
+
+
+@dp.callback_query(F.data == "fill_and_save")
+async def fill_and_save(callback: CallbackQuery, state: FSMContext):
+    """Начать заполнение профиля"""
+    await callback.answer()
+    await callback.message.delete()
+
+    # Устанавливаем флаг, что это заполнение профиля
+    await state.update_data(fill_mode=True)
+
+    await state.set_state(UserDataStates.WAITING_NAME)
+    await callback.message.answer(
+        "📝 Давайте заполним ваш профиль.\n\n"
+        "❓ Как вас зовут?",
+        reply_markup=get_cancel_keyboard()
+    )
+
 
 
 @dp.callback_query(F.data == "skip_edit")
@@ -2290,7 +2324,7 @@ async def back_to_main_menu(callback: CallbackQuery):
     await callback.answer()
     await callback.message.delete()
     await callback.message.answer(
-        "📌 Главное меню:",
+        " ",
         reply_markup=get_main_menu()
     )
 

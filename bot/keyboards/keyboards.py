@@ -325,3 +325,10 @@ def get_subscription_payment_keyboard(url: str):
     builder.button(text="❌ Отмена", callback_data="close_subscription")
     builder.adjust(1)
     return builder.as_markup()
+
+def get_fill_profile_keyboard(consent_url: str = None, privacy_url: str = None):
+    """Клавиатура для заполнения профиля с ссылками и кнопкой"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📄 Заполнить и Сохранить", callback_data="fill_and_save")
+    # Ссылки можно добавить отдельно, но проще передать в сообщении
+    return builder.as_markup()
