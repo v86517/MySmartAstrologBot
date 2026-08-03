@@ -508,7 +508,7 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
     save_text = (
         f"🔐 Сохранить данные в ваш профиль чтобы не заполнять их каждый раз?\n\n"
         f"{profile_text}\n\n"
-        f"📄 Нажимая «Сохранить», вы даёте согласие на обработку персональных данных ({consent_url}) в соответствии с "
+        f"📄 Нажимая «Сохранить», вы даёте [согласие на обработку персональных данных]({consent_url}) в соответствии с "
         f"[Политикой конфиденциальности]({privacy_url})."
     )
 
@@ -568,6 +568,14 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     # Удаляем сообщение с вопросом
     await callback.message.delete()
 
+    # Показываем статус
+    status_msg = await callback.message.answer("✨ Изучаю положение планет...")
+    await asyncio.sleep(1)
+    await status_msg.edit_text("🌙 Строю натальную карту...")
+    await asyncio.sleep(1)
+    await status_msg.edit_text("⭐ Анализирую влияние созвездий...")
+    await asyncio.sleep(1)
+
     # Генерируем гороскоп на основе временных данных
     today = datetime.now().strftime("%d.%m.%Y")
     horoscope = gemini_service.generate_horoscope(temp_data, today)
@@ -575,10 +583,11 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     # Отмечаем использование гороскопа (для лимитов)
     await mark_feature_used_db(user_id, 'horoscope')
 
-    # Сохраняем в архив (если хотим)
+    # Сохраняем в архив
     await save_message_to_archive(user_id, 'horoscope', horoscope)
 
-    # 1. Отправляем результат
+    # Удаляем статусное сообщение и отправляем результат
+    await status_msg.delete()
     await callback.message.answer(
         f"🔮 Ваш гороскоп на {today}\n\n{horoscope}"
     )
@@ -586,7 +595,7 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     # Очищаем состояние
     await state.clear()
 
-    # 2. Если нет подписки – показываем промо с инлайн-кнопкой
+    # Если нет подписки – показываем промо с инлайн-кнопкой
     if not await check_subscription_db(user_id):
         await callback.message.answer(
             "✨ Понравился прогноз?\n\n"
@@ -594,11 +603,8 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
             reply_markup=get_subscription_promo_keyboard()
         )
 
-    # 3. Показываем главное меню (ReplyKeyboardMarkup) отдельным сообщением
-    await callback.message.answer(
-        "📌 Главное меню:",
-        reply_markup=get_main_menu()
-    )
+    # Показываем главное меню с минимальным текстом (пробел)
+    await callback.message.answer(" ", reply_markup=get_main_menu())
 
 @dp.callback_query(F.data == "close_subscription")
 async def close_subscription(callback: CallbackQuery):
