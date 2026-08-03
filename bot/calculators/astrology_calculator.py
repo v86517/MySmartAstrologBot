@@ -108,91 +108,134 @@ class AstrologyCalculator:
             tz_str=tz_str,
         )
 
-        # Получаем модель
+        # Получаем модель как словарь
         model_data = subject.model() if callable(subject.model) else subject.model
-
-        # Преобразуем в словарь (Pydantic v1/v2)
         if hasattr(model_data, 'dict'):
             data = model_data.dict()
-            logger.info("Данные получены через model_data.dict()")
         elif hasattr(model_data, 'model_dump'):
             data = model_data.model_dump()
-            logger.info("Данные получены через model_data.model_dump()")
         else:
-            # fallback
             data = model_data.__dict__
-            logger.info("Данные получены через model_data.__dict__")
 
-        # Диагностика: какие ключи есть в данных
         logger.info(f"Ключи данных: {list(data.keys()) if isinstance(data, dict) else 'не словарь'}")
 
-        # Извлекаем планеты
+        # --- Список ключей, которые являются планетами (имеют sign, position, house) ---
+        planet_keys = [
+            'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
+            'uranus', 'neptune', 'pluto', 'chiron', 'pholus',
+            'mean_lilith', 'true_lilith', 'ceres', 'pallas', 'juno', 'vesta',
+            'eris', 'sedna', 'haumea', 'makemake', 'ixion', 'orcus', 'quaoar',
+            'mean_north_lunar_node', 'true_north_lunar_node',
+            'mean_south_lunar_node', 'true_south_lunar_node',
+            'regulus', 'spica', 'aldebaran', 'antares', 'sirius', 'fomalhaut',
+            'algol', 'betelgeuse', 'canopus', 'procyon', 'arcturus', 'pollux',
+            'deneb', 'altair', 'rigel', 'achernar', 'capella', 'vega',
+            'alcyone', 'alphecca', 'algorab', 'deneb_algedi', 'alkaid',
+            'pars_fortunae', 'pars_spiritus', 'pars_amoris', 'pars_fidei',
+            'vertex', 'anti_vertex'
+        ]
+
+        # --- Извлечение планет ---
         planets = []
-        if 'planets' in data and data['planets']:
-            for p in data['planets']:
-                # p может быть объектом или словарём
-                if isinstance(p, dict):
-                    planets.append({
-                        "name": p.get('name', 'unknown'),
-                        "sign": p.get('sign', 'unknown'),
-                        "degree": p.get('position', 0.0),
-                        "house": p.get('house', 0),
-                    })
+        for key in planet_keys:
+            if key in data:
+                obj = data[key]
+                if isinstance(obj, dict):
+                    if 'sign' in obj and 'position' in obj:
+                        planets.append({
+                            "name": key.capitalize(),
+                            "sign": obj.get('sign', 'unknown'),
+                            "degree": obj.get('position', 0.0),
+                            "house": obj.get('house', 0),
+                        })
                 else:
-                    # если это объект с атрибутами
-                    planets.append({
-                        "name": getattr(p, 'name', 'unknown'),
-                        "sign": getattr(p, 'sign', 'unknown'),
-                        "degree": getattr(p, 'position', 0.0),
-                        "house": getattr(p, 'house', 0),
-                    })
-            logger.info(f"Планеты получены: {len(planets)} планет")
-        else:
-            logger.warning("Ключ 'planets' отсутствует или пуст в данных")
+                    # если объект с атрибутами
+                    if hasattr(obj, 'sign') and hasattr(obj, 'position'):
+                        planets.append({
+                            "name": key.capitalize(),
+                            "sign": getattr(obj, 'sign', 'unknown'),
+                            "degree": getattr(obj, 'position', 0.0),
+                            "house": getattr(obj, 'house', 0),
+                        })
+        logger.info(f"Планеты получены: {len(planets)} планет")
 
-        # Дома
+        # --- Извлечение домов ---
         houses = []
-        if 'houses' in data and data['houses']:
-            for h in data['houses']:
-                if isinstance(h, dict):
-                    houses.append({
-                        "number": h.get('number', 0),
-                        "sign": h.get('sign', 'unknown'),
-                        "degree": h.get('position', 0.0),
-                    })
-                else:
-                    houses.append({
-                        "number": getattr(h, 'number', 0),
-                        "sign": getattr(h, 'sign', 'unknown'),
-                        "degree": getattr(h, 'position', 0.0),
-                    })
-            logger.info(f"Дома получены: {len(houses)} домов")
-        else:
-            logger.warning("Ключ 'houses' отсутствует или пуст в данных")
+        for i in range(1, 13):
+            key = f"{i}_house" if i != 1 else "first_house"  # но в данных ключи типа "first_house", "second_house"...
+            # Используем правильные ключи: first_house, second_house, ..., twelfth_house
+            if i == 1:
+                key = "first_house"
+            elif i == 2:
+                key = "second_house"
+            elif i == 3:
+                key = "third_house"
+            elif i == 4:
+                key = "fourth_house"
+            elif i == 5:
+                key = "fifth_house"
+            elif i == 6:
+                key = "sixth_house"
+            elif i == 7:
+                key = "seventh_house"
+            elif i == 8:
+                key = "eighth_house"
+            elif i == 9:
+                key = "ninth_house"
+            elif i == 10:
+                key = "tenth_house"
+            elif i == 11:
+                key = "eleventh_house"
+            elif i == 12:
+                key = "twelfth_house"
 
-        # Аспекты
-        aspects = []
-        if 'aspects' in data and data['aspects']:
-            for a in data['aspects']:
-                if isinstance(a, dict):
-                    orb_val = a.get('orb', a.get('orbis', 0.0))
-                    aspects.append({
-                        "p1": a.get('p1_name', 'unknown'),
-                        "p2": a.get('p2_name', 'unknown'),
-                        "aspect": a.get('aspect', 'unknown'),
-                        "orb": orb_val,
-                    })
+            if key in data:
+                obj = data[key]
+                if isinstance(obj, dict):
+                    if 'sign' in obj and 'position' in obj:
+                        houses.append({
+                            "number": i,
+                            "sign": obj.get('sign', 'unknown'),
+                            "degree": obj.get('position', 0.0),
+                        })
                 else:
-                    orb_val = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
-                    aspects.append({
-                        "p1": getattr(a, 'p1_name', 'unknown'),
-                        "p2": getattr(a, 'p2_name', 'unknown'),
-                        "aspect": getattr(a, 'aspect', 'unknown'),
-                        "orb": orb_val,
-                    })
-            logger.info(f"Аспекты получены: {len(aspects)} аспектов")
+                    if hasattr(obj, 'sign') and hasattr(obj, 'position'):
+                        houses.append({
+                            "number": i,
+                            "sign": getattr(obj, 'sign', 'unknown'),
+                            "degree": getattr(obj, 'position', 0.0),
+                        })
+        logger.info(f"Дома получены: {len(houses)} домов")
+
+        # --- Аспекты (получаем через subject.get_aspects() или subject.aspects) ---
+        aspects = []
+        if hasattr(subject, 'get_aspects') and callable(subject.get_aspects):
+            try:
+                raw_aspects = subject.get_aspects()
+                if raw_aspects:
+                    for a in raw_aspects:
+                        orb_val = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
+                        aspects.append({
+                            "p1": getattr(a, 'p1_name', 'unknown'),
+                            "p2": getattr(a, 'p2_name', 'unknown'),
+                            "aspect": getattr(a, 'aspect', 'unknown'),
+                            "orb": orb_val,
+                        })
+                    logger.info(f"Аспекты получены через get_aspects(): {len(aspects)} аспектов")
+            except Exception as e:
+                logger.warning(f"Ошибка при получении аспектов через get_aspects(): {e}")
+        elif hasattr(subject, 'aspects') and subject.aspects:
+            for a in subject.aspects:
+                orb_val = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
+                aspects.append({
+                    "p1": getattr(a, 'p1_name', 'unknown'),
+                    "p2": getattr(a, 'p2_name', 'unknown'),
+                    "aspect": getattr(a, 'aspect', 'unknown'),
+                    "orb": orb_val,
+                })
+            logger.info(f"Аспекты получены из subject.aspects: {len(aspects)} аспектов")
         else:
-            logger.warning("Ключ 'aspects' отсутствует или пуст в данных")
+            logger.warning("Не удалось получить аспекты. Они будут пустыми.")
 
         result = {
             "name": subject.name,
