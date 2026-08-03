@@ -273,7 +273,10 @@ async def process_birth_date(message: Message, state: FSMContext):
                 new_data['zodiac'] = zodiac
                 logger.info(f"📝 Шаг ДАТА, обновлена дата: {new_data['birth_date']}, знак: {new_data['zodiac']}")
             except ValueError:
-                await message.answer("❌ Неверная дата! Попробуйте еще раз.")
+                await message.answer(
+                    "❌ Неверная дата! Попробуйте еще раз.",
+                    reply_markup=get_cancel_keyboard()  # <-- добавлено
+                )
                 return
         else:
             logger.info("📝 Шаг ДАТА, дата не изменена")
@@ -309,12 +312,12 @@ async def process_birth_date(message: Message, state: FSMContext):
                 "ЧЧ:ММ\n\n"
                 "Например: 15:30\n"
                 "Если не знаете, напишите 00:00",
-                reply_markup=get_cancel_keyboard()  # <-- добавлено
+                reply_markup=get_cancel_keyboard()
             )
         except ValueError:
             await message.answer(
                 "❌ Неверная дата! Попробуйте еще раз:",
-                reply_markup=get_cancel_keyboard()
+                reply_markup=get_cancel_keyboard()  # <-- добавлено
             )
 
 
@@ -645,15 +648,46 @@ async def close_subscription(callback: CallbackQuery):
 @dp.message(F.text == "💕 Совместимость")
 async def start_compatibility(message: Message, state: FSMContext):
     user_id = message.from_user.id
+
+    # Проверка лимита
     if not await can_use_feature_db(user_id, 'compatibility'):
-        # ... лимит ...
+        await message.answer(
+            "✨ Сегодняшний бесплатный анализ совместимости уже использован.\n\n"
+            "Получайте неограниченный доступ\n"
+            "за 333 ₽ в месяц.",
+            reply_markup=get_subscription_keyboard()
+        )
         return
 
     user_data = await get_user_data(user_id)
+
     if user_data and user_data.get('name'):
-        # ... (показываем данные и спрашиваем использовать или нет)
-        pass
+        # Данные есть – предлагаем использовать их или заполнить заново
+        zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+
+        profile_text = (
+            f"💕 Анализ совместимости\n\n"
+            f"👤 Ваши данные (Человек 1):\n"
+            f"Имя: {user_data.get('name', 'Не указано')}\n"
+            f"📅 Дата рождения: {user_data.get('birth_date', 'Не указана')}\n"
+            f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
+            f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
+            f"👤 Пол: {'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'}\n"
+            f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n\n"
+            "Хотите использовать эти данные для анализа совместимости?"
+        )
+
+        await message.answer(
+            profile_text,
+            reply_markup=get_compatibility_keyboard()
+        )
+
+        # Сохраняем данные в состояние для дальнейшего использования
+        await state.update_data(person1_data=user_data)
+        await state.set_state(CompatibilityStates.CONFIRM_DATA)
+
     else:
+        # Данных нет – начинаем сбор
         await state.set_state(CompatibilityStates.WAITING_PERSON1_NAME)
         await message.answer(
             "💕 Анализ совместимости двух людей\n\n"
@@ -666,7 +700,9 @@ async def start_compatibility(message: Message, state: FSMContext):
             "🌿 Кармическую связь\n"
             "📅 Прогноз на сегодня\n"
             "⭐ Итоговую оценку и советы\n\n"
-            "✨ Персональный разбор готовится меньше минуты.",
+            "✨ Персональный разбор готовится меньше минуты.\n\n"
+            "💕 Давайте заполним данные для анализа совместимости.\n"
+            "Сначала введите имя человека 1 (это вы):",
             reply_markup=get_cancel_keyboard()
         )
 
