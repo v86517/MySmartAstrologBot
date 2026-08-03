@@ -3,7 +3,12 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 import pytz
 
-from kerykeion import AstrologicalSubject, TransitSubject
+from kerykeion import AstrologicalSubject
+try:
+    from kerykeion.transit import TransitSubject
+except ImportError:
+    # Если модуль transit не существует, используем другой способ
+    TransitSubject = None
 from .astrology_calculator import AstrologyCalculator
 from .timezone_coords import TIMEZONE_COORDS
 from .base_calculator import BaseCalculator
@@ -59,25 +64,39 @@ class TransitHoroscopeCalculator(BaseCalculator):
             )
         return self.natal_subject
 
-    def _get_transit_subject(self) -> TransitSubject:
+    def _get_transit_subject(self):
         """Создаёт транзитный субъект на текущий момент в таймзоне пользователя"""
         if self.transit_subject is None:
             natal = self._get_natal_subject()
-            # Текущее время в таймзоне пользователя
             tz = pytz.timezone(self.transit_tz_str)
             now = datetime.now(tz)
 
-            self.transit_subject = TransitSubject(
-                natal,
-                year=now.year,
-                month=now.month,
-                day=now.day,
-                hour=now.hour,
-                minute=now.minute,
-                lat=self.transit_lat,
-                lng=self.transit_lng,
-                tz_str=self.transit_tz_str,
-            )
+            if TransitSubject is not None:
+                self.transit_subject = TransitSubject(
+                    natal,
+                    year=now.year,
+                    month=now.month,
+                    day=now.day,
+                    hour=now.hour,
+                    minute=now.minute,
+                    lat=self.transit_lat,
+                    lng=self.transit_lng,
+                    tz_str=self.transit_tz_str,
+                )
+            else:
+                # Fallback: создаём обычный AstrologicalSubject для текущего времени
+                # и будем использовать его как транзитный
+                self.transit_subject = AstrologicalSubject(
+                    name="Transit",
+                    year=now.year,
+                    month=now.month,
+                    day=now.day,
+                    hour=now.hour,
+                    minute=now.minute,
+                    lat=self.transit_lat,
+                    lng=self.transit_lng,
+                    tz_str=self.transit_tz_str,
+                )
         return self.transit_subject
 
     def _get_transit_aspects(self) -> list:
