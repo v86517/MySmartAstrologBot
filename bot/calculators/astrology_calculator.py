@@ -108,82 +108,91 @@ class AstrologyCalculator:
             tz_str=tz_str,
         )
 
-        # Пробуем получить данные через модель как вызываемый объект
-        if hasattr(subject, 'model') and callable(subject.model):
-            try:
-                model_data = subject.model()
-                logger.info(f"Получены данные через subject.model(): {type(model_data)}")
-                if isinstance(model_data, dict):
-                    # Используем данные из словаря
-                    data = model_data
-                else:
-                    # Если это объект с атрибутами
-                    data = model_data
-            except Exception as e:
-                logger.error(f"Ошибка при вызове subject.model(): {e}")
-                data = None
+        # Получаем модель
+        model_data = subject.model() if callable(subject.model) else subject.model
+
+        # Преобразуем в словарь (Pydantic v1/v2)
+        if hasattr(model_data, 'dict'):
+            data = model_data.dict()
+            logger.info("Данные получены через model_data.dict()")
+        elif hasattr(model_data, 'model_dump'):
+            data = model_data.model_dump()
+            logger.info("Данные получены через model_data.model_dump()")
         else:
-            # Если модель не вызывается, пробуем использовать subject.json()
-            data = subject.json() if hasattr(subject, 'json') else None
-            logger.info(f"Данные через subject.json(): {type(data)}")
+            # fallback
+            data = model_data.__dict__
+            logger.info("Данные получены через model_data.__dict__")
 
-        # Если данные не получены, используем subject.__dict__ для диагностики
-        if data is None:
-            logger.error(f"Не удалось получить данные. Содержимое subject.__dict__: {subject.__dict__}")
-            # Возвращаем пустые списки, чтобы не падать
-            result = {
-                "name": subject.name,
-                "datetime": f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}",
-                "timezone": tz_str,
-                "location": {"lat": coords['lat'], "lng": coords['lng']},
-                "planets": [],
-                "houses": [],
-                "aspects": [],
-            }
-            self._chart_data = result
-            return result
+        # Диагностика: какие ключи есть в данных
+        logger.info(f"Ключи данных: {list(data.keys()) if isinstance(data, dict) else 'не словарь'}")
 
-        # Извлекаем планеты из данных
+        # Извлекаем планеты
         planets = []
-        if 'planets' in data:
+        if 'planets' in data and data['planets']:
             for p in data['planets']:
-                planets.append({
-                    "name": p['name'],
-                    "sign": p['sign'],
-                    "degree": p['position'],
-                    "house": p['house'],
-                })
+                # p может быть объектом или словарём
+                if isinstance(p, dict):
+                    planets.append({
+                        "name": p.get('name', 'unknown'),
+                        "sign": p.get('sign', 'unknown'),
+                        "degree": p.get('position', 0.0),
+                        "house": p.get('house', 0),
+                    })
+                else:
+                    # если это объект с атрибутами
+                    planets.append({
+                        "name": getattr(p, 'name', 'unknown'),
+                        "sign": getattr(p, 'sign', 'unknown'),
+                        "degree": getattr(p, 'position', 0.0),
+                        "house": getattr(p, 'house', 0),
+                    })
             logger.info(f"Планеты получены: {len(planets)} планет")
         else:
-            logger.warning("Ключ 'planets' отсутствует в данных")
+            logger.warning("Ключ 'planets' отсутствует или пуст в данных")
 
         # Дома
         houses = []
-        if 'houses' in data:
+        if 'houses' in data and data['houses']:
             for h in data['houses']:
-                houses.append({
-                    "number": h['number'],
-                    "sign": h['sign'],
-                    "degree": h['position'],
-                })
+                if isinstance(h, dict):
+                    houses.append({
+                        "number": h.get('number', 0),
+                        "sign": h.get('sign', 'unknown'),
+                        "degree": h.get('position', 0.0),
+                    })
+                else:
+                    houses.append({
+                        "number": getattr(h, 'number', 0),
+                        "sign": getattr(h, 'sign', 'unknown'),
+                        "degree": getattr(h, 'position', 0.0),
+                    })
             logger.info(f"Дома получены: {len(houses)} домов")
         else:
-            logger.warning("Ключ 'houses' отсутствует в данных")
+            logger.warning("Ключ 'houses' отсутствует или пуст в данных")
 
         # Аспекты
         aspects = []
-        if 'aspects' in data:
+        if 'aspects' in data and data['aspects']:
             for a in data['aspects']:
-                orb_val = a.get('orb', a.get('orbis', 0.0))
-                aspects.append({
-                    "p1": a.get('p1_name', 'unknown'),
-                    "p2": a.get('p2_name', 'unknown'),
-                    "aspect": a.get('aspect', 'unknown'),
-                    "orb": orb_val,
-                })
+                if isinstance(a, dict):
+                    orb_val = a.get('orb', a.get('orbis', 0.0))
+                    aspects.append({
+                        "p1": a.get('p1_name', 'unknown'),
+                        "p2": a.get('p2_name', 'unknown'),
+                        "aspect": a.get('aspect', 'unknown'),
+                        "orb": orb_val,
+                    })
+                else:
+                    orb_val = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
+                    aspects.append({
+                        "p1": getattr(a, 'p1_name', 'unknown'),
+                        "p2": getattr(a, 'p2_name', 'unknown'),
+                        "aspect": getattr(a, 'aspect', 'unknown'),
+                        "orb": orb_val,
+                    })
             logger.info(f"Аспекты получены: {len(aspects)} аспектов")
         else:
-            logger.warning("Ключ 'aspects' отсутствует в данных")
+            logger.warning("Ключ 'aspects' отсутствует или пуст в данных")
 
         result = {
             "name": subject.name,
