@@ -456,7 +456,8 @@ async def process_gender(message: Message, state: FSMContext):
         await state.set_state(UserDataStates.WAITING_TIMEZONE)
         await message.answer(
             "🕒 Выберите ваш часовой пояс:\n"
-            "Это нужно для точного расчёта гороскопа и отправки прогнозов.",
+            "Это нужно для точного расчёта гороскопа и отправки прогнозов.\n"
+            "Например Москва: UTC+3, Владивосток: UTC+10",
             reply_markup=get_timezone_keyboard()
         )
 
@@ -494,45 +495,30 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
     # Очищаем состояние
     await state.clear()
 
-    # Получаем обновлённые данные пользователя для отображения
+    # Получаем обновлённые данные пользователя
     user_data = await get_user_data(user_id)
     zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+    gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский'
 
-    if is_edit:
-        # Режим редактирования – показываем обновлённый профиль
-        gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский'
-        profile_text = (
-            f"✅ Часовой пояс обновлён!\n\n"
-            f"👤 Имя: {user_data.get('name', 'Не указано')}\n"
-            f"📅 Дата рождения: {user_data.get('birth_date', 'Не указана')}\n"
-            f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
-            f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
-            f"👤 Пол: {gender_display}\n"
-            f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n"
-            f"🕒 Часовой пояс: UTC+{tz_offset}"
-        )
-        await callback.message.edit_text(
-            profile_text,
-            reply_markup=get_profile_keyboard()
-        )
-    else:
-        # Первичный выбор – показываем полный профиль с кнопками главного меню
-        # Данные уже сохранены, можем показать профиль
-        gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский'
-        profile_text = (
-            f"✅ Данные сохранены!\n\n"
-            f"👤 Имя: {user_data.get('name', 'Не указано')}\n"
-            f"📅 Дата рождения: {user_data.get('birth_date', 'Не указана')}\n"
-            f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
-            f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
-            f"👤 Пол: {gender_display}\n"
-            f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n"
-            f"🕒 Часовой пояс: UTC+{tz_offset}"
-        )
-        await callback.message.edit_text(
-            profile_text,
-            reply_markup=get_main_menu()
-        )
+    profile_text = (
+        f"✅ Данные сохранены!\n\n"
+        f"👤 Имя: {user_data.get('name', 'Не указано')}\n"
+        f"📅 Дата рождения: {user_data.get('birth_date', 'Не указана')}\n"
+        f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
+        f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
+        f"👤 Пол: {gender_display}\n"
+        f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n"
+        f"🕒 Часовой пояс: UTC+{tz_offset}"
+    )
+
+    # Удаляем сообщение с выбором часового пояса
+    await callback.message.delete()
+
+    # Отправляем новое сообщение с профилем и главным меню
+    await callback.message.answer(
+        profile_text,
+        reply_markup=get_main_menu()
+    )
 
 
 @dp.callback_query(F.data.startswith("zodiac_"))

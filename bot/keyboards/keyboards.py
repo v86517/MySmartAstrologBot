@@ -292,3 +292,10 @@ def get_timezone_keyboard():
         builder.button(text=f"UTC+{i}", callback_data=f"tz_{i}")
     builder.adjust(3, 3, 3, 3)  # 4 ряда по 3 кнопки
     return builder.as_markup()
+
+def get_after_timezone_keyboard():
+    """Клавиатура после выбора часового пояса"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🏠 Главное меню", callback_data="main_menu")
+    builder.adjust(1)
+    return builder.as_markup()
