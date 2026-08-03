@@ -6,6 +6,9 @@ from typing import Dict, Any, Optional
 
 from kerykeion import AstrologicalSubject  # ← правильный импорт
 from timezonefinder import TimezoneFinder
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +58,26 @@ class AstrologyCalculator:
         return city, country
 
     def _get_coordinates(self, city: str, country: str = None) -> Dict[str, float]:
+        """
+        Получает координаты города через Nominatim (OpenStreetMap),
+        с резервом на Open-Meteo.
+        """
+        # 1. Пробуем Nominatim
+        try:
+            geolocator = Nominatim(user_agent="my_astrolog_bot")
+            # Формируем запрос: "город, страна"
+            query = f"{city}, {country}" if country else city
+            location = geolocator.geocode(query, timeout=10)
+            if location:
+                logger.info(
+                    f"✅ Найдено через Nominatim: {location.address} ({location.latitude}, {location.longitude})")
+                return {"lat": location.latitude, "lng": location.longitude}
+            else:
+                logger.warning(f"❌ Nominatim не нашёл '{query}'")
+        except (GeocoderTimedOut, GeocoderUnavailable) as e:
+            logger.warning(f"⚠️ Ошибка Nominatim: {e}. Пробуем Open-Meteo.")
+
+        # 2. Резерв: Open-Meteo (как раньше)
         url = "https://geocoding-api.open-meteo.com/v1/search"
         params = {"name": city, "count": 1, "format": "json", "language": "ru"}
         if country:
@@ -64,14 +87,22 @@ class AstrologyCalculator:
             resp.raise_for_status()
             data = resp.json()
             results = data.get("results")
-            if not results:
-                logger.warning(f"Город '{city}' не найден. Используем Москву.")
-                return {"lat": self.DEFAULT_LAT, "lng": self.DEFAULT_LNG}
-            loc = results[0]
-            return {"lat": loc["latitude"], "lng": loc["longitude"]}
+            if results:
+                loc = results[0]
+                lat = loc["latitude"]
+                lng = loc["longitude"]
+                logger.info(
+                    f"✅ Найдено через Open-Meteo: {loc.get('name', city)}, {loc.get('country', '')} ({lat}, {lng})")
+                return {"lat": lat, "lng": lng}
+            else:
+                logger.warning(f"❌ Open-Meteo не нашёл '{city}'")
         except Exception as e:
-            logger.error(f"Ошибка геокодирования: {e}. Используем Москву.")
-            return {"lat": self.DEFAULT_LAT, "lng": self.DEFAULT_LNG}
+            logger.error(f"⚠️ Ошибка Open-Meteo: {e}")
+
+        # 3. Если ничего не найдено – используем координаты по умолчанию (Москва)
+        logger.warning(f"❌ Город '{city}' не найден ни одним геокодером. Используем Москву.")
+        return {"lat": self.DEFAULT_LAT, "lng": self.DEFAULT_LNG}
+
 
     def _get_timezone(self, lat: float, lng: float) -> str:
         try:
