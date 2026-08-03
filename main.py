@@ -54,6 +54,7 @@ from asgiref.sync import sync_to_async
 from core.models import User
 from bot.yookassa_client import yookassa
 from bot.db import save_payment_db, activate_subscription_db, add_numerology_count, add_astrology_count
+from bot.calculators.astrology_calculator import AstrologyCalculator
 
 MESSAGE_TYPES_DISPLAY = {
     'horoscope': '🔮 Гороскоп',
@@ -1426,10 +1427,28 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            result = gemini_service.generate_astrology(astrology_data[user_id])
+            # --- НОВЫЙ БЛОК ---
+            # 1. Создаём калькулятор с данными пользователя
+            calculator = AstrologyCalculator(user_data_from_db)
+
+            # 2. Получаем отформатированные параметры
+            parameters_text = calculator.get_display_parameters()
+
+            # 3. Строим промпт (уже содержит аспекты)
+            prompt = calculator.build_prompt()
+
+            # 4. Отправляем в нейросеть
+            interpretation = gemini_service.send_raw_prompt(prompt)
+
+            # 5. Уменьшаем счётчик
             await add_astrology_count(user_id, -1)
+
+            # 6. Удаляем статусное сообщение
             await status_msg.delete()
-            await send_long_message(callback.message, f"🌙 Ваш астрологический разбор\n\n{result}")
+
+            # 7. Формируем финальное сообщение
+            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n💬 Интерпретация нейросети:\n\n{interpretation}"
+            await send_long_message(callback.message, final_message)
         else:
             await status_msg.edit_text("❌ Сервис временно недоступен.")
     except Exception as e:
@@ -1533,10 +1552,15 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            result = gemini_service.generate_astrology(astrology_data[user_id])
+            # --- НОВЫЙ БЛОК ---
+            calculator = AstrologyCalculator(user_data_from_db)
+            parameters_text = calculator.get_display_parameters()
+            prompt = calculator.build_prompt()
+            interpretation = gemini_service.send_raw_prompt(prompt)
             await add_astrology_count(user_id, -1)
             await status_msg.delete()
-            await send_long_message(callback.message, f"🌙 Ваш астрологический разбор\n\n{result}")
+            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n💬 Интерпретация нейросети:\n\n{interpretation}"
+            await send_long_message(callback.message, final_message)
         else:
             await status_msg.edit_text("❌ Сервис временно недоступен.")
     except Exception as e:
@@ -1643,7 +1667,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         return
 
     user_id = message.from_user.id
-    astrology_data[user_id] = {
+    user_data_for_calc = {
         'name': data.get('astrology_name'),
         'birth_date': data.get('astrology_birth_date'),
         'birth_time': data.get('astrology_birth_time'),
@@ -1651,6 +1675,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         'gender': db_gender,
         'zodiac': data.get('astrology_zodiac')
     }
+    astrology_data[user_id] = user_data_for_calc
 
     await state.clear()
 
@@ -1677,10 +1702,15 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            result = gemini_service.generate_astrology(astrology_data[user_id])
+            # --- НОВЫЙ БЛОК ---
+            calculator = AstrologyCalculator(user_data_for_calc)
+            parameters_text = calculator.get_display_parameters()
+            prompt = calculator.build_prompt()
+            interpretation = gemini_service.send_raw_prompt(prompt)
             await add_astrology_count(user_id, -1)
             await status_msg.delete()
-            await send_long_message(message, f"🌙 Ваш астрологический разбор\n\n{result}")
+            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n💬 Интерпретация нейросети:\n\n{interpretation}"
+            await send_long_message(message, final_message)
         else:
             await status_msg.edit_text("❌ Сервис временно недоступен.")
     except Exception as e:
