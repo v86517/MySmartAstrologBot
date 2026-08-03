@@ -9,6 +9,8 @@ class User(models.Model):
         ('F', 'Женский'),
     ]
 
+    TIMEZONE_CHOICES = [(i, f'UTC+{i}') for i in range(1, 13)]
+
     telegram_id = models.BigIntegerField(unique=True, db_index=True)
     username = models.CharField(max_length=100, null=True, blank=True)
     first_name = models.CharField(max_length=100, null=True, blank=True)
@@ -19,7 +21,7 @@ class User(models.Model):
     birth_time = models.TimeField(null=True, blank=True)
     birth_place = models.CharField(max_length=200, null=True, blank=True)
     gender = models.CharField(max_length=1, choices=GENDER_CHOICES, null=True, blank=True)
-    timezone_offset = models.IntegerField(default=3)  # смещение в часах от UTC (1..12)
+    timezone_offset = models.IntegerField(default=3, choices=TIMEZONE_CHOICES)  # смещение в часах от UTC (1..12)
     zodiac_sign = models.CharField(max_length=20, null=True, blank=True)
     extra_info = models.TextField(null=True, blank=True)
 
