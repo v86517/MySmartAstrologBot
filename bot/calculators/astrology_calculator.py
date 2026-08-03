@@ -119,7 +119,7 @@ class AstrologyCalculator:
 
         logger.info(f"Ключи данных: {list(data.keys()) if isinstance(data, dict) else 'не словарь'}")
 
-        # --- Список ключей, которые являются планетами (имеют sign, position, house) ---
+        # --- Список ключей планет (имеют sign, position, house) ---
         planet_keys = [
             'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
             'uranus', 'neptune', 'pluto', 'chiron', 'pholus',
@@ -149,7 +149,6 @@ class AstrologyCalculator:
                             "house": obj.get('house', 0),
                         })
                 else:
-                    # если объект с атрибутами
                     if hasattr(obj, 'sign') and hasattr(obj, 'position'):
                         planets.append({
                             "name": key.capitalize(),
@@ -162,8 +161,6 @@ class AstrologyCalculator:
         # --- Извлечение домов ---
         houses = []
         for i in range(1, 13):
-            key = f"{i}_house" if i != 1 else "first_house"  # но в данных ключи типа "first_house", "second_house"...
-            # Используем правильные ключи: first_house, second_house, ..., twelfth_house
             if i == 1:
                 key = "first_house"
             elif i == 2:
@@ -207,13 +204,15 @@ class AstrologyCalculator:
                         })
         logger.info(f"Дома получены: {len(houses)} домов")
 
-        # --- Аспекты (получаем через subject.get_aspects() или subject.aspects) ---
+        # --- Аспекты (несколько способов) ---
         aspects = []
+
+        # Способ 1: через subject.get_aspects()
         if hasattr(subject, 'get_aspects') and callable(subject.get_aspects):
             try:
-                raw_aspects = subject.get_aspects()
-                if raw_aspects:
-                    for a in raw_aspects:
+                raw = subject.get_aspects()
+                if raw:
+                    for a in raw:
                         orb_val = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
                         aspects.append({
                             "p1": getattr(a, 'p1_name', 'unknown'),
@@ -223,18 +222,44 @@ class AstrologyCalculator:
                         })
                     logger.info(f"Аспекты получены через get_aspects(): {len(aspects)} аспектов")
             except Exception as e:
-                logger.warning(f"Ошибка при получении аспектов через get_aspects(): {e}")
-        elif hasattr(subject, 'aspects') and subject.aspects:
-            for a in subject.aspects:
-                orb_val = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
-                aspects.append({
-                    "p1": getattr(a, 'p1_name', 'unknown'),
-                    "p2": getattr(a, 'p2_name', 'unknown'),
-                    "aspect": getattr(a, 'aspect', 'unknown'),
-                    "orb": orb_val,
-                })
-            logger.info(f"Аспекты получены из subject.aspects: {len(aspects)} аспектов")
-        else:
+                logger.warning(f"Ошибка при subject.get_aspects(): {e}")
+
+        # Способ 2: через subject.model.aspects
+        if not aspects and hasattr(subject, 'model') and hasattr(subject.model, 'aspects'):
+            try:
+                raw = subject.model.aspects
+                if raw:
+                    for a in raw:
+                        orb_val = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
+                        aspects.append({
+                            "p1": getattr(a, 'p1_name', 'unknown'),
+                            "p2": getattr(a, 'p2_name', 'unknown'),
+                            "aspect": getattr(a, 'aspect', 'unknown'),
+                            "orb": orb_val,
+                        })
+                    logger.info(f"Аспекты получены через subject.model.aspects: {len(aspects)} аспектов")
+            except Exception as e:
+                logger.warning(f"Ошибка при subject.model.aspects: {e}")
+
+        # Способ 3: через ChartDataFactory
+        if not aspects:
+            try:
+                from kerykeion.chart_data_factory import ChartDataFactory
+                chart_data = ChartDataFactory.create_natal_chart_data(subject)
+                if hasattr(chart_data, 'aspects') and chart_data.aspects:
+                    for a in chart_data.aspects:
+                        orb_val = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
+                        aspects.append({
+                            "p1": getattr(a, 'p1_name', 'unknown'),
+                            "p2": getattr(a, 'p2_name', 'unknown'),
+                            "aspect": getattr(a, 'aspect', 'unknown'),
+                            "orb": orb_val,
+                        })
+                    logger.info(f"Аспекты получены через ChartDataFactory: {len(aspects)} аспектов")
+            except Exception as e:
+                logger.warning(f"Ошибка при ChartDataFactory: {e}")
+
+        if not aspects:
             logger.warning("Не удалось получить аспекты. Они будут пустыми.")
 
         result = {
