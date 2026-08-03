@@ -4,9 +4,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-#from kerykeion import Subject, AstrologicalSubjectFactory
-#from kerykeion.chart_data_factory import ChartDataFactory
-from kerykeion import Subject
+from kerykeion import AstrologicalSubject  # ← правильный импорт
 from timezonefinder import TimezoneFinder
 
 logger = logging.getLogger(__name__)
@@ -14,9 +12,8 @@ logger = logging.getLogger(__name__)
 
 class AstrologyCalculator:
     """
-    Класс для расчёта астрологических параметров с помощью kerykeion и формирования промпта.
-    Все недостающие данные заменяются значениями по умолчанию, чтобы расчёт всегда выполнялся.
-    Часовой пояс определяется автоматически по координатам места рождения.
+    Класс для расчёта астрологических параметров с помощью kerykeion.
+    Все недостающие данные заменяются значениями по умолчанию.
     """
 
     DEFAULT_LAT = 55.7558
@@ -68,12 +65,12 @@ class AstrologyCalculator:
             data = resp.json()
             results = data.get("results")
             if not results:
-                logger.warning(f"Город '{city}' не найден. Используем координаты Москвы.")
+                logger.warning(f"Город '{city}' не найден. Используем Москву.")
                 return {"lat": self.DEFAULT_LAT, "lng": self.DEFAULT_LNG}
             loc = results[0]
             return {"lat": loc["latitude"], "lng": loc["longitude"]}
         except Exception as e:
-            logger.error(f"Ошибка геокодирования: {e}. Используем координаты Москвы.")
+            logger.error(f"Ошибка геокодирования: {e}. Используем Москву.")
             return {"lat": self.DEFAULT_LAT, "lng": self.DEFAULT_LNG}
 
     def _get_timezone(self, lat: float, lng: float) -> str:
@@ -82,7 +79,7 @@ class AstrologyCalculator:
             if tz_name:
                 return tz_name
             else:
-                logger.warning(f"Не удалось определить часовой пояс для координат ({lat}, {lng}). Используем {self.DEFAULT_TZ}")
+                logger.warning(f"Не удалось определить часовой пояс. Используем {self.DEFAULT_TZ}")
                 return self.DEFAULT_TZ
         except Exception as e:
             logger.error(f"Ошибка определения часового пояса: {e}. Используем {self.DEFAULT_TZ}")
@@ -92,20 +89,15 @@ class AstrologyCalculator:
         if self._chart_data is not None:
             return self._chart_data
 
-        # Разбираем дату/время
         year, month, day, hour, minute = self._parse_birth_datetime()
-
-        # Получаем координаты
         city, country = self._parse_birth_place()
         coords = self._get_coordinates(city, country)
         self._coords = coords
-
-        # Определяем часовой пояс
         tz_str = self._get_timezone(coords['lat'], coords['lng'])
         self._timezone = tz_str
 
-        # Создаём объект Subject (новый способ)
-        subject = Subject(
+        # Создаём объект напрямую (без фабрики)
+        subject = AstrologicalSubject(
             name=self.name,
             year=year,
             month=month,
@@ -117,30 +109,35 @@ class AstrologyCalculator:
             tz_str=tz_str,
         )
 
-        # Извлекаем планеты (теперь это должен быть список объектов Planet)
+        # Извлекаем планеты
         planets = []
-        for p in subject.planets:
-            planets.append({
-                "name": p.name,
-                "sign": p.sign,
-                "degree": p.position,
-                "house": p.house,
-            })
+        if hasattr(subject, 'planets') and subject.planets:
+            for p in subject.planets:
+                planets.append({
+                    "name": p.name,
+                    "sign": p.sign,
+                    "degree": p.position,
+                    "house": p.house,
+                })
+        else:
+            logger.warning("Атрибут 'planets' отсутствует в subject")
 
         # Извлекаем дома
         houses = []
-        for h in subject.houses:
-            houses.append({
-                "number": h.number,
-                "sign": h.sign,
-                "degree": h.position,
-            })
+        if hasattr(subject, 'houses') and subject.houses:
+            for h in subject.houses:
+                houses.append({
+                    "number": h.number,
+                    "sign": h.sign,
+                    "degree": h.position,
+                })
+        else:
+            logger.warning("Атрибут 'houses' отсутствует в subject")
 
         # Извлекаем аспекты
         aspects = []
         if hasattr(subject, 'aspects') and subject.aspects:
             for a in subject.aspects:
-                # В новых версиях орбис может быть в атрибуте 'orb' или 'orbis'
                 orb_val = getattr(a, 'orb', None) or getattr(a, 'orbis', None) or 0.0
                 aspects.append({
                     "p1": a.p1_name,
@@ -148,6 +145,8 @@ class AstrologyCalculator:
                     "aspect": a.aspect,
                     "orb": orb_val,
                 })
+        else:
+            logger.warning("Атрибут 'aspects' отсутствует в subject")
 
         result = {
             "name": subject.name,
@@ -175,7 +174,6 @@ class AstrologyCalculator:
     def build_prompt(self) -> str:
         chart = self._calculate_chart()
 
-        # Солнце, Луна, Асцендент
         sun_sign = None
         moon_sign = None
         ascendant = None
@@ -187,13 +185,11 @@ class AstrologyCalculator:
         if chart['houses']:
             ascendant = chart['houses'][0]['sign']
 
-        # Строка планет
         planets_str = "\n".join(
             f"- {p['name']} в {p['sign']} ({p['degree']:.2f}°) в {p['house']} доме"
             for p in chart['planets']
         )
 
-        # Строка аспектов
         aspects_str = ""
         if chart['aspects']:
             aspects_str = "\n".join(
@@ -250,14 +246,9 @@ class AstrologyCalculator:
 Опиши характер, эмоции, общение, сильные стороны, зоны роста, таланты и дай практические советы.
 """
 
-
     def get_display_parameters(self) -> str:
-        """
-        Возвращает строку с рассчитанными астрологическими параметрами для отображения пользователю.
-        """
         chart = self._calculate_chart()
 
-        # Извлекаем знаки Солнца, Луны и Асцендент
         sun_sign = None
         moon_sign = None
         ascendant = None
@@ -269,29 +260,34 @@ class AstrologyCalculator:
         if chart['houses']:
             ascendant = chart['houses'][0]['sign']
 
-        # Строка планет
         planets_str = "\n".join(
             f"  • {p['name']} в {p['sign']} ({p['degree']:.2f}°) в {p['house']} доме"
             for p in chart['planets']
         )
 
-        # Строка аспектов
         aspects_str = ""
         if chart['aspects']:
             aspects_str = "\n".join(
                 f"  • {a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)" for a in chart['aspects']
             )
 
+        datetime_used = chart['datetime']
+        timezone_used = chart['timezone']
+        lat = chart['location']['lat']
+        lng = chart['location']['lng']
+        city, country = self._parse_birth_place()
+        place_display = f"{city}, {country}" if city else "не указано (использованы координаты по умолчанию)"
+
         gender_display = "Мужчина" if self.gender == 'M' else "Женщина"
 
-        # Форматируем вывод
         lines = [
             "━━━━━━━━━━━━━━━━━━━━━",
             f"👤 Имя: {self.name}",
             f"⚥ Пол: {gender_display}",
-            f"📅 Дата рождения: {self.birth_date_str or 'не указана'}",
-            f"🕒 Время рождения: {self.birth_time_str or 'не указано'}",
-            f"📍 Место рождения: {self.birth_place or 'не указано'}",
+            f"📅 Дата и время (UTC): {datetime_used}",
+            f"🕒 Часовой пояс: {timezone_used}",
+            f"📍 Место: {place_display}",
+            f"🌐 Координаты: {lat:.4f}, {lng:.4f}",
             "━━━━━━━━━━━━━━━━━━━━━",
             f"☀️ Солнце: {sun_sign or 'не известно'}",
             f"🌙 Луна: {moon_sign or 'не известно'}",
@@ -307,5 +303,4 @@ class AstrologyCalculator:
             lines.append(aspects_str)
 
         lines.append("━━━━━━━━━━━━━━━━━━━━━")
-
         return "\n".join(lines)
