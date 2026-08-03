@@ -14,7 +14,7 @@ def get_main_menu():
     builder = ReplyKeyboardBuilder()
     builder.add(KeyboardButton(text="🔮 Гороскоп на сегодня"))
     builder.add(KeyboardButton(text="💕 Совместимость"))
-    builder.add(KeyboardButton(text="🔢 Нумерология — познай себя"))   # изменено
+    builder.add(KeyboardButton(text="🔢 Нумерология"))                 # изменено
     builder.add(KeyboardButton(text="🌌 Натальная карта"))              # изменено (было Астрология)
     builder.add(KeyboardButton(text="⭐ Premium"))                      # изменено (было Подписка)
     builder.add(KeyboardButton(text="👩‍🏫 Личный астролог"))            # изменено (было Эксперт)
@@ -298,4 +298,10 @@ def get_after_timezone_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="🏠 Главное меню", callback_data="main_menu")
     builder.adjust(1)
+    return builder.as_markup()
+
+def get_subscription_promo_keyboard():
+    """Клавиатура с одной кнопкой для оформления подписки (используется в промо)"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⭐ Оформить подписку 333 ₽", callback_data="subscribe_pay")
     return builder.as_markup()

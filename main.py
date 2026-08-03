@@ -31,7 +31,9 @@ from bot.keyboards.keyboards import (
     get_numerology_use_data_keyboard,
     get_astrology_payment_keyboard,
     get_astrology_confirm_keyboard,
-    get_astrology_use_data_keyboard, get_timezone_keyboard,
+    get_astrology_use_data_keyboard,
+    get_timezone_keyboard,
+    get_subscription_promo_keyboard,
 )
 from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates
 from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji
@@ -173,6 +175,13 @@ async def start_horoscope(message: Message, state: FSMContext):
 
         await status_msg.delete()
         await send_long_message(message, f"🔮 Ваш гороскоп на {today}\n\n{horoscope}")
+        # Проверяем подписку и отправляем промо, если нет
+        if not await check_subscription_db(user_id):
+            await message.answer(
+                "✨ Понравился прогноз?\n\n"
+                "Получайте персональный гороскоп автоматически каждое утро в 8:00 и используйте Совместимость без ограничений.",
+                reply_markup=get_subscription_promo_keyboard()
+            )
     else:
         await state.set_state(UserDataStates.WAITING_NAME)
         await message.answer(
@@ -571,8 +580,17 @@ async def start_compatibility(message: Message, state: FSMContext):
     else:
         await state.set_state(CompatibilityStates.WAITING_PERSON1_NAME)
         await message.answer(
-            "💕 Давайте заполним данные для анализа совместимости.\n\n"
-            "Сначала введите имя человека 1 (это вы):",
+            "💕 Анализ совместимости двух людей\n\n"
+            "Узнайте, насколько вы подходите друг другу в общении, работе, дружбе, семье или отношениях.\n\n"
+            "Вы получите:\n"
+            "💫 Энергетическую совместимость\n"
+            "🔥 Психологическую совместимость\n"
+            "💼 Финансовую и деловую совместимость\n"
+            "❤️ Любовную совместимость\n"
+            "🌿 Кармическую связь\n"
+            "📅 Прогноз на сегодня\n"
+            "⭐ Итоговую оценку и советы\n\n"
+            "✨ Персональный разбор готовится меньше минуты.",
             reply_markup=get_cancel_keyboard()
         )
 
@@ -949,6 +967,14 @@ async def process_person2_gender(message: Message, state: FSMContext):
 
             await status_msg.delete()
             await send_long_message(message, f"💕 Анализ совместимости\n\n{result}")
+            # Проверяем подписку и отправляем промо, если нет
+            user_id = message.from_user.id
+            if not await check_subscription_db(user_id):
+                await message.answer(
+                    "✨ Понравился разбор?\n\n"
+                    "Получайте Совместимость без ограничений и персональный гороскоп автоматически каждое утро в 8:00.",
+                    reply_markup=get_subscription_promo_keyboard()
+                )
 
         else:
             await status_msg.edit_text(
@@ -963,7 +989,7 @@ async def process_person2_gender(message: Message, state: FSMContext):
 
 # ==================== НУМЕРОЛОГИЯ ====================
 
-@dp.message(F.text == "🔢 Нумерология — познай себя")
+@dp.message(F.text == "🔢 Нумерология")
 async def start_numerology(message: Message, state: FSMContext):
     """Начало оформления нумерологии"""
     user_id = message.from_user.id
