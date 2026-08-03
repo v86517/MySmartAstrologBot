@@ -308,10 +308,14 @@ async def process_birth_date(message: Message, state: FSMContext):
                 "Укажите точное время рождения в формате:\n"
                 "ЧЧ:ММ\n\n"
                 "Например: 15:30\n"
-                "Если не знаете, напишите 00:00"
+                "Если не знаете, напишите 00:00",
+                reply_markup=get_cancel_keyboard()  # <-- добавлено
             )
         except ValueError:
-            await message.answer("❌ Неверная дата! Попробуйте еще раз:")
+            await message.answer(
+                "❌ Неверная дата! Попробуйте еще раз:",
+                reply_markup=get_cancel_keyboard()
+            )
 
 
 # ==================== ШАГ 3: ВРЕМЯ РОЖДЕНИЯ ====================
@@ -364,10 +368,14 @@ async def process_birth_time(message: Message, state: FSMContext):
                 "📍 Шаг 4 из 5\n\n"
                 "Укажите место рождения:\n"
                 "Город, Страна\n\n"
-                "Например: Москва, Россия"
+                "Например: Москва, Россия",
+                reply_markup=get_cancel_keyboard()  # <-- добавлено
             )
         except ValueError:
-            await message.answer("❌ Неверное время! Попробуйте еще раз:")
+            await message.answer(
+                "❌ Неверное время! Попробуйте еще раз:",
+                reply_markup=get_cancel_keyboard()
+            )
 
 
 # ==================== ШАГ 4: МЕСТО РОЖДЕНИЯ ====================
@@ -399,7 +407,10 @@ async def process_birth_place(message: Message, state: FSMContext):
         logger.info(f"📝 Шаг МЕСТО, new_data после: {new_data}")
     else:
         if len(message.text) < 3:
-            await message.answer("❌ Укажите город и страну (минимум 3 символа):")
+            await message.answer(
+                "❌ Укажите город и страну (минимум 3 символа):",
+                reply_markup=get_cancel_keyboard()
+            )
             return
         await state.update_data(birth_place=message.text)
         await state.set_state(UserDataStates.WAITING_GENDER)
@@ -425,7 +436,6 @@ async def process_gender(message: Message, state: FSMContext):
     logger.info(f"📝 Шаг ПОЛ, is_edit={is_edit}, new_data до: {new_data}")
 
     if is_edit:
-        # Режим редактирования (без изменений)
         if gender in ["М", "Ж"]:
             new_data['gender'] = 'M' if gender == 'М' else 'F'
             logger.info(f"📝 Шаг ПОЛ, обновлён пол: {new_data['gender']}")
@@ -460,18 +470,16 @@ async def process_gender(message: Message, state: FSMContext):
     # ----- Обычный режим (первое заполнение) -----
     if gender not in ["М", "Ж"]:
         await message.answer(
-            "❌ Пожалуйста, напишите только одну букву:\nМ - мужской\nЖ - женский"
+            "❌ Пожалуйста, напишите только одну букву:\nМ - мужской\nЖ - женский",
+            reply_markup=get_cancel_keyboard()  # <-- добавлено
         )
         return
 
     db_gender = 'M' if gender == 'М' else 'F'
     data = await state.get_data()
-    # Добавляем пол к остальным данным (имя, дата и т.д. уже есть в состоянии)
     data['gender'] = db_gender
-    # Сохраняем все собранные данные в состояние как временные (не в БД)
     await state.update_data(temp_data=data)
 
-    # Переходим к выбору часового пояса
     await state.set_state(UserDataStates.WAITING_TIMEZONE)
     await message.answer(
         "🕒 Выберите ваш часовой пояс:\nЭто нужно для точного расчёта гороскопа и отправки прогнозов.",
@@ -1929,14 +1937,14 @@ async def profile(message: Message):
         if can_use:
             text = (
                 "📝 У вас пока нет сохраненных данных.\n"
-                "Чтобы заполнить профиль, нажмите 🔮 <b>Гороскоп на сегодня</b> или <b>Заполнить и Сохранить</b>.\n\n"
-                f"📄 Нажимая «Заполнить и Сохранить», вы даёте [согласие на обработку персональных данных]({consent_url}) "
+                "Чтобы заполнить профиль, нажмите 🔮 **Гороскоп на сегодня** или **Заполнить и Сохранить**.\n\n"
+                f"📄 Нажимая «**Заполнить и Сохранить**», вы даёте [согласие на обработку персональных данных]({consent_url}) "
                 f"в соответствии с [Политикой конфиденциальности]({privacy_url})."
             )
         else:
             text = (
                 "📝 У вас пока нет сохраненных данных.\n"
-                "Чтобы заполнить профиль, нажмите <b>Заполнить и Сохранить</b>.\n\n"
+                "Чтобы заполнить профиль, нажмите **Заполнить и Сохранить**.\n\n"
                 f"📄 Нажимая «Заполнить и Сохранить», вы даёте [согласие на обработку персональных данных]({consent_url}) "
                 f"в соответствии с [Политикой конфиденциальности]({privacy_url})."
             )

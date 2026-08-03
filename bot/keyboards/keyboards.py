@@ -294,12 +294,13 @@ def get_skip_keyboard():
 
 
 def get_timezone_keyboard():
-    """Клавиатура с выбором часового пояса UTC+1..UTC+12"""
     builder = InlineKeyboardBuilder()
     for i in range(1, 13):
         builder.button(text=f"UTC+{i}", callback_data=f"tz_{i}")
-    builder.adjust(3, 3, 3, 3)  # 4 ряда по 3 кнопки
+    builder.button(text="❌ Отмена", callback_data="cancel")  # <-- добавлено
+    builder.adjust(3, 3, 3, 3)
     return builder.as_markup()
+
 
 def get_after_timezone_keyboard():
     """Клавиатура после выбора часового пояса"""
