@@ -119,7 +119,7 @@ class AstrologyCalculator:
 
         logger.info(f"Ключи данных: {list(data.keys()) if isinstance(data, dict) else 'не словарь'}")
 
-        # --- Список ключей планет (имеют sign, position, house) ---
+        # --- Список ключей планет ---
         planet_keys = [
             'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
             'uranus', 'neptune', 'pluto', 'chiron', 'pholus',
@@ -160,32 +160,12 @@ class AstrologyCalculator:
 
         # --- Извлечение домов ---
         houses = []
-        for i in range(1, 13):
-            if i == 1:
-                key = "first_house"
-            elif i == 2:
-                key = "second_house"
-            elif i == 3:
-                key = "third_house"
-            elif i == 4:
-                key = "fourth_house"
-            elif i == 5:
-                key = "fifth_house"
-            elif i == 6:
-                key = "sixth_house"
-            elif i == 7:
-                key = "seventh_house"
-            elif i == 8:
-                key = "eighth_house"
-            elif i == 9:
-                key = "ninth_house"
-            elif i == 10:
-                key = "tenth_house"
-            elif i == 11:
-                key = "eleventh_house"
-            elif i == 12:
-                key = "twelfth_house"
-
+        house_keys = [
+            'first_house', 'second_house', 'third_house', 'fourth_house',
+            'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
+            'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house'
+        ]
+        for i, key in enumerate(house_keys, 1):
             if key in data:
                 obj = data[key]
                 if isinstance(obj, dict):
@@ -204,60 +184,45 @@ class AstrologyCalculator:
                         })
         logger.info(f"Дома получены: {len(houses)} домов")
 
-        # --- Аспекты (несколько способов) ---
+        # --- Аспекты через AspectsFactory ---
         aspects = []
+        try:
+            from kerykeion import AspectsFactory
+            # Используем правильный метод для получения аспектов в одной карте
+            aspects_data = AspectsFactory.single_chart_aspects(subject)
+            if aspects_data and hasattr(aspects_data, 'aspects') and aspects_data.aspects:
+                for a in aspects_data.aspects:
+                    # В документации поле называется 'orbit' (не 'orb' или 'orbis')
+                    orb_val = getattr(a, 'orbit', getattr(a, 'orb', getattr(a, 'orbis', 0.0)))
+                    aspects.append({
+                        "p1": getattr(a, 'p1_name', 'unknown'),
+                        "p2": getattr(a, 'p2_name', 'unknown'),
+                        "aspect": getattr(a, 'aspect', 'unknown'),
+                        "orb": orb_val,
+                    })
+                logger.info(f"Аспекты получены через AspectsFactory: {len(aspects)} аспектов")
+            else:
+                logger.warning("AspectsFactory вернул пустой результат")
+        except Exception as e:
+            logger.warning(f"Ошибка при AspectsFactory: {e}")
 
-        # Способ 1: через subject.get_aspects()
-        if hasattr(subject, 'get_aspects') and callable(subject.get_aspects):
-            try:
-                raw = subject.get_aspects()
-                if raw:
-                    for a in raw:
-                        orb_val = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
-                        aspects.append({
-                            "p1": getattr(a, 'p1_name', 'unknown'),
-                            "p2": getattr(a, 'p2_name', 'unknown'),
-                            "aspect": getattr(a, 'aspect', 'unknown'),
-                            "orb": orb_val,
-                        })
-                    logger.info(f"Аспекты получены через get_aspects(): {len(aspects)} аспектов")
-            except Exception as e:
-                logger.warning(f"Ошибка при subject.get_aspects(): {e}")
-
-        # Способ 2: через subject.model.aspects
-        if not aspects and hasattr(subject, 'model') and hasattr(subject.model, 'aspects'):
-            try:
-                raw = subject.model.aspects
-                if raw:
-                    for a in raw:
-                        orb_val = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
-                        aspects.append({
-                            "p1": getattr(a, 'p1_name', 'unknown'),
-                            "p2": getattr(a, 'p2_name', 'unknown'),
-                            "aspect": getattr(a, 'aspect', 'unknown'),
-                            "orb": orb_val,
-                        })
-                    logger.info(f"Аспекты получены через subject.model.aspects: {len(aspects)} аспектов")
-            except Exception as e:
-                logger.warning(f"Ошибка при subject.model.aspects: {e}")
-
-        # Способ 3: через ChartDataFactory
+        # Если аспекты не получены — пробуем альтернативный способ
         if not aspects:
             try:
-                from kerykeion.chart_data_factory import ChartDataFactory
-                chart_data = ChartDataFactory.create_natal_chart_data(subject)
-                if hasattr(chart_data, 'aspects') and chart_data.aspects:
-                    for a in chart_data.aspects:
-                        orb_val = getattr(a, 'orb', getattr(a, 'orbis', 0.0))
+                from kerykeion import NatalAspects
+                aspects_obj = NatalAspects(subject)
+                if hasattr(aspects_obj, 'relevant_aspects'):
+                    for a in aspects_obj.relevant_aspects:
+                        orb_val = getattr(a, 'orbit', getattr(a, 'orb', getattr(a, 'orbis', 0.0)))
                         aspects.append({
                             "p1": getattr(a, 'p1_name', 'unknown'),
                             "p2": getattr(a, 'p2_name', 'unknown'),
                             "aspect": getattr(a, 'aspect', 'unknown'),
                             "orb": orb_val,
                         })
-                    logger.info(f"Аспекты получены через ChartDataFactory: {len(aspects)} аспектов")
+                    logger.info(f"Аспекты получены через NatalAspects: {len(aspects)} аспектов")
             except Exception as e:
-                logger.warning(f"Ошибка при ChartDataFactory: {e}")
+                logger.warning(f"Ошибка при NatalAspects: {e}")
 
         if not aspects:
             logger.warning("Не удалось получить аспекты. Они будут пустыми.")
