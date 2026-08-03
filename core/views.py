@@ -195,3 +195,11 @@ def yookassa_webhook(request):
         logger.error(f"❌ Необработанное исключение в вебхуке: {e}")
         logger.error(traceback.format_exc())
         return HttpResponse('Error', status=500)
+
+from django.shortcuts import render
+
+def privacy_policy(request):
+    return render(request, 'pages/privacy_policy.html')
+
+def consent(request):
+    return render(request, 'pages/consent.html')
