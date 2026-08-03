@@ -85,7 +85,7 @@ class CompatibilityCalculator(BaseCalculator):
         return aspects
 
     def _get_synastry_aspects(self, subj1: AstrologicalSubject, subj2: AstrologicalSubject) -> List[Dict]:
-        """Получает синастрические аспекты с fallback"""
+        """Получает синастрические аспекты с fallback на ручной расчёт"""
         aspects = []
 
         # Способ 1: dual_chart_aspects
@@ -122,9 +122,13 @@ class CompatibilityCalculator(BaseCalculator):
         except Exception as e:
             logger.warning(f"synastry_aspects не сработал: {e}")
 
-        # Если ничего не сработало, возвращаем пустой список
-        logger.warning(
-            "Не удалось получить синастрические аспекты. Анализ будет основан на нумерологии и натальных картах.")
+        # Способ 3: ручной расчёт
+        aspects = self._get_synastry_aspects_manual(subj1, subj2)
+        if aspects:
+            logger.info(f"Синастрические аспекты (ручной расчёт): {len(aspects)}")
+            return aspects
+
+        logger.warning("Не удалось получить синастрические аспекты ни одним способом.")
         return aspects
 
     def _format_planets(self, subject: AstrologicalSubject) -> str:
@@ -225,3 +229,98 @@ class CompatibilityCalculator(BaseCalculator):
             "target_date": self.target_date,
             "lunar_day": self.lunar_day,
         }
+
+    def _get_synastry_aspects_manual(self, subj1: AstrologicalSubject, subj2: AstrologicalSubject) -> List[Dict]:
+        """
+        Ручной расчёт синастрических аспектов между планетами двух людей.
+        Используется, если библиотечные методы не работают.
+        """
+        # Получаем списки планет для обоих субъектов
+        planets1 = self._extract_planets(subj1)
+        planets2 = self._extract_planets(subj2)
+
+        if not planets1 or not planets2:
+            logger.warning("Не удалось извлечь планеты для ручного расчёта синастрии")
+            return []
+
+        aspects = []
+        aspect_types = {
+            'conjunction': 8,
+            'opposition': 8,
+            'trine': 6,
+            'square': 6,
+            'sextile': 5,
+        }
+
+        for p1 in planets1:
+            for p2 in planets2:
+                diff = abs(p1['degree'] - p2['degree']) % 360
+                if diff > 180:
+                    diff = 360 - diff
+
+                for aspect_name, orb in aspect_types.items():
+                    if aspect_name == 'conjunction' and diff <= orb:
+                        aspects.append({
+                            'p1': p1['name'],
+                            'p2': p2['name'],
+                            'aspect': aspect_name,
+                            'orb': diff,
+                        })
+                        break
+                    elif aspect_name == 'opposition' and abs(diff - 180) <= orb:
+                        aspects.append({
+                            'p1': p1['name'],
+                            'p2': p2['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 180),
+                        })
+                        break
+                    elif aspect_name == 'trine' and abs(diff - 120) <= orb:
+                        aspects.append({
+                            'p1': p1['name'],
+                            'p2': p2['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 120),
+                        })
+                        break
+                    elif aspect_name == 'square' and abs(diff - 90) <= orb:
+                        aspects.append({
+                            'p1': p1['name'],
+                            'p2': p2['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 90),
+                        })
+                        break
+                    elif aspect_name == 'sextile' and abs(diff - 60) <= orb:
+                        aspects.append({
+                            'p1': p1['name'],
+                            'p2': p2['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 60),
+                        })
+                        break
+
+        logger.info(f"Синастрические аспекты (ручной расчёт): {len(aspects)}")
+        return aspects
+
+    def _extract_planets(self, subject: AstrologicalSubject) -> List[Dict]:
+        """Извлекает список планет с их градусами из субъекта"""
+        planets = []
+        if hasattr(subject, 'planets') and subject.planets:
+            for p in subject.planets:
+                planets.append({"name": p.name, "degree": p.position})
+        elif hasattr(subject, 'model'):
+            model = subject.model() if callable(subject.model) else subject.model
+            data = model.dict() if hasattr(model, 'dict') else model.__dict__
+            planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
+                           'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith']
+            for key in planet_keys:
+                if key in data:
+                    obj = data[key]
+                    if isinstance(obj, dict):
+                        if 'position' in obj:
+                            planets.append({"name": key.capitalize(), "degree": obj['position']})
+                    else:
+                        if hasattr(obj, 'position'):
+                            planets.append({"name": key.capitalize(), "degree": obj.position})
+        return planets
