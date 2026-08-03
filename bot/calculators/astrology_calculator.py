@@ -4,8 +4,9 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-from kerykeion import AstrologicalSubjectFactory
-from kerykeion.chart_data_factory import ChartDataFactory
+#from kerykeion import Subject, AstrologicalSubjectFactory
+#from kerykeion.chart_data_factory import ChartDataFactory
+from kerykeion import Subject
 from timezonefinder import TimezoneFinder
 
 logger = logging.getLogger(__name__)
@@ -91,14 +92,20 @@ class AstrologyCalculator:
         if self._chart_data is not None:
             return self._chart_data
 
+        # Разбираем дату/время
         year, month, day, hour, minute = self._parse_birth_datetime()
+
+        # Получаем координаты
         city, country = self._parse_birth_place()
         coords = self._get_coordinates(city, country)
         self._coords = coords
+
+        # Определяем часовой пояс
         tz_str = self._get_timezone(coords['lat'], coords['lng'])
         self._timezone = tz_str
 
-        subject = AstrologicalSubjectFactory.from_birth_data(
+        # Создаём объект Subject (новый способ)
+        subject = Subject(
             name=self.name,
             year=year,
             month=month,
@@ -108,52 +115,47 @@ class AstrologyCalculator:
             lat=coords['lat'],
             lng=coords['lng'],
             tz_str=tz_str,
-            online=False,
         )
 
-        chart_data = ChartDataFactory.create_natal_chart_data(subject)
-
-        # Дома
-        houses = []
-        if hasattr(chart_data, 'houses') and chart_data.houses:
-            for h in chart_data.houses:
-                houses.append({"number": h.number, "sign": h.sign, "degree": h.position})
-        elif hasattr(subject, 'houses') and subject.houses:
-            for h in subject.houses:
-                houses.append({"number": h.number, "sign": h.sign, "degree": h.position})
-
-        # Планеты
+        # Извлекаем планеты (теперь это должен быть список объектов Planet)
         planets = []
-        if hasattr(chart_data, 'planets') and chart_data.planets:
-            for p in chart_data.planets:
-                planets.append({"name": p.name, "sign": p.sign, "degree": p.position, "house": p.house})
-        elif hasattr(subject, 'planets') and subject.planets:
-            for p in subject.planets:
-                planets.append({"name": p.name, "sign": p.sign, "degree": p.position, "house": p.house})
+        for p in subject.planets:
+            planets.append({
+                "name": p.name,
+                "sign": p.sign,
+                "degree": p.position,
+                "house": p.house,
+            })
 
-        # Аспекты
+        # Извлекаем дома
+        houses = []
+        for h in subject.houses:
+            houses.append({
+                "number": h.number,
+                "sign": h.sign,
+                "degree": h.position,
+            })
+
+        # Извлекаем аспекты
         aspects = []
-        aspects_source = None
-        if hasattr(chart_data, 'aspects') and chart_data.aspects:
-            aspects_source = chart_data.aspects
-        elif hasattr(subject, 'aspects') and subject.aspects:
-            aspects_source = subject.aspects
-
-        if aspects_source:
-            for a in aspects_source:
-                orb_val = getattr(a, 'orbis', None) or getattr(a, 'orb', None) or 0.0
-                asp_name = getattr(a, 'aspect', None) or getattr(a, 'aspect_type', None) or 'unknown'
-                p1 = getattr(a, 'p1_name', None) or getattr(a, 'planet1', None) or 'unknown'
-                p2 = getattr(a, 'p2_name', None) or getattr(a, 'planet2', None) or 'unknown'
-                aspects.append({"p1": p1, "p2": p2, "aspect": asp_name, "orb": orb_val})
+        if hasattr(subject, 'aspects') and subject.aspects:
+            for a in subject.aspects:
+                # В новых версиях орбис может быть в атрибуте 'orb' или 'orbis'
+                orb_val = getattr(a, 'orb', None) or getattr(a, 'orbis', None) or 0.0
+                aspects.append({
+                    "p1": a.p1_name,
+                    "p2": a.p2_name,
+                    "aspect": a.aspect,
+                    "orb": orb_val,
+                })
 
         result = {
             "name": subject.name,
             "datetime": f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}",
             "timezone": tz_str,
             "location": {"lat": coords['lat'], "lng": coords['lng']},
-            "houses": houses,
             "planets": planets,
+            "houses": houses,
             "aspects": aspects,
         }
 
