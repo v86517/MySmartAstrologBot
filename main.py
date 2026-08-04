@@ -190,12 +190,15 @@ async def start_horoscope(message: Message, state: FSMContext):
         today = datetime.now().strftime("%d.%m.%Y")
         horoscope = gemini_service.generate_horoscope(user_data, today)
 
+        # ✅ Сохраняем в архив
+        await save_message_to_archive(user_id, 'horoscope', horoscope)
+
         await mark_feature_used_db(user_id, 'horoscope')
 
         await status_msg.delete()
         await send_long_message(message, f"🔮 Ваш гороскоп на {today}\n\n{horoscope}")
+
         # Проверяем подписку и отправляем промо, если нет
-        user_id = message.from_user.id
         if not await check_subscription_db(user_id):
             await message.answer(
                 "✨ Понравился прогноз?\n\n"
