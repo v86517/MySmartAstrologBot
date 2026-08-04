@@ -23,6 +23,16 @@ def _get_or_create_user(telegram_id, username=None, first_name=None, last_name=N
             'last_name': last_name,
         }
     )
+    if not created:
+        # Обновляем данные, если они изменились
+        if username and user.username != username:
+            user.username = username
+        if first_name and user.first_name != first_name:
+            user.first_name = first_name
+        if last_name and user.last_name != last_name:
+            user.last_name = last_name
+        if username or first_name or last_name:
+            user.save()
     return user, created
 
 
