@@ -103,6 +103,7 @@ def format_profile_data(data: dict) -> str:
     """Форматирует данные пользователя для отображения"""
     gender_display = 'Мужской' if data.get('gender') == 'M' else 'Женский' if data.get('gender') == 'F' else 'Не указан'
     zodiac_emoji = get_zodiac_emoji(data.get('zodiac', 'Неизвестно'))
+    timezone = data.get('timezone_offset', 3)
     return (
         f"👤 Имя: {data.get('name', 'Не указано')}\n"
         f"📅 Дата рождения: {data.get('birth_date', 'Не указана')}\n"
@@ -110,7 +111,7 @@ def format_profile_data(data: dict) -> str:
         f"📍 Место рождения: {data.get('birth_place', 'Не указано')}\n"
         f"👤 Пол: {gender_display}\n"
         f"{zodiac_emoji} Знак зодиака: {data.get('zodiac', 'Неизвестно')}\n"
-        f"🕒 Часовой пояс: UTC+{data.get('timezone_offset', 3)}"
+        f"🕒 Часовой пояс: UTC+{timezone}"
     )
 
 # ==================== ОБРАБОТЧИКИ КОМАНД ====================
@@ -402,8 +403,17 @@ async def process_birth_place(message: Message, state: FSMContext):
         await state.update_data(new_data=new_data)
 
         await state.set_state(UserDataStates.WAITING_GENDER)
+
+        current_gender = old.get('gender')
+        if current_gender == 'M':
+            gender_display = 'Мужской'
+        elif current_gender == 'F':
+            gender_display = 'Женский'
+        else:
+            gender_display = 'не указан'
+
         await message.answer(
-            f"✏️ Текущий пол: {'Мужской' if old.get('gender') == 'М' else 'Женский' if old.get('gender') == 'Ж' else 'не указан'}\n\n"
+            f"✏️ Текущий пол: {gender_display}\n\n"
             "Введите новый пол (М или Ж) или нажмите «Пропустить».",
             reply_markup=get_skip_keyboard()
         )
@@ -445,29 +455,15 @@ async def process_gender(message: Message, state: FSMContext):
         else:
             logger.info("📝 Шаг ПОЛ, пол не изменён")
 
-        user_id = message.from_user.id
-        logger.info(f"💾 ФИНАЛЬНОЕ СОХРАНЕНИЕ для {user_id}, данные: {new_data}")
-        await save_user_data(user_id, new_data)
-        logger.info("✅ Данные сохранены в БД")
+        # Сохраняем обновлённые данные в состояние
+        await state.update_data(new_data=new_data)
 
-        await state.clear()
-
-        from core.models import User
-        from asgiref.sync import sync_to_async
-        user_obj = await sync_to_async(User.objects.get)(telegram_id=user_id)
-        gender_display = 'Мужской' if user_obj.gender == 'M' else 'Женский'
-
-        zodiac_emoji = get_zodiac_emoji(user_obj.zodiac_sign or 'Неизвестно')
-        profile_text = (
-            f"✅ Данные успешно обновлены!\n\n"
-            f"👤 Имя: {user_obj.name or 'Не указано'}\n"
-            f"📅 Дата рождения: {user_obj.date_of_birth.strftime('%d.%m.%Y') if user_obj.date_of_birth else 'Не указана'}\n"
-            f"🕒 Время рождения: {user_obj.birth_time.strftime('%H:%M') if user_obj.birth_time else 'Не указано'}\n"
-            f"📍 Место рождения: {user_obj.birth_place or 'Не указано'}\n"
-            f"👤 Пол: {gender_display}\n"
-            f"{zodiac_emoji} Знак зодиака: {user_obj.zodiac_sign or 'Неизвестно'}"
+        # Переходим к выбору часового пояса (с флагом is_edit=True)
+        await state.set_state(UserDataStates.WAITING_TIMEZONE)
+        await message.answer(
+            "🕒 Выберите ваш часовой пояс:",
+            reply_markup=get_timezone_keyboard()
         )
-        await message.answer(profile_text, reply_markup=get_profile_keyboard())
         return
 
     # ----- Обычный режим (первое заполнение) -----
@@ -510,17 +506,31 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     state_data = await state.get_data()
-    temp_data = state_data.get('temp_data', {})
+    is_edit = state_data.get('is_edit', False)
     fill_mode = state_data.get('fill_mode', False)
-    temp_data['timezone_offset'] = tz_offset
-    await state.update_data(temp_data=temp_data)
+    is_timezone_edit = state_data.get('is_timezone_edit', False)
+    user_id = callback.from_user.id
 
+    # ---- Режим редактирования профиля (изменение всех данных) ----
+    if is_edit:
+        new_data = state_data.get('new_data', {})
+        new_data['timezone_offset'] = tz_offset
+        await save_user_data(user_id, new_data)
+        await state.clear()
+        profile_text = format_profile_data(new_data)
+        await callback.message.delete()
+        await callback.message.answer(
+            f"✅ Данные успешно обновлены!\n\n{profile_text}",
+            reply_markup=get_profile_keyboard()
+        )
+        return
+
+    # ---- Режим заполнения профиля через кнопку "Заполнить и Сохранить" ----
     if fill_mode:
-        # Режим заполнения профиля – сразу сохраняем и показываем профиль
-        user_id = callback.from_user.id
+        temp_data = state_data.get('temp_data', {})
+        temp_data['timezone_offset'] = tz_offset
         await save_user_data(user_id, temp_data)
         await state.clear()
-
         profile_text = format_profile_data(temp_data)
         await callback.message.delete()
         await callback.message.answer(
@@ -529,7 +539,28 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    # Обычный режим – вопрос о сохранении
+    # ---- Режим смены часового пояса (отдельная кнопка) ----
+    if is_timezone_edit:
+        from core.models import User
+        from asgiref.sync import sync_to_async
+        user = await sync_to_async(User.objects.get)(telegram_id=user_id)
+        user.timezone_offset = tz_offset
+        await sync_to_async(user.save)()
+        await state.clear()
+        user_data = await get_user_data(user_id)
+        profile_text = format_profile_data(user_data)
+        await callback.message.delete()
+        await callback.message.answer(
+            f"✅ Часовой пояс обновлён!\n\n{profile_text}",
+            reply_markup=get_profile_keyboard()
+        )
+        return
+
+    # ---- Обычный режим (первое заполнение) ----
+    temp_data = state_data.get('temp_data', {})
+    temp_data['timezone_offset'] = tz_offset
+    await state.update_data(temp_data=temp_data)
+
     profile_text = format_profile_data(temp_data)
     privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
 
@@ -1497,8 +1528,11 @@ async def edit_timezone(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.delete()
 
-    # Устанавливаем флаг, что это редактирование часового пояса, а не первичный выбор
-    await state.update_data(is_timezone_edit=True)
+    await state.update_data(
+        is_timezone_edit=True,
+        is_edit=False,
+        fill_mode=False
+    )
 
     await state.set_state(UserDataStates.WAITING_TIMEZONE)
     await callback.message.answer(
@@ -1999,10 +2033,13 @@ async def edit_profile(callback: CallbackQuery, state: FSMContext):
         )
         return
 
+    # Сохраняем флаг редактирования
     await state.update_data(
         old_data=old,
         new_data=old.copy(),
-        is_edit=True
+        is_edit=True,
+        fill_mode=False,
+        is_timezone_edit=False
     )
 
     logger.info(f"🟢 Начало редактирования для {user_id}, старые данные: {old}")
