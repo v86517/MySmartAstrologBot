@@ -38,6 +38,7 @@ from bot.keyboards.keyboards import (
     get_after_save_keyboard,
     get_subscription_promo_keyboard,
     get_subscription_payment_keyboard, get_fill_profile_keyboard,
+    get_support_keyboard,
 )
 from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates
 from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji
@@ -1160,14 +1161,14 @@ async def start_numerology(message: Message, state: FSMContext):
             await state.set_state(NumerologyStates.CONFIRM_DATA)
         else:
             await message.answer(
-                "🌌 Откройте свой числовой код судьбы\n\n"
-                "Что вы получите:\n"
-                "✓ Полный анализ личности\n"
-                "✓ Предназначение и таланты\n"
-                "✓ Отношения и совместимость\n"
-                "✓ Карьера и финансы\n"
-                "✓ Сильные и слабые стороны\n"
-                "✓ Практические рекомендации\n\n"
+                "🔢 Раскройте свой код судьбы\n\n"
+                "Узнайте, что скрывает ваша дата рождения:\n\n"
+                "✨ Ваш характер и таланты\n"
+                "🌌 Предназначение и кармическая задача\n"
+                "💼 Деньги и карьерный путь\n"
+                "❤️ Любовь и отношения\n"
+                "🌿 Энергия и ресурсы\n"
+                "⭐ Важные этапы жизни и советы\n\n"
                 "💰 Стоимость: 888 ₽",
                 reply_markup=get_numerology_payment_keyboard()
             )
@@ -1210,7 +1211,6 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    # Сохраняем данные в глобальный словарь (или в состояние)
     numerology_data[user_id] = {
         'name': user_data_from_db.get('name'),
         'birth_date': user_data_from_db.get('birth_date'),
@@ -1245,8 +1245,10 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            # Генерация через ИИ (метод пока заглушка, создадим позже)
             result = gemini_service.generate_numerology(numerology_data[user_id])
+
+            # ✅ Сохраняем в архив
+            await save_message_to_archive(user_id, 'numerology', result)
 
             # Уменьшаем количество доступных нумерологий
             await add_numerology_count(user_id, -1)
@@ -1357,6 +1359,10 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
 
         if gemini_service:
             result = gemini_service.generate_numerology(numerology_data[user_id])
+
+            # ✅ Сохраняем в архив
+            await save_message_to_archive(user_id, 'numerology', result)
+
             await add_numerology_count(user_id, -1)
             await status_msg.delete()
             await send_long_message(callback.message, f"🌌 Ваш нумерологический разбор\n\n{result}")
@@ -1456,7 +1462,6 @@ async def process_numerology_gender(message: Message, state: FSMContext):
 
     db_gender = 'M' if gender == 'М' else 'F'
     data = await state.get_data()
-    # Проверяем, что оплата была
     if not data.get('numerology_paid', False):
         await message.answer(
             "⚠️ Оплата не подтверждена. Пожалуйста, оплатите 888 ₽.",
@@ -1501,6 +1506,10 @@ async def process_numerology_gender(message: Message, state: FSMContext):
 
         if gemini_service:
             result = gemini_service.generate_numerology(numerology_data[user_id])
+
+            # ✅ Сохраняем в архив
+            await save_message_to_archive(user_id, 'numerology', result)
+
             await add_numerology_count(user_id, -1)
             await status_msg.delete()
             await send_long_message(message, f"🌌 Ваш нумерологический разбор\n\n{result}")
@@ -1571,15 +1580,16 @@ async def start_astrology(message: Message, state: FSMContext):
             await state.set_state(AstrologyStates.CONFIRM_DATA)
         else:
             await message.answer(
-                "🌙 Узнайте, что звёзды приготовили именно для вас\n\n"
-                "Что вы получите:\n"
-                "✓ Анализ личности\n"
-                "✓ Ваше предназначение и таланты\n"
-                "✓ Любовь и отношения\n"
-                "✓ Карьера и финансовый потенциал\n"
-                "✓ Сильные и слабые стороны\n"
-                "✓ Важные жизненные периоды\n"
-                "✓ Практические рекомендации на ближайшее время\n\n"
+                "🌌 Натальная карта — ваш личный астрологический портрет\n\n"
+                "Узнайте, что говорят звёзды о вашем характере, эмоциях, отношениях и предназначении:\n\n"
+                "✨ Портрет личности\n"
+                "🌙 Эмоциональный мир\n"
+                "🗣 Общение и отношения\n"
+                "⭐ Сильные стороны\n"
+                "🌱 Зоны роста\n"
+                "🎯 Таланты и интересы\n"
+                "💡 Практические рекомендации\n\n"
+                "✨ Персональный разбор составляется по дате, времени и месту рождения.\n\n"
                 "💰 Стоимость: 999 ₽",
                 reply_markup=get_astrology_payment_keyboard()
             )
@@ -1656,27 +1666,17 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            # --- НОВЫЙ БЛОК ---
-            # 1. Создаём калькулятор с данными пользователя
             calculator = AstrologyCalculator(user_data_from_db)
-
-            # 2. Получаем отформатированные параметры
             parameters_text = calculator.get_display_parameters()
-
-            # 3. Строим промпт (уже содержит аспекты)
             prompt = calculator.build_prompt()
-
-            # 4. Отправляем в нейросеть
             interpretation = gemini_service.send_raw_prompt(prompt)
 
-            # 5. Уменьшаем счётчик
-            await add_astrology_count(user_id, -1)
-
-            # 6. Удаляем статусное сообщение
-            await status_msg.delete()
-
-            # 7. Формируем финальное сообщение
+            # ✅ Сохраняем в архив (вместе с параметрами)
             final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n{interpretation}"
+            await save_message_to_archive(user_id, 'astrology', final_message)
+
+            await add_astrology_count(user_id, -1)
+            await status_msg.delete()
             await send_long_message(callback.message, final_message)
         else:
             await status_msg.edit_text("❌ Сервис временно недоступен.")
@@ -1781,14 +1781,16 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            # --- НОВЫЙ БЛОК ---
             calculator = AstrologyCalculator(user_data_from_db)
             parameters_text = calculator.get_display_parameters()
             prompt = calculator.build_prompt()
             interpretation = gemini_service.send_raw_prompt(prompt)
+
+            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n💬 Интерпретация нейросети:\n\n{interpretation}"
+            await save_message_to_archive(user_id, 'astrology', final_message)
+
             await add_astrology_count(user_id, -1)
             await status_msg.delete()
-            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n💬 Интерпретация нейросети:\n\n{interpretation}"
             await send_long_message(callback.message, final_message)
         else:
             await status_msg.edit_text("❌ Сервис временно недоступен.")
@@ -1931,14 +1933,16 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            # --- НОВЫЙ БЛОК ---
             calculator = AstrologyCalculator(user_data_for_calc)
             parameters_text = calculator.get_display_parameters()
             prompt = calculator.build_prompt()
             interpretation = gemini_service.send_raw_prompt(prompt)
+
+            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n💬 Интерпретация нейросети:\n\n{interpretation}"
+            await save_message_to_archive(user_id, 'astrology', final_message)
+
             await add_astrology_count(user_id, -1)
             await status_msg.delete()
-            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n💬 Интерпретация нейросети:\n\n{interpretation}"
             await send_long_message(message, final_message)
         else:
             await status_msg.edit_text("❌ Сервис временно недоступен.")
@@ -2205,9 +2209,10 @@ async def expert_request(message: Message):
         )
 
     expert_text = (
-        "👤 Экспертный разбор гороскопа\n\n"
-        "Индивидуальный разбор гороскопа экспертом.\n"
-        "Получите детальный анализ вашей натальной карты.\n\n"
+        "👩‍🏫 Личный астролог\n\n"
+        "Индивидуальный разбор от эксперта по астрологии.\n\n"
+        "Вы сможете задать вопросы и получить детальный анализ по интересующим вас темам. "
+        "Эксперт подготовит персональные рекомендации именно для вашей ситуации.\n\n"
         "💰 Стоимость: 5000 ₽\n\n"
         "Нажмите кнопку ниже, чтобы отправить заявку эксперту."
     )
@@ -2343,7 +2348,6 @@ async def subscribe_extend(callback: CallbackQuery):
 
 async def show_archive(message: Message):
     user_id = message.from_user.id
-
     messages = await get_user_archive(user_id, limit=10)
 
     if not messages:
@@ -2357,13 +2361,15 @@ async def show_archive(message: Message):
     type_display_map = {
         'horoscope': 'Гороскоп',
         'compatibility': 'Совместимость',
-        'natal_chart': 'Натальная карта',
+        'numerology': 'Нумерология',
+        'astrology': 'Астрология',
     }
 
     type_emoji_map = {
         'horoscope': '🔮',
         'compatibility': '💕',
-        'natal_chart': '🌌'
+        'numerology': '🔢',
+        'astrology': '🌙',
     }
 
     archive_text = "📚 Ваш архив прогнозов\n\n"
@@ -2415,6 +2421,7 @@ async def back_to_main_menu(callback: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("archive_"))
 async def show_archive_message(callback: CallbackQuery):
+    """Показать полное сообщение из архива"""
     await callback.answer()
 
     try:
@@ -2437,13 +2444,17 @@ async def show_archive_message(callback: CallbackQuery):
         type_emoji = {
             'horoscope': '🔮',
             'compatibility': '💕',
-            'natal_chart': '🌌'
+            'natal_chart': '🌌',
+            'numerology': '🔢',
+            'astrology': '🌙',
         }
 
         type_display = {
             'horoscope': 'Гороскоп',
             'compatibility': 'Совместимость',
-            'natal_chart': 'Натальная карта'
+            'natal_chart': 'Натальная карта',
+            'numerology': 'Нумерология',
+            'astrology': 'Астрология',
         }
 
         emoji = type_emoji.get(msg.message_type, '📝')
@@ -2456,7 +2467,8 @@ async def show_archive_message(callback: CallbackQuery):
             f"{msg.content}"
         )
 
-        await callback.message.answer(full_text, reply_markup=get_main_menu())
+        # --- Используем send_long_message для длинных сообщений ---
+        await send_long_message(callback.message, full_text)
 
     except Exception as e:
         await callback.message.answer(
@@ -2522,6 +2534,36 @@ async def cancel_subscription_callback(callback: CallbackQuery):
             f"❌ Ошибка при отмене подписки: {str(e)}",
             reply_markup=get_main_menu()
         )
+
+
+@dp.callback_query(F.data == "support")
+async def support(callback: CallbackQuery):
+    await callback.answer()
+    support_url = os.getenv('SUPPORT_URL', 'https://t.me/ваш_username')
+    text = (
+        "🆘 **Поддержка**\n\n"
+        "Если у вас возникли вопросы по работе бота, оплате, подписке или вы заметили ошибку, напишите администратору.\n\n"
+        "Мы постараемся ответить как можно быстрее 👇"
+    )
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_support_keyboard(support_url),
+        parse_mode="Markdown"
+    )
+
+
+@dp.callback_query(F.data == "back_to_profile")
+async def back_to_profile(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.delete()
+    # Создаём фейковое сообщение для вызова profile
+    class FakeMessage:
+        def __init__(self, callback):
+            self.from_user = callback.from_user
+            self.chat = callback.message.chat
+            self.answer = callback.message.answer
+    fake_msg = FakeMessage(callback)
+    await profile(fake_msg)
 
 
 @dp.callback_query(F.data == "check_payment")

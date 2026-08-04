@@ -66,7 +66,8 @@ class UserMessage(models.Model):
     MESSAGE_TYPES = [
         ('horoscope', 'Гороскоп'),
         ('compatibility', 'Совместимость'),
-        ('natal_chart', 'Натальная карта'),
+        ('numerology', 'Нумерология'),
+        ('astrology', 'Астрология'),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='messages')

@@ -267,11 +267,19 @@ def get_archive_keyboard(messages):
 
 
 def get_profile_keyboard():
-    """Клавиатура для профиля (изменить данные + отменить подписку)"""
     builder = InlineKeyboardBuilder()
     builder.button(text="✏️ Изменить данные", callback_data="edit_profile")
     builder.button(text="🕒 Сменить часовой пояс", callback_data="edit_timezone")
     builder.button(text="❌ Отменить подписку", callback_data="cancel_subscription")
+    builder.button(text="🆘 Поддержка", callback_data="support")  # <-- добавлено
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def get_support_keyboard(support_url: str):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💬 Написать в поддержку", url=support_url)
+    builder.button(text="❌ Отмена", callback_data="back_to_profile")
     builder.adjust(1)
     return builder.as_markup()
 
