@@ -46,6 +46,8 @@ def _save_user_data(telegram_id, data):
         user.gender = data.get('gender')
     if data.get('zodiac'):
         user.zodiac_sign = data.get('zodiac')
+    if data.get('timezone_offset') is not None:  # <-- добавлено
+        user.timezone_offset = data.get('timezone_offset')
     user.save()
     logger.info(f"✅ Данные пользователя {telegram_id} сохранены")
     return True

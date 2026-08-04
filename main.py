@@ -567,7 +567,7 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
     save_text = (
         f"🔐 Сохранить данные в ваш профиль чтобы не заполнять их каждый раз?\n\n"
         f"{profile_text}\n\n"
-        f"📄 Нажимая «Сохранить», вы даёте согласие на обработку персональных данных в соответствии с "
+        f"📄 Нажимая «**Сохранить**», вы даёте согласие на обработку персональных данных в соответствии с "
         f"[Политикой конфиденциальности]({privacy_url})."
     )
 
@@ -1102,32 +1102,32 @@ async def process_person2_gender(message: Message, state: FSMContext):
         await asyncio.sleep(1)
 
         if gemini_service:
-            # Вызываем обновлённый метод (использует новый CompatibilityCalculator)
             result = gemini_service.generate_compatibility_from_prompt(person1, person2)
 
             user_id = message.from_user.id
+
+            # --- Отмечаем использование совместимости ---
+            await mark_feature_used_db(user_id, 'compatibility')
+
+            # --- Сохраняем в архив ---
             await save_message_to_archive(user_id, 'compatibility', result)
 
+            # --- Удаляем статусное сообщение и отправляем результат ---
             await status_msg.delete()
             await send_long_message(message, f"💕 Анализ совместимости\n\n{result}")
-            # Проверяем подписку и отправляем промо, если нет
-            user_id = message.from_user.id
+
+            # --- Промо-сообщение, если нет подписки ---
             if not await check_subscription_db(user_id):
                 await message.answer(
                     "✨ Понравился разбор?\n\n"
                     "Получайте Совместимость без ограничений и персональный гороскоп автоматически каждое утро в 8:00.",
                     reply_markup=get_subscription_promo_keyboard()
                 )
-
         else:
-            await status_msg.edit_text(
-                "❌ Сервис астролога временно недоступен."
-            )
+            await status_msg.edit_text("❌ Сервис астролога временно недоступен.")
 
     except Exception as e:
-        await status_msg.edit_text(
-            f"❌ Произошла ошибка при анализе:\n{str(e)}"
-        )
+        await status_msg.edit_text(f"❌ Произошла ошибка при анализе:\n{str(e)}")
 
 
 # ==================== НУМЕРОЛОГИЯ ====================
