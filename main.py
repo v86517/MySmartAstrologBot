@@ -1281,13 +1281,15 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
+    # Сохраняем с флагом is_manual=False (данные из профиля)
     numerology_data[user_id] = {
         'name': user_data_from_db.get('name'),
         'birth_date': user_data_from_db.get('birth_date'),
         'birth_time': user_data_from_db.get('birth_time'),
         'birth_place': user_data_from_db.get('birth_place'),
         'gender': user_data_from_db.get('gender'),
-        'zodiac': user_data_from_db.get('zodiac')
+        'zodiac': user_data_from_db.get('zodiac'),
+        'is_manual': False   # <-- флаг
     }
 
     await state.clear()
@@ -1317,7 +1319,7 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             result = gemini_service.generate_numerology(numerology_data[user_id])
 
-            # ✅ Сохраняем в архив
+            # Сохраняем в архив
             await save_message_to_archive(user_id, 'numerology', result)
 
             # Уменьшаем количество доступных нумерологий
@@ -1329,6 +1331,9 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
             await status_msg.edit_text("❌ Сервис временно недоступен.")
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+    finally:
+        # Удаляем временные данные, если они остались
+        numerology_data.pop(user_id, None)
 
 
 @dp.callback_query(F.data == "numerology_fill_new_data")
@@ -1402,19 +1407,29 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
-    user_data_from_db = await get_user_data(user_id)
 
-    if not user_data_from_db or not user_data_from_db.get('name'):
-        await callback.message.answer(
-            "❌ Данные не найдены. Пожалуйста, начните заново.",
-            reply_markup=get_main_menu()
-        )
-        await state.clear()
-        return
+    # Проверяем, есть ли временные ручные данные
+    manual_data = numerology_data.get(user_id)
+    if manual_data and manual_data.get('is_manual') is True:
+        # Используем ручные данные
+        user_data = {k: v for k, v in manual_data.items() if k != 'is_manual'}
+        # Удаляем временные данные, чтобы они не использовались повторно
+        numerology_data.pop(user_id, None)
+    else:
+        # Используем данные из БД
+        user_data_from_db = await get_user_data(user_id)
+        if not user_data_from_db or not user_data_from_db.get('name'):
+            await callback.message.answer(
+                "❌ Данные не найдены. Пожалуйста, начните заново.",
+                reply_markup=get_main_menu()
+            )
+            await state.clear()
+            return
+        user_data = user_data_from_db
+        # Если были временные данные (например, от use_my_data), удаляем их
+        numerology_data.pop(user_id, None)
 
-    numerology_data[user_id] = user_data_from_db
-    await state.clear()
-
+    # Генерация
     status_msg = await callback.message.answer(
         "🌌 Начинаю расчёт нумерологии... 🔮"
     )
@@ -1428,18 +1443,23 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            result = gemini_service.generate_numerology(numerology_data[user_id])
+            result = gemini_service.generate_numerology(user_data)
 
-            # ✅ Сохраняем в архив
+            # Сохраняем в архив
             await save_message_to_archive(user_id, 'numerology', result)
 
+            # Уменьшаем количество доступных нумерологий
             await add_numerology_count(user_id, -1)
+
             await status_msg.delete()
             await send_long_message(callback.message, f"🌌 Ваш нумерологический разбор\n\n{result}")
         else:
             await status_msg.edit_text("❌ Сервис временно недоступен.")
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+    finally:
+        # Очистка на всякий случай
+        numerology_data.pop(user_id, None)
 
 
 # Сбор данных для нумерологии (аналогично натальной карте)
@@ -1524,10 +1544,7 @@ async def process_numerology_birth_place(message: Message, state: FSMContext):
 async def process_numerology_gender(message: Message, state: FSMContext):
     gender = message.text.upper()
     if gender not in ["М", "Ж"]:
-        await message.answer(
-            "❌ Напишите М или Ж:",
-            reply_markup=get_cancel_keyboard()
-        )
+        await message.answer("❌ Напишите М или Ж:", reply_markup=get_cancel_keyboard())
         return
 
     db_gender = 'M' if gender == 'М' else 'F'
@@ -1540,13 +1557,15 @@ async def process_numerology_gender(message: Message, state: FSMContext):
 
     # Если есть доступные нумерологии – показываем подтверждение
     if numer_count > 0:
+        # Сохраняем введённые данные с флагом is_manual=True
         numerology_data[user_id] = {
             'name': data.get('numerology_name'),
             'birth_date': data.get('numerology_birth_date'),
             'birth_time': data.get('numerology_birth_time'),
             'birth_place': data.get('numerology_birth_place'),
             'gender': db_gender,
-            'zodiac': data.get('numerology_zodiac')
+            'zodiac': data.get('numerology_zodiac'),
+            'is_manual': True   # <-- флаг: ручные данные
         }
 
         zodiac_emoji = get_zodiac_emoji(data.get('numerology_zodiac', 'Неизвестно'))
@@ -1576,7 +1595,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         await state.set_state(NumerologyStates.PAYMENT)
         return
 
-    # Старая логика (если оплата есть)
+    # Старая логика (если оплата есть, но это уже не требуется, но оставим для надёжности)
     user_data_for_calc = {
         'name': data.get('numerology_name'),
         'birth_date': data.get('numerology_birth_date'),
@@ -1621,6 +1640,8 @@ async def process_numerology_gender(message: Message, state: FSMContext):
             await status_msg.edit_text("❌ Сервис временно недоступен.")
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+    finally:
+        numerology_data.pop(user_id, None)
 
 
 @dp.callback_query(F.data == "edit_numerology_data")
@@ -1742,7 +1763,8 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         'birth_time': user_data_from_db.get('birth_time'),
         'birth_place': user_data_from_db.get('birth_place'),
         'gender': user_data_from_db.get('gender'),
-        'zodiac': user_data_from_db.get('zodiac')
+        'zodiac': user_data_from_db.get('zodiac'),
+        'is_manual': False   # <-- флаг: данные из профиля
     }
 
     await state.clear()
@@ -1775,7 +1797,6 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
             prompt = calculator.build_prompt()
             interpretation = gemini_service.send_raw_prompt(prompt)
 
-            # ✅ Сохраняем в архив (вместе с параметрами)
             final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n{interpretation}"
             await save_message_to_archive(user_id, 'astrology', final_message)
 
@@ -1786,6 +1807,9 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
             await status_msg.edit_text("❌ Сервис временно недоступен.")
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+    finally:
+        # Очищаем временные данные, если они остались
+        astrology_data.pop(user_id, None)
 
 
 @dp.callback_query(F.data == "astrology_fill_new_data")
@@ -1859,19 +1883,29 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
-    user_data_from_db = await get_user_data(user_id)
 
-    if not user_data_from_db or not user_data_from_db.get('name'):
-        await callback.message.answer(
-            "❌ Данные не найдены. Пожалуйста, начните заново.",
-            reply_markup=get_main_menu()
-        )
-        await state.clear()
-        return
+    # Проверяем, есть ли временные ручные данные
+    manual_data = astrology_data.get(user_id)
+    if manual_data and manual_data.get('is_manual') is True:
+        # Используем ручные данные
+        user_data = {k: v for k, v in manual_data.items() if k != 'is_manual'}
+        # Удаляем временные данные, чтобы они не использовались повторно
+        astrology_data.pop(user_id, None)
+    else:
+        # Используем данные из БД
+        user_data_from_db = await get_user_data(user_id)
+        if not user_data_from_db or not user_data_from_db.get('name'):
+            await callback.message.answer(
+                "❌ Данные не найдены. Пожалуйста, начните заново.",
+                reply_markup=get_main_menu()
+            )
+            await state.clear()
+            return
+        user_data = user_data_from_db
+        # Если были временные данные (например, от use_my_data), удаляем их
+        astrology_data.pop(user_id, None)
 
-    astrology_data[user_id] = user_data_from_db
-    await state.clear()
-
+    # Генерация
     status_msg = await callback.message.answer(
         "🌙 Начинаю астрологический расчёт... ✨"
     )
@@ -1885,7 +1919,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            calculator = AstrologyCalculator(user_data_from_db)
+            calculator = AstrologyCalculator(user_data)
             parameters_text = calculator.get_display_parameters()
             prompt = calculator.build_prompt()
             interpretation = gemini_service.send_raw_prompt(prompt)
@@ -1900,6 +1934,9 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
             await status_msg.edit_text("❌ Сервис временно недоступен.")
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+    finally:
+        # Очистка на всякий случай
+        astrology_data.pop(user_id, None)
 
 
 # Сбор данных для астрологии
@@ -2000,17 +2037,17 @@ async def process_astrology_gender(message: Message, state: FSMContext):
 
     # Если есть доступные астрологии – показываем подтверждение
     if astro_count > 0:
-        # Сохраняем введённые данные во временное хранилище (для использования в astrology_confirm)
+        # Сохраняем введённые данные во временное хранилище с флагом is_manual=True
         astrology_data[user_id] = {
             'name': data.get('astrology_name'),
             'birth_date': data.get('astrology_birth_date'),
             'birth_time': data.get('astrology_birth_time'),
             'birth_place': data.get('astrology_birth_place'),
             'gender': db_gender,
-            'zodiac': data.get('astrology_zodiac')
+            'zodiac': data.get('astrology_zodiac'),
+            'is_manual': True   # <-- флаг: ручные данные
         }
 
-        # Показываем подтверждение с введёнными данными
         zodiac_emoji = get_zodiac_emoji(data.get('astrology_zodiac', 'Неизвестно'))
         profile_text = (
             f"🌙 Астрология — узнай судьбу\n\n"
@@ -2089,6 +2126,9 @@ async def process_astrology_gender(message: Message, state: FSMContext):
             await status_msg.edit_text("❌ Сервис временно недоступен.")
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+    finally:
+        # Очистка временных данных
+        astrology_data.pop(user_id, None)
 
 
 @dp.callback_query(F.data == "edit_astrology_data")
