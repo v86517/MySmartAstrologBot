@@ -8,6 +8,10 @@ class User(models.Model):
         ('M', 'Мужской'),
         ('F', 'Женский'),
     ]
+    LANGUAGE_CHOICES = [
+        ('ru', 'Русский'),
+        ('en', 'English'),
+    ]
 
     TIMEZONE_CHOICES = [(i, f'UTC+{i}') for i in range(1, 13)]
 
@@ -24,6 +28,7 @@ class User(models.Model):
     timezone_offset = models.IntegerField(default=3, choices=TIMEZONE_CHOICES)  # смещение в часах от UTC (1..12)
     zodiac_sign = models.CharField(max_length=20, null=True, blank=True)
     extra_info = models.TextField(null=True, blank=True)
+    language = models.CharField(max_length=2, choices=LANGUAGE_CHOICES, default='ru')
 
     is_remembered = models.BooleanField(default=False)
     is_subscribed = models.BooleanField(default=False)
