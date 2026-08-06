@@ -263,6 +263,16 @@ def _get_all_subscribed_users():
         return []
 
 
+# ==================== ПОЛУЧЕНИЕ ЯЗЫКА ПОЛЬЗОВАТЕЛЯ ====================
+
+def _get_user_language(telegram_id):
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        return user.language
+    except User.DoesNotExist:
+        return 'ru'
+
+
 # ==================== АСИНХРОННЫЕ ОБЁРТКИ ====================
 
 get_or_create_user = sync_to_async(_get_or_create_user)
@@ -281,3 +291,4 @@ add_astrology_count = sync_to_async(_add_astrology_count)
 get_numerology_count = sync_to_async(_get_numerology_count)
 get_astrology_count = sync_to_async(_get_astrology_count)
 get_all_subscribed_users = sync_to_async(_get_all_subscribed_users)
+get_user_language = sync_to_async(_get_user_language)

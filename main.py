@@ -11,6 +11,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # Импорты из наших модулей
+from bot.utils.helpers import get_text
+
 from bot.keyboards.keyboards import (
     get_main_menu,
     get_zodiac_keyboard,
@@ -120,7 +122,6 @@ def format_profile_data(data: dict) -> str:
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-
     user_id = message.from_user.id
     username = message.from_user.username
     first_name = message.from_user.first_name
@@ -130,13 +131,9 @@ async def cmd_start(message: Message, state: FSMContext):
     if created:
         logger.info(f"✅ Новый пользователь: {user_id} (@{username})")
 
-    welcome_text = (
-        "✨ Добро пожаловать в <b>«Мой астролог»</b>!\n\n"
-        "🌙 Узнайте, что звёзды приготовили <b>именно для вас сегодня</b>.\n\n"
-        "Выберите раздел ниже <b>👇</b>"
-    )
-
+    welcome_text = await get_text(user_id, 'welcome')
     photo_path = "images/welcome.png"
+
     await message.answer_photo(
         photo=FSInputFile(photo_path),
         caption=welcome_text,
