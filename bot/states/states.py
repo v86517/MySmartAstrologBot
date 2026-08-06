@@ -48,3 +48,6 @@ class AstrologyStates(StatesGroup):
     WAITING_ZODIAC = State()
     CONFIRM_DATA = State()
     PAYMENT = State()
+
+class HoroscopeStates(StatesGroup):
+    CONFIRM = State()
