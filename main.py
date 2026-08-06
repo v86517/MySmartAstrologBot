@@ -38,7 +38,7 @@ from bot.keyboards.keyboards import (
     get_after_save_keyboard,
     get_subscription_promo_keyboard,
     get_subscription_payment_keyboard, get_fill_profile_keyboard,
-    get_support_keyboard,
+    get_support_keyboard, get_horoscope_confirm_keyboard,
 )
 from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates, HoroscopeStates
 from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji
