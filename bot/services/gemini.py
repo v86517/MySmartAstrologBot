@@ -33,9 +33,21 @@ class GeminiService:
             result = result.replace(f'{{{key}}}', str(value))
         return result
 
-    def generate_from_prompt(self, prompt_data: Dict[str, Any], prompt_file: str) -> str:
+    def _add_language_instruction(self, prompt: str, lang: str) -> str:
         """
-        Универсальный метод генерации из промпта
+        Добавляет инструкцию о языке ответа в конец промпта.
+        lang: 'ru' или 'en'
+        """
+        if lang == 'en':
+            instruction = "\n\n==================================================\nLANGUAGE INSTRUCTION:\nPlease respond in English only. All your output must be in English.\n=================================================="
+        else:
+            # Для русского можно не добавлять явную инструкцию, но добавим для надёжности
+            instruction = "\n\n==================================================\nЯЗЫКОВАЯ ИНСТРУКЦИЯ:\nОтвечай только на русском языке. Весь твой ответ должен быть на русском.\n=================================================="
+        return prompt + instruction
+
+    def generate_from_prompt(self, prompt_data: Dict[str, Any], prompt_file: str, lang: str = 'ru') -> str:
+        """
+        Универсальный метод генерации из промпта с указанием языка.
         """
         # Загружаем шаблон
         template = self._load_prompt_template(prompt_file)
@@ -45,6 +57,9 @@ class GeminiService:
 
         # Заменяем плейсхолдеры
         prompt = self._replace_placeholders(template, prompt_data)
+
+        # Добавляем языковую инструкцию
+        prompt = self._add_language_instruction(prompt, lang)
 
         # Отправляем запрос
         headers = {
@@ -84,11 +99,13 @@ class GeminiService:
         except Exception as e:
             return f"❌ Ошибка: {str(e)}"
 
-    def _send_prompt(self, prompt: str) -> str:
+    def _send_prompt(self, prompt: str, lang: str = 'ru') -> str:
         """
-        Отправляет произвольный готовый промпт в нейросеть.
-        Используется для методов, которые сами формируют промпт без шаблона.
+        Отправляет произвольный готовый промпт в нейросеть с указанием языка.
         """
+        # Добавляем языковую инструкцию
+        prompt = self._add_language_instruction(prompt, lang)
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -123,7 +140,7 @@ class GeminiService:
         except Exception as e:
             return f"❌ Ошибка: {str(e)}"
 
-    def generate_horoscope(self, user_data: Dict[str, Any], date: str = None) -> str:
+    def generate_horoscope(self, user_data: Dict[str, Any], date: str = None, lang: str = 'ru') -> str:
         """
         Генерация гороскопа с использованием транзитов
         """
@@ -132,13 +149,12 @@ class GeminiService:
         calculator = TransitHoroscopeCalculator(user_data)
         prompt_data = calculator.calculate()
 
-        # Если дата передана, заменяем target_date (для тестов)
         if date:
             prompt_data['target_date'] = date
 
-        return self.generate_from_prompt(prompt_data, 'prompt_horoscope.txt')
+        return self.generate_from_prompt(prompt_data, 'prompt_horoscope.txt', lang)
 
-    def generate_compatibility_from_prompt(self, person1: Dict[str, Any], person2: Dict[str, Any]) -> str:
+    def generate_compatibility_from_prompt(self, person1: Dict[str, Any], person2: Dict[str, Any], lang: str = 'ru') -> str:
         """
         Генерация совместимости с использованием астрологических данных.
         """
@@ -146,9 +162,9 @@ class GeminiService:
 
         calculator = CompatibilityCalculator(person1, person2)
         prompt_data = calculator.get_prompt_data()
-        return self.generate_from_prompt(prompt_data, 'prompt_connect.txt')
+        return self.generate_from_prompt(prompt_data, 'prompt_connect.txt', lang)
 
-    def generate_natal_chart(self, user_data: Dict[str, Any]) -> str:
+    def generate_natal_chart(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
         """
         Генерация натальной карты (устаревший метод, оставлен для совместимости)
         """
@@ -163,9 +179,9 @@ class GeminiService:
         )
 
         prompt_data = calculator.get_prompt_data()
-        return self.generate_from_prompt(prompt_data, 'prompt_natal_chart.txt')
+        return self.generate_from_prompt(prompt_data, 'prompt_natal_chart.txt', lang)
 
-    def generate_numerology(self, user_data: Dict[str, Any]) -> str:
+    def generate_numerology(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
         """
         Генерация нумерологического разбора с использованием расчётов
         """
@@ -180,9 +196,9 @@ class GeminiService:
         )
 
         prompt_data = calculator.get_prompt_data()
-        return self.generate_from_prompt(prompt_data, 'prompt_numerology.txt')
+        return self.generate_from_prompt(prompt_data, 'prompt_numerology.txt', lang)
 
-    def generate_astrology(self, user_data: Dict[str, Any]) -> str:
+    def generate_astrology(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
         """
         Генерация астрологического разбора с использованием специализированного расчёта
         и промпта, построенного на основе натальной карты.
@@ -192,15 +208,15 @@ class GeminiService:
         try:
             calculator = AstrologyCalculator(user_data)
             prompt = calculator.build_prompt()
-            return self._send_prompt(prompt)
+            return self._send_prompt(prompt, lang)
         except Exception as e:
             return f"❌ Ошибка при расчёте астрологии: {str(e)}"
 
-    def send_raw_prompt(self, prompt: str) -> str:
+    def send_raw_prompt(self, prompt: str, lang: str = 'ru') -> str:
         """Отправляет готовый промпт в нейросеть (без повторных расчётов)."""
-        return self._send_prompt(prompt)
+        return self._send_prompt(prompt, lang)
 
     # Резервный метод для обратной совместимости
-    def generate_compatibility(self, person1: Dict[str, Any], person2: Dict[str, Any]) -> str:
+    def generate_compatibility(self, person1: Dict[str, Any], person2: Dict[str, Any], lang: str = 'ru') -> str:
         """Резервный метод"""
-        return self.generate_compatibility_from_prompt(person1, person2)
+        return self.generate_compatibility_from_prompt(person1, person2, lang)

@@ -38,9 +38,9 @@ from bot.keyboards.keyboards import (
     get_subscription_promo_keyboard,
     get_save_data_keyboard,
     get_after_save_keyboard,
-    get_subscription_promo_keyboard,
     get_subscription_payment_keyboard, get_fill_profile_keyboard,
     get_support_keyboard, get_horoscope_confirm_keyboard,
+    get_language_keyboard,
 )
 from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates, HoroscopeStates
 from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji
@@ -56,7 +56,8 @@ from bot.db import (
     mark_feature_used_db,
     save_message_to_archive,
     get_user_archive,
-    get_archive_message
+    get_archive_message,
+    get_user_language
 )
 from bot.scheduler import setup_scheduler, send_daily_horoscopes
 from asgiref.sync import sync_to_async
@@ -146,6 +147,8 @@ async def cmd_start(message: Message, state: FSMContext):
 async def cmd_menu(message: Message, state: FSMContext):
     """Показать главное меню"""
     await state.clear()
+    user_id = message.from_user.id
+    # Просто пробел как заглушка
     await message.answer(
         " ",
         reply_markup=get_main_menu()
@@ -165,14 +168,13 @@ async def start_horoscope(message: Message, state: FSMContext):
         user_data = await get_user_data(user_id)
         if user_data and user_data.get('name'):
             zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
-            profile_text = (
-                f"🔮 Гороскоп на сегодня!\n\n"
-                f"Ваши данные:\n"
-                f"👤 Имя: {user_data.get('name', 'Не указано')}\n"
-                f"📅 Дата рождения: {user_data.get('birth_date', 'Не указана')}\n"
-                f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
-                f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
-                f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}"
+            profile_text = await get_text(user_id, 'horoscope_confirm_data').format(
+                name=user_data.get('name', 'Не указано'),
+                birth_date=user_data.get('birth_date', 'Не указана'),
+                birth_time=user_data.get('birth_time', 'Не указано'),
+                birth_place=user_data.get('birth_place', 'Не указано'),
+                emoji=zodiac_emoji,
+                zodiac=user_data.get('zodiac', 'Неизвестно')
             )
             await state.set_state(HoroscopeStates.CONFIRM)
             await message.answer(
@@ -183,11 +185,7 @@ async def start_horoscope(message: Message, state: FSMContext):
             # Если данных нет – предлагаем заполнить (как обычно)
             await state.set_state(UserDataStates.WAITING_NAME)
             await message.answer(
-                "🔮 Давайте познакомимся!\n\n"
-                "✨ Чтобы составить персональный прогноз,\n"
-                "мне нужно немного узнать о вас.\n"
-                "Это займет меньше минуты.\n\n"
-                "❓ Как вас зовут?",
+                await get_text(user_id, 'horoscope_intro'),
                 reply_markup=get_cancel_keyboard()
             )
         return
@@ -195,9 +193,7 @@ async def start_horoscope(message: Message, state: FSMContext):
     # Если подписки нет – проверяем лимит и генерируем сразу
     if not await can_use_feature_db(user_id, 'horoscope'):
         await message.answer(
-            "✨ Сегодняшний бесплатный прогноз уже готов.\n\n"
-            "Получайте новые прогнозы без ограничений\n"
-            "за 333 ₽ в месяц.",
+            await get_text(user_id, 'horoscope_free_ready'),
             reply_markup=get_subscription_keyboard()
         )
         return
@@ -205,37 +201,34 @@ async def start_horoscope(message: Message, state: FSMContext):
     user_data = await get_user_data(user_id)
     if user_data and user_data.get('name'):
         if not gemini_service:
-            await message.answer("❌ Сервис астролога временно недоступен.")
+            await message.answer(await get_text(user_id, 'error_service_unavailable'))
             return
 
-        status_msg = await message.answer("✨ Изучаю положение планет...")
+        status_msg = await message.answer(await get_text(user_id, 'horoscope_status_planets'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("🌙 Строю натальную карту...")
+        await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("⭐ Анализирую влияние созвездий...")
+        await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
         await asyncio.sleep(1)
 
+        lang = await get_user_language(user_id)
         today = datetime.now().strftime("%d.%m.%Y")
-        horoscope = gemini_service.generate_horoscope(user_data, today)
+        horoscope = gemini_service.generate_horoscope(user_data, today, lang)
         await save_message_to_archive(user_id, 'horoscope', horoscope)
         await mark_feature_used_db(user_id, 'horoscope')
         await status_msg.delete()
-        await send_long_message(message, f"🔮 Ваш гороскоп на {today}\n\n{horoscope}")
+        result_text = await get_text(user_id, 'horoscope_result').format(date=today, horoscope=horoscope)
+        await send_long_message(message, result_text)
 
         if not is_subscribed:
             await message.answer(
-                "✨ Понравился прогноз?\n\n"
-                "Получайте персональный гороскоп автоматически каждое утро в 8:00 и используйте Совместимость без ограничений.",
+                await get_text(user_id, 'horoscope_promo'),
                 reply_markup=get_subscription_promo_keyboard()
             )
     else:
         await state.set_state(UserDataStates.WAITING_NAME)
         await message.answer(
-            "🔮 Давайте познакомимся!\n\n"
-            "✨ Чтобы составить персональный прогноз,\n"
-            "мне нужно немного узнать о вас.\n"
-            "Это займет меньше минуты.\n\n"
-            "❓ Как вас зовут?",
+            await get_text(user_id, 'horoscope_intro'),
             reply_markup=get_cancel_keyboard()
         )
 
@@ -244,6 +237,7 @@ async def start_horoscope(message: Message, state: FSMContext):
 
 @dp.message(UserDataStates.WAITING_NAME)
 async def process_name(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
     new_data = state_data.get('new_data', {})
@@ -261,15 +255,17 @@ async def process_name(message: Message, state: FSMContext):
         await state.update_data(new_data=new_data)
 
         await state.set_state(UserDataStates.WAITING_BIRTH_DATE)
+        prompt = await get_text(user_id, 'skip_birth_date').format(
+            date=old.get('birth_date', 'не указана')
+        )
         await message.answer(
-            f"✏️ Текущая дата рождения: {old.get('birth_date', 'не указана')}\n\n"
-            "Введите новую дату в формате ДД.ММ.ГГГГ или нажмите «Пропустить».",
+            prompt,
             reply_markup=get_skip_keyboard()
         )
         logger.info(f"📝 Шаг ИМЯ, new_data после: {new_data}")
     else:
         if len(message.text) < 2:
-            await message.answer("❌ Имя должно содержать хотя бы 2 символа. Попробуйте еще раз:")
+            await message.answer(await get_text(user_id, 'error_name_min'))
             return
         await state.update_data(name=message.text)
         await state.set_state(UserDataStates.WAITING_BIRTH_DATE)
@@ -285,6 +281,7 @@ async def process_name(message: Message, state: FSMContext):
 
 @dp.message(UserDataStates.WAITING_BIRTH_DATE)
 async def process_birth_date(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
     new_data = state_data.get('new_data', {})
@@ -302,8 +299,8 @@ async def process_birth_date(message: Message, state: FSMContext):
                 logger.info(f"📝 Шаг ДАТА, обновлена дата: {new_data['birth_date']}, знак: {new_data['zodiac']}")
             except ValueError:
                 await message.answer(
-                    "❌ Неверная дата! Попробуйте еще раз.",
-                    reply_markup=get_cancel_keyboard()  # <-- добавлено
+                    await get_text(user_id, 'error_invalid_date'),
+                    reply_markup=get_cancel_keyboard()
                 )
                 return
         else:
@@ -312,9 +309,11 @@ async def process_birth_date(message: Message, state: FSMContext):
         await state.update_data(new_data=new_data)
 
         await state.set_state(UserDataStates.WAITING_BIRTH_TIME)
+        prompt = await get_text(user_id, 'skip_birth_time').format(
+            time=old.get('birth_time', 'не указано')
+        )
         await message.answer(
-            f"✏️ Текущее время рождения: {old.get('birth_time', 'не указано')}\n\n"
-            "Введите новое время в формате ЧЧ:ММ или нажмите «Пропустить».",
+            prompt,
             reply_markup=get_skip_keyboard()
         )
         logger.info(f"📝 Шаг ДАТА, new_data после: {new_data}")
@@ -322,9 +321,7 @@ async def process_birth_date(message: Message, state: FSMContext):
         date_pattern = r'^\d{2}\.\d{2}\.\d{4}$'
         if not re.match(date_pattern, message.text):
             await message.answer(
-                "❌ Неверный формат!\n\n"
-                "Используйте формат ДД.ММ.ГГГГ\n"
-                "Например: 15.03.1990",
+                await get_text(user_id, 'error_invalid_date_format'),
                 reply_markup=get_cancel_keyboard()
             )
             return
@@ -344,8 +341,8 @@ async def process_birth_date(message: Message, state: FSMContext):
             )
         except ValueError:
             await message.answer(
-                "❌ Неверная дата! Попробуйте еще раз:",
-                reply_markup=get_cancel_keyboard()  # <-- добавлено
+                await get_text(user_id, 'error_invalid_date'),
+                reply_markup=get_cancel_keyboard()
             )
 
 
@@ -353,6 +350,7 @@ async def process_birth_date(message: Message, state: FSMContext):
 
 @dp.message(UserDataStates.WAITING_BIRTH_TIME)
 async def process_birth_time(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
     new_data = state_data.get('new_data', {})
@@ -367,7 +365,7 @@ async def process_birth_time(message: Message, state: FSMContext):
                 new_data['birth_time'] = message.text
                 logger.info(f"📝 Шаг ВРЕМЯ, обновлено время: {new_data['birth_time']}")
             except ValueError:
-                await message.answer("❌ Неверное время! Попробуйте еще раз.")
+                await message.answer(await get_text(user_id, 'error_invalid_time'))
                 return
         else:
             logger.info("📝 Шаг ВРЕМЯ, время не изменено")
@@ -375,9 +373,11 @@ async def process_birth_time(message: Message, state: FSMContext):
         await state.update_data(new_data=new_data)
 
         await state.set_state(UserDataStates.WAITING_BIRTH_PLACE)
+        prompt = await get_text(user_id, 'skip_birth_place').format(
+            place=old.get('birth_place', 'не указано')
+        )
         await message.answer(
-            f"✏️ Текущее место рождения: {old.get('birth_place', 'не указано')}\n\n"
-            "Введите новое место (город, страна) или нажмите «Пропустить».",
+            prompt,
             reply_markup=get_skip_keyboard()
         )
         logger.info(f"📝 Шаг ВРЕМЯ, new_data после: {new_data}")
@@ -385,9 +385,7 @@ async def process_birth_time(message: Message, state: FSMContext):
         time_pattern = r'^\d{2}:\d{2}$'
         if not re.match(time_pattern, message.text):
             await message.answer(
-                "❌ Неверный формат!\n\n"
-                "Используйте формат ЧЧ:ММ\n"
-                "Например: 15:30",
+                await get_text(user_id, 'error_invalid_time_format'),
                 reply_markup=get_cancel_keyboard()
             )
             return
@@ -400,11 +398,11 @@ async def process_birth_time(message: Message, state: FSMContext):
                 "Укажите место рождения:\n"
                 "Город, Страна\n\n"
                 "Например: Москва, Россия",
-                reply_markup=get_cancel_keyboard()  # <-- добавлено
+                reply_markup=get_cancel_keyboard()
             )
         except ValueError:
             await message.answer(
-                "❌ Неверное время! Попробуйте еще раз:",
+                await get_text(user_id, 'error_invalid_time'),
                 reply_markup=get_cancel_keyboard()
             )
 
@@ -413,6 +411,7 @@ async def process_birth_time(message: Message, state: FSMContext):
 
 @dp.message(UserDataStates.WAITING_BIRTH_PLACE)
 async def process_birth_place(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
     new_data = state_data.get('new_data', {})
@@ -439,16 +438,16 @@ async def process_birth_place(message: Message, state: FSMContext):
         else:
             gender_display = 'не указан'
 
+        prompt = await get_text(user_id, 'skip_gender').format(gender=gender_display)
         await message.answer(
-            f"✏️ Текущий пол: {gender_display}\n\n"
-            "Введите новый пол (М или Ж) или нажмите «Пропустить».",
+            prompt,
             reply_markup=get_skip_keyboard()
         )
         logger.info(f"📝 Шаг МЕСТО, new_data после: {new_data}")
     else:
         if len(message.text) < 3:
             await message.answer(
-                "❌ Укажите город и страну (минимум 3 символа):",
+                await get_text(user_id, 'error_invalid_place'),
                 reply_markup=get_cancel_keyboard()
             )
             return
@@ -468,6 +467,7 @@ async def process_birth_place(message: Message, state: FSMContext):
 
 @dp.message(UserDataStates.WAITING_GENDER)
 async def process_gender(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     gender = message.text.upper()
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
@@ -482,13 +482,11 @@ async def process_gender(message: Message, state: FSMContext):
         else:
             logger.info("📝 Шаг ПОЛ, пол не изменён")
 
-        # Сохраняем обновлённые данные в состояние
         await state.update_data(new_data=new_data)
 
-        # Переходим к выбору часового пояса (с флагом is_edit=True)
         await state.set_state(UserDataStates.WAITING_TIMEZONE)
         await message.answer(
-            "🕒 Выберите ваш часовой пояс:",
+            await get_text(user_id, 'choose_timezone'),
             reply_markup=get_timezone_keyboard()
         )
         return
@@ -496,8 +494,8 @@ async def process_gender(message: Message, state: FSMContext):
     # ----- Обычный режим (первое заполнение) -----
     if gender not in ["М", "Ж"]:
         await message.answer(
-            "❌ Пожалуйста, напишите только одну букву:\nМ - мужской\nЖ - женский",
-            reply_markup=get_cancel_keyboard()  # <-- добавлено
+            await get_text(user_id, 'error_gender_only'),
+            reply_markup=get_cancel_keyboard()
         )
         return
 
@@ -522,30 +520,31 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
     user_data = await get_user_data(user_id)
 
     if not user_data or not user_data.get('name'):
-        await callback.message.answer("❌ Данные не найдены. Начните заново.")
+        await callback.message.answer(await get_text(user_id, 'error_not_found'))
         await state.clear()
         return
 
     if not gemini_service:
-        await callback.message.answer("❌ Сервис астролога временно недоступен.")
+        await callback.message.answer(await get_text(user_id, 'error_service_unavailable'))
         await state.clear()
         return
 
-    status_msg = await callback.message.answer("✨ Изучаю положение планет...")
+    status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
     await asyncio.sleep(1)
-    await status_msg.edit_text("🌙 Строю натальную карту...")
+    await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
     await asyncio.sleep(1)
-    await status_msg.edit_text("⭐ Анализирую влияние созвездий...")
+    await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
     await asyncio.sleep(1)
 
+    lang = await get_user_language(user_id)
     today = datetime.now().strftime("%d.%m.%Y")
-    horoscope = gemini_service.generate_horoscope(user_data, today)
+    horoscope = gemini_service.generate_horoscope(user_data, today, lang)
     await save_message_to_archive(user_id, 'horoscope', horoscope)
     await status_msg.delete()
-    await send_long_message(callback.message, f"🔮 Ваш гороскоп на {today}\n\n{horoscope}")
+    result_text = await get_text(user_id, 'horoscope_result').format(date=today, horoscope=horoscope)
+    await send_long_message(callback.message, result_text)
 
     await state.clear()
-    # Показываем главное меню
     await callback.message.answer(" ", reply_markup=get_main_menu())
 
 
@@ -555,9 +554,9 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
 async def cancel(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.delete()
+    user_id = callback.from_user.id
     await callback.message.answer(
-        "❌ Сбор данных отменен.\n"
-        "Вы можете начать заново, нажав на нужную кнопку в меню",
+        await get_text(user_id, 'error_cancel'),
         reply_markup=get_main_menu()
     )
     await callback.answer()
@@ -589,11 +588,9 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         await save_user_data(user_id, new_data)
         await state.clear()
         profile_text = format_profile_data(new_data)
+        msg = await get_text(user_id, 'profile_updated').format(profile=profile_text)
         await callback.message.delete()
-        await callback.message.answer(
-            f"✅ Данные успешно обновлены!\n\n{profile_text}",
-            reply_markup=get_profile_keyboard()
-        )
+        await callback.message.answer(msg, reply_markup=get_profile_keyboard())
         return
 
     # ---- Режим заполнения профиля через кнопку "Заполнить и Сохранить" ----
@@ -603,11 +600,9 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         await save_user_data(user_id, temp_data)
         await state.clear()
         profile_text = format_profile_data(temp_data)
+        msg = await get_text(user_id, 'profile_data_saved').format(profile=profile_text)
         await callback.message.delete()
-        await callback.message.answer(
-            f"✅ Данные сохранены!\n\n{profile_text}",
-            reply_markup=get_profile_keyboard()
-        )
+        await callback.message.answer(msg, reply_markup=get_profile_keyboard())
         return
 
     # ---- Режим смены часового пояса (отдельная кнопка) ----
@@ -620,11 +615,9 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         user_data = await get_user_data(user_id)
         profile_text = format_profile_data(user_data)
+        msg = await get_text(user_id, 'timezone_updated').format(profile=profile_text)
         await callback.message.delete()
-        await callback.message.answer(
-            f"✅ Часовой пояс обновлён!\n\n{profile_text}",
-            reply_markup=get_profile_keyboard()
-        )
+        await callback.message.answer(msg, reply_markup=get_profile_keyboard())
         return
 
     # ---- Обычный режим (первое заполнение) ----
@@ -635,11 +628,9 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
     profile_text = format_profile_data(temp_data)
     privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
 
-    save_text = (
-        f"🔐 Сохранить данные в ваш профиль чтобы не заполнять их каждый раз?\n\n"
-        f"{profile_text}\n\n"
-        f"📄 Нажимая «**Сохранить**», вы даёте согласие на обработку персональных данных в соответствии с "
-        f"[Политикой конфиденциальности]({privacy_url})."
+    save_text = await get_text(user_id, 'profile_save_confirm').format(
+        profile=profile_text,
+        privacy_url=privacy_url
     )
 
     await state.set_state(UserDataStates.ASKING_SAVE)
@@ -671,17 +662,13 @@ async def save_data(callback: CallbackQuery, state: FSMContext):
     temp_data = state_data.get('temp_data', {})
     user_id = callback.from_user.id
 
-    # Сохраняем все данные в БД
     await save_user_data(user_id, temp_data)
-
-    # Очищаем состояние
     await state.clear()
 
-    # Показываем сообщение с профилем и кнопкой "Отмена"
     profile_text = format_profile_data(temp_data)
+    msg = await get_text(user_id, 'profile_data_saved').format(profile=profile_text)
     await callback.message.edit_text(
-        f"✅ Данные сохранены!\n\n{profile_text}\n\n"
-        "Чтобы продолжить нажмите ещё раз \"🔮 Гороскоп на сегодня\".",
+        f"{msg}\n\n{await get_text(user_id, 'profile_continue_prompt')}",
         reply_markup=get_after_save_keyboard()
     )
 
@@ -693,45 +680,32 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     temp_data = state_data.get('temp_data', {})
     user_id = callback.from_user.id
 
-    # Удаляем сообщение с вопросом
     await callback.message.delete()
 
-    # Показываем статус
-    status_msg = await callback.message.answer("✨ Изучаю положение планет...")
+    status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
     await asyncio.sleep(1)
-    await status_msg.edit_text("🌙 Строю натальную карту...")
+    await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
     await asyncio.sleep(1)
-    await status_msg.edit_text("⭐ Анализирую влияние созвездий...")
+    await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
     await asyncio.sleep(1)
 
-    # Генерируем гороскоп на основе временных данных
+    lang = await get_user_language(user_id)
     today = datetime.now().strftime("%d.%m.%Y")
-    horoscope = gemini_service.generate_horoscope(temp_data, today)
-
-    # Отмечаем использование гороскопа (для лимитов)
+    horoscope = gemini_service.generate_horoscope(temp_data, today, lang)
     await mark_feature_used_db(user_id, 'horoscope')
-
-    # Сохраняем в архив
     await save_message_to_archive(user_id, 'horoscope', horoscope)
-
-    # Удаляем статусное сообщение и отправляем результат
     await status_msg.delete()
-    await callback.message.answer(
-        f"🔮 Ваш гороскоп на {today}\n\n{horoscope}"
-    )
+    result_text = await get_text(user_id, 'horoscope_result').format(date=today, horoscope=horoscope)
+    await callback.message.answer(result_text)
 
-    # Очищаем состояние
     await state.clear()
 
-    # Если нет подписки – показываем промо с инлайн-кнопкой
     if not await check_subscription_db(user_id):
         await callback.message.answer(
-            "✨ Понравился прогноз?\n\n"
-            "Получайте персональный гороскоп автоматически каждое утро в 8:00 и используйте Совместимость без ограничений.",
+            await get_text(user_id, 'horoscope_promo'),
             reply_markup=get_subscription_promo_keyboard()
         )
 
-    # Показываем главное меню с минимальным текстом (пробел)
     await callback.message.answer(" ", reply_markup=get_main_menu())
 
 @dp.callback_query(F.data == "close_subscription")
@@ -754,9 +728,7 @@ async def start_compatibility(message: Message, state: FSMContext):
     # Проверка лимита
     if not await can_use_feature_db(user_id, 'compatibility'):
         await message.answer(
-            "✨ Сегодняшний бесплатный анализ совместимости уже использован.\n\n"
-            "Получайте неограниченный доступ\n"
-            "за 333 ₽ в месяц.",
+            await get_text(user_id, 'compatibility_limit'),
             reply_markup=get_subscription_keyboard()
         )
         return
@@ -764,19 +736,17 @@ async def start_compatibility(message: Message, state: FSMContext):
     user_data = await get_user_data(user_id)
 
     if user_data and user_data.get('name'):
-        # Данные есть – предлагаем использовать их или заполнить заново
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+        gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'
 
-        profile_text = (
-            f"💕 Анализ совместимости\n\n"
-            f"👤 Ваши данные (Человек 1):\n"
-            f"Имя: {user_data.get('name', 'Не указано')}\n"
-            f"📅 Дата рождения: {user_data.get('birth_date', 'Не указана')}\n"
-            f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
-            f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
-            f"👤 Пол: {'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'}\n"
-            f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n\n"
-            "Хотите использовать эти данные для анализа совместимости?"
+        profile_text = await get_text(user_id, 'compatibility_use_data').format(
+            name=user_data.get('name', 'Не указано'),
+            birth_date=user_data.get('birth_date', 'Не указана'),
+            birth_time=user_data.get('birth_time', 'Не указано'),
+            birth_place=user_data.get('birth_place', 'Не указано'),
+            gender=gender_display,
+            emoji=zodiac_emoji,
+            zodiac=user_data.get('zodiac', 'Неизвестно')
         )
 
         await message.answer(
@@ -784,27 +754,13 @@ async def start_compatibility(message: Message, state: FSMContext):
             reply_markup=get_compatibility_keyboard()
         )
 
-        # Сохраняем данные в состояние для дальнейшего использования
         await state.update_data(person1_data=user_data)
         await state.set_state(CompatibilityStates.CONFIRM_DATA)
 
     else:
-        # Данных нет – начинаем сбор
         await state.set_state(CompatibilityStates.WAITING_PERSON1_NAME)
         await message.answer(
-            "💕 Анализ совместимости двух людей\n\n"
-            "Узнайте, насколько вы подходите друг другу в общении, работе, дружбе, семье или отношениях.\n\n"
-            "Вы получите:\n"
-            "💫 Энергетическую совместимость\n"
-            "🔥 Психологическую совместимость\n"
-            "💼 Финансовую и деловую совместимость\n"
-            "❤️ Любовную совместимость\n"
-            "🌿 Кармическую связь\n"
-            "📅 Прогноз на сегодня\n"
-            "⭐ Итоговую оценку и советы\n\n"
-            "✨ Персональный разбор готовится меньше минуты.\n\n"
-            "💕 Давайте заполним данные для анализа совместимости.\n"
-            "Сначала введите имя человека 1 (это вы):",
+            await get_text(user_id, 'compatibility_intro'),
             reply_markup=get_cancel_keyboard()
         )
 
@@ -821,20 +777,17 @@ async def use_my_data(callback: CallbackQuery, state: FSMContext):
 
     if not person1:
         await callback.message.answer(
-            "❌ Данные не найдены. Пожалуйста, заполните заново.",
+            await get_text(user_id, 'error_not_found'),
             reply_markup=get_main_menu()
         )
         await state.clear()
         return
 
     await state.update_data(person1=person1)
-
     await state.set_state(CompatibilityStates.WAITING_PERSON2_NAME)
 
     await callback.message.answer(
-        "✅ Отлично! Данные человека 1 сохранены.\n\n"
-        "Теперь введите данные человека 2:\n"
-        "❓ Как зовут человека 2?",
+        await get_text(user_id, 'compatibility_person1_saved'),
         reply_markup=get_cancel_keyboard()
     )
 
@@ -842,10 +795,11 @@ async def use_my_data(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "fill_person1")
 async def fill_person1(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
+    user_id = callback.from_user.id
     await state.set_state(CompatibilityStates.WAITING_PERSON1_NAME)
 
     await callback.message.answer(
-        "✏️ Введите имя человека 1:",
+        await get_text(user_id, 'compatibility_edit_name'),
         reply_markup=get_cancel_keyboard()
     )
     await callback.answer()
@@ -855,29 +809,28 @@ async def fill_person1(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(CompatibilityStates.WAITING_PERSON1_NAME)
 async def process_person1_name(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     if len(message.text) < 2:
-        await message.answer("❌ Имя должно содержать хотя бы 2 символа:")
+        await message.answer(await get_text(user_id, 'error_name_short'))
         return
 
     await state.update_data(person1_name=message.text)
     await state.set_state(CompatibilityStates.WAITING_PERSON1_BIRTH_DATE)
 
     await message.answer(
-        f"✅ Имя: {message.text}\n\n"
-        "📅 Введите дату рождения человека 1 в формате ДД.ММ.ГГГГ\n"
-        "Например: 15.03.1990",
+        await get_text(user_id, 'compatibility_person1_name').format(name=message.text),
         reply_markup=get_cancel_keyboard()
     )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON1_BIRTH_DATE)
 async def process_person1_birth_date(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     date_pattern = r'^\d{2}\.\d{2}\.\d{4}$'
 
     if not re.match(date_pattern, message.text):
         await message.answer(
-            "❌ Неверный формат! Используйте ДД.ММ.ГГГГ\n"
-            "Например: 15.03.1990",
+            await get_text(user_id, 'error_invalid_date_format'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -893,28 +846,28 @@ async def process_person1_birth_date(message: Message, state: FSMContext):
         await state.set_state(CompatibilityStates.WAITING_PERSON1_BIRTH_TIME)
 
         await message.answer(
-            f"✅ Знак зодиака: {get_zodiac_emoji(zodiac)} {zodiac}\n\n"
-            "🕒 Введите время рождения человека 1 (ЧЧ:ММ)\n"
-            "Например: 15:30\n"
-            "Если не знаете - напишите 00:00",
+            await get_text(user_id, 'compatibility_person1_birth_date').format(
+                emoji=get_zodiac_emoji(zodiac),
+                zodiac=zodiac
+            ),
             reply_markup=get_cancel_keyboard()
         )
 
     except ValueError:
         await message.answer(
-            "❌ Неверная дата! Попробуйте еще раз:",
+            await get_text(user_id, 'error_invalid_date'),
             reply_markup=get_cancel_keyboard()
         )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON1_BIRTH_TIME)
 async def process_person1_birth_time(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     time_pattern = r'^\d{2}:\d{2}$'
 
     if not re.match(time_pattern, message.text):
         await message.answer(
-            "❌ Неверный формат! Используйте ЧЧ:ММ\n"
-            "Например: 15:30",
+            await get_text(user_id, 'error_invalid_time_format'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -925,24 +878,23 @@ async def process_person1_birth_time(message: Message, state: FSMContext):
         await state.set_state(CompatibilityStates.WAITING_PERSON1_BIRTH_PLACE)
 
         await message.answer(
-            "📍 Введите место рождения человека 1:\n"
-            "Город, Страна\n"
-            "Например: Москва, Россия",
+            await get_text(user_id, 'compatibility_person1_birth_time'),
             reply_markup=get_cancel_keyboard()
         )
 
     except ValueError:
         await message.answer(
-            "❌ Неверное время! Попробуйте еще раз:",
+            await get_text(user_id, 'error_invalid_time'),
             reply_markup=get_cancel_keyboard()
         )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON1_BIRTH_PLACE)
 async def process_person1_birth_place(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     if len(message.text) < 3:
         await message.answer(
-            "❌ Укажите город и страну (минимум 3 символа):",
+            await get_text(user_id, 'error_invalid_place'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -951,21 +903,19 @@ async def process_person1_birth_place(message: Message, state: FSMContext):
     await state.set_state(CompatibilityStates.WAITING_PERSON1_GENDER)
 
     await message.answer(
-        "👤 Укажите пол человека 1:\n"
-        "М - мужской\n"
-        "Ж - женский\n\n"
-        "Напишите: М или Ж",
+        await get_text(user_id, 'compatibility_person1_gender'),
         reply_markup=get_cancel_keyboard()
     )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON1_GENDER)
 async def process_person1_gender(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     gender = message.text.upper()
 
     if gender not in ["М", "Ж"]:
         await message.answer(
-            "❌ Напишите М или Ж:",
+            await get_text(user_id, 'error_invalid_gender'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -983,19 +933,19 @@ async def process_person1_gender(message: Message, state: FSMContext):
     }
 
     await state.update_data(person1=person1)
-
     await state.set_state(CompatibilityStates.WAITING_PERSON2_NAME)
 
+    gender_display = 'Мужской' if gender == 'М' else 'Женский'
     await message.answer(
-        f"✅ Данные человека 1 сохранены!\n\n"
-        f"👤 Имя: {person1['name']}\n"
-        f"📅 Дата рождения: {person1['birth_date']}\n"
-        f"🕒 Время рождения: {person1['birth_time']}\n"
-        f"📍 Место рождения: {person1['birth_place']}\n"
-        f"👤 Пол: {'Мужской' if gender == 'М' else 'Женский'}\n"
-        f"{get_zodiac_emoji(person1['zodiac'])} Знак зодиака: {person1['zodiac']}\n\n"
-        "💕 Теперь введите данные человека 2.\n\n"
-        "❓ Как зовут человека 2?",
+        await get_text(user_id, 'compatibility_person1_complete').format(
+            name=person1['name'],
+            birth_date=person1['birth_date'],
+            birth_time=person1['birth_time'],
+            birth_place=person1['birth_place'],
+            gender=gender_display,
+            emoji=get_zodiac_emoji(person1['zodiac']),
+            zodiac=person1['zodiac']
+        ),
         reply_markup=get_cancel_keyboard()
     )
 
@@ -1004,27 +954,28 @@ async def process_person1_gender(message: Message, state: FSMContext):
 
 @dp.message(CompatibilityStates.WAITING_PERSON2_NAME)
 async def process_person2_name(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     if len(message.text) < 2:
-        await message.answer("❌ Имя должно содержать хотя бы 2 символа:")
+        await message.answer(await get_text(user_id, 'error_name_short'))
         return
 
     await state.update_data(person2_name=message.text)
     await state.set_state(CompatibilityStates.WAITING_PERSON2_BIRTH_DATE)
 
     await message.answer(
-        f"✅ Имя человека 2: {message.text}\n\n"
-        "📅 Введите дату рождения человека 2 в формате ДД.ММ.ГГГГ",
+        await get_text(user_id, 'compatibility_person2_name').format(name=message.text),
         reply_markup=get_cancel_keyboard()
     )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON2_BIRTH_DATE)
 async def process_person2_birth_date(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     date_pattern = r'^\d{2}\.\d{2}\.\d{4}$'
 
     if not re.match(date_pattern, message.text):
         await message.answer(
-            "❌ Неверный формат! Используйте ДД.ММ.ГГГГ",
+            await get_text(user_id, 'error_invalid_date_format'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -1040,27 +991,28 @@ async def process_person2_birth_date(message: Message, state: FSMContext):
         await state.set_state(CompatibilityStates.WAITING_PERSON2_BIRTH_TIME)
 
         await message.answer(
-            f"✅ Знак зодиака: {get_zodiac_emoji(zodiac)} {zodiac}\n\n"
-            "🕒 Введите время рождения человека 2 (ЧЧ:ММ)\n"
-            "Например: 02:15\n"
-            "Если не знаете - напишите 00:00",
+            await get_text(user_id, 'compatibility_person2_birth_date').format(
+                emoji=get_zodiac_emoji(zodiac),
+                zodiac=zodiac
+            ),
             reply_markup=get_cancel_keyboard()
         )
 
     except ValueError:
         await message.answer(
-            "❌ Неверная дата! Попробуйте еще раз:",
+            await get_text(user_id, 'error_invalid_date'),
             reply_markup=get_cancel_keyboard()
         )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON2_BIRTH_TIME)
 async def process_person2_birth_time(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     time_pattern = r'^\d{2}:\d{2}$'
 
     if not re.match(time_pattern, message.text):
         await message.answer(
-            "❌ Неверный формат! Используйте ЧЧ:ММ",
+            await get_text(user_id, 'error_invalid_time_format'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -1071,23 +1023,23 @@ async def process_person2_birth_time(message: Message, state: FSMContext):
         await state.set_state(CompatibilityStates.WAITING_PERSON2_BIRTH_PLACE)
 
         await message.answer(
-            "📍 Введите место рождения человека 2:\n"
-            "Город, Страна",
+            await get_text(user_id, 'compatibility_person2_birth_time'),
             reply_markup=get_cancel_keyboard()
         )
 
     except ValueError:
         await message.answer(
-            "❌ Неверное время! Попробуйте еще раз:",
+            await get_text(user_id, 'error_invalid_time'),
             reply_markup=get_cancel_keyboard()
         )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON2_BIRTH_PLACE)
 async def process_person2_birth_place(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     if len(message.text) < 3:
         await message.answer(
-            "❌ Укажите город и страну (минимум 3 символа):",
+            await get_text(user_id, 'error_invalid_place'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -1096,21 +1048,19 @@ async def process_person2_birth_place(message: Message, state: FSMContext):
     await state.set_state(CompatibilityStates.WAITING_PERSON2_GENDER)
 
     await message.answer(
-        "👤 Укажите пол человека 2:\n"
-        "М - мужской\n"
-        "Ж - женский\n\n"
-        "Напишите: М или Ж",
+        await get_text(user_id, 'compatibility_person2_gender'),
         reply_markup=get_cancel_keyboard()
     )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON2_GENDER)
 async def process_person2_gender(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     gender = message.text.upper()
 
     if gender not in ["М", "Ж"]:
         await message.answer(
-            "❌ Напишите М или Ж:",
+            await get_text(user_id, 'error_invalid_gender'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -1131,7 +1081,7 @@ async def process_person2_gender(message: Message, state: FSMContext):
 
     if not person1:
         await message.answer(
-            "❌ Данные человека 1 не найдены. Начните заново.",
+            await get_text(user_id, 'error_not_found'),
             reply_markup=get_main_menu()
         )
         await state.clear()
@@ -1142,60 +1092,51 @@ async def process_person2_gender(message: Message, state: FSMContext):
     zodiac1_emoji = get_zodiac_emoji(person1['zodiac'])
     zodiac2_emoji = get_zodiac_emoji(person2['zodiac'])
 
-    summary_text = (
-        f"💕 Данные для анализа совместимости\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 ЧЕЛОВЕК 1\n"
-        f"Имя: {person1['name']}\n"
-        f"📅 {person1['birth_date']}\n"
-        f"🕒 {person1['birth_time']}\n"
-        f"📍 {person1['birth_place']}\n"
-        f"{zodiac1_emoji} {person1['zodiac']}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 ЧЕЛОВЕК 2\n"
-        f"Имя: {person2['name']}\n"
-        f"📅 {person2['birth_date']}\n"
-        f"🕒 {person2['birth_time']}\n"
-        f"📍 {person2['birth_place']}\n"
-        f"{zodiac2_emoji} {person2['zodiac']}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "✅ Данные собраны! Начинаю анализ совместимости... 🔮"
+    summary_text = await get_text(user_id, 'compatibility_summary').format(
+        name1=person1['name'],
+        date1=person1['birth_date'],
+        time1=person1['birth_time'],
+        place1=person1['birth_place'],
+        emoji1=zodiac1_emoji,
+        zodiac1=person1['zodiac'],
+        name2=person2['name'],
+        date2=person2['birth_date'],
+        time2=person2['birth_time'],
+        place2=person2['birth_place'],
+        emoji2=zodiac2_emoji,
+        zodiac2=person2['zodiac']
     )
 
     status_msg = await message.answer(summary_text)
 
     try:
-        await status_msg.edit_text("✨ Изучаю совместимость знаков...")
+        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_aspects'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("💫 Анализирую натальные карты...")
+        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_natal'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("⭐ Составляю прогноз совместимости...")
+        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_forecast'))
         await asyncio.sleep(1)
 
+        lang = await get_user_language(user_id)
         if gemini_service:
-            result = gemini_service.generate_compatibility_from_prompt(person1, person2)
+            result = gemini_service.generate_compatibility_from_prompt(person1, person2, lang)
 
             user_id = message.from_user.id
 
-            # --- Отмечаем использование совместимости ---
             await mark_feature_used_db(user_id, 'compatibility')
-
-            # --- Сохраняем в архив ---
             await save_message_to_archive(user_id, 'compatibility', result)
 
-            # --- Удаляем статусное сообщение и отправляем результат ---
             await status_msg.delete()
-            await send_long_message(message, f"💕 Анализ совместимости\n\n{result}")
+            result_text = await get_text(user_id, 'compatibility_result').format(result=result)
+            await send_long_message(message, result_text)
 
-            # --- Промо-сообщение, если нет подписки ---
             if not await check_subscription_db(user_id):
                 await message.answer(
-                    "✨ Понравился разбор?\n\n"
-                    "Получайте Совместимость без ограничений и персональный гороскоп автоматически каждое утро в 8:00.",
+                    await get_text(user_id, 'compatibility_promo'),
                     reply_markup=get_subscription_promo_keyboard()
                 )
         else:
-            await status_msg.edit_text("❌ Сервис астролога временно недоступен.")
+            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
 
     except Exception as e:
         await status_msg.edit_text(f"❌ Произошла ошибка при анализе:\n{str(e)}")
@@ -1214,15 +1155,13 @@ async def start_numerology(message: Message, state: FSMContext):
         numer_count = user_data.get('numerology_count', 0)
 
         if numer_count > 0:
-            profile_text = (
-                f"🌌 Нумерология — познай себя\n\n"
-                f"Ваши данные:\n"
-                f"👤 Имя: {user_data.get('name', 'Не указано')}\n"
-                f"📅 Дата рождения: {user_data.get('birth_date', 'Не указана')}\n"
-                f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
-                f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
-                f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n\n"
-                "Хотите получить числовой разбор?"
+            profile_text = await get_text(user_id, 'numerology_start').format(
+                name=user_data.get('name', 'Не указано'),
+                birth_date=user_data.get('birth_date', 'Не указана'),
+                birth_time=user_data.get('birth_time', 'Не указано'),
+                birth_place=user_data.get('birth_place', 'Не указано'),
+                emoji=zodiac_emoji,
+                zodiac=user_data.get('zodiac', 'Неизвестно')
             )
             await message.answer(
                 profile_text,
@@ -1231,23 +1170,14 @@ async def start_numerology(message: Message, state: FSMContext):
             await state.set_state(NumerologyStates.CONFIRM_DATA)
         else:
             await message.answer(
-                "🔢 Раскройте свой код судьбы\n\n"
-                "Узнайте, что скрывает ваша дата рождения:\n\n"
-                "✨ Ваш характер и таланты\n"
-                "🌌 Предназначение и кармическая задача\n"
-                "💼 Деньги и карьерный путь\n"
-                "❤️ Любовь и отношения\n"
-                "🌿 Энергия и ресурсы\n"
-                "⭐ Важные этапы жизни и советы\n\n"
-                "💰 Стоимость: 888 ₽",
+                await get_text(user_id, 'numerology_no_data'),
                 reply_markup=get_numerology_payment_keyboard()
             )
             await state.set_state(NumerologyStates.PAYMENT)
     else:
         await state.set_state(NumerologyStates.WAITING_NAME)
         await message.answer(
-            "🌌 Для расчёта нумерологии мне нужно узнать вас получше.\n\n"
-            "❓ Как вас зовут?",
+            await get_text(user_id, 'numerology_no_user_data'),
             reply_markup=get_cancel_keyboard()
         )
 
@@ -1265,8 +1195,7 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
 
     if not data.get('numerology_paid', False):
         await callback.message.answer(
-            "⚠️ Сначала необходимо оплатить нумерологию.\n\n"
-            "💰 Стоимость: 888 ₽",
+            await get_text(user_id, 'numerology_payment_required'),
             reply_markup=get_numerology_payment_keyboard()
         )
         await state.set_state(NumerologyStates.PAYMENT)
@@ -1275,13 +1204,12 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
     user_data_from_db = await get_user_data(user_id)
     if not user_data_from_db or not user_data_from_db.get('name'):
         await callback.message.answer(
-            "❌ Данные не найдены. Пожалуйста, заполните заново.",
+            await get_text(user_id, 'numerology_data_not_found'),
             reply_markup=get_main_menu()
         )
         await state.clear()
         return
 
-    # Сохраняем с флагом is_manual=False (данные из профиля)
     numerology_data[user_id] = {
         'name': user_data_from_db.get('name'),
         'birth_date': user_data_from_db.get('birth_date'),
@@ -1289,50 +1217,48 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         'birth_place': user_data_from_db.get('birth_place'),
         'gender': user_data_from_db.get('gender'),
         'zodiac': user_data_from_db.get('zodiac'),
-        'is_manual': False   # <-- флаг
+        'is_manual': False
     }
 
     await state.clear()
 
     zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
-    profile_text = (
-        f"✅ Используем ваши данные:\n\n"
-        f"👤 Имя: {user_data_from_db.get('name')}\n"
-        f"📅 Дата рождения: {user_data_from_db.get('birth_date')}\n"
-        f"🕒 Время рождения: {user_data_from_db.get('birth_time')}\n"
-        f"📍 Место рождения: {user_data_from_db.get('birth_place')}\n"
-        f"👤 Пол: {'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'}\n"
-        f"{zodiac_emoji} Знак зодиака: {user_data_from_db.get('zodiac')}\n\n"
-        "🌌 Начинаю расчёт нумерологии... 🔮"
+    gender_display = 'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'
+
+    profile_text = await get_text(user_id, 'numerology_use_data_confirm').format(
+        name=user_data_from_db.get('name'),
+        birth_date=user_data_from_db.get('birth_date'),
+        birth_time=user_data_from_db.get('birth_time'),
+        birth_place=user_data_from_db.get('birth_place'),
+        gender=gender_display,
+        emoji=zodiac_emoji,
+        zodiac=user_data_from_db.get('zodiac')
     )
 
     status_msg = await callback.message.answer(profile_text)
 
     try:
-        await status_msg.edit_text("✨ Вычисляю числовой код судьбы...")
+        await status_msg.edit_text(await get_text(user_id, 'numerology_status_calc'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("🔢 Анализирую числа жизненного пути...")
+        await status_msg.edit_text(await get_text(user_id, 'numerology_status_analyze'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("📊 Формирую полный разбор...")
+        await status_msg.edit_text(await get_text(user_id, 'numerology_status_format'))
         await asyncio.sleep(2)
 
         if gemini_service:
-            result = gemini_service.generate_numerology(numerology_data[user_id])
-
-            # Сохраняем в архив
+            lang = await get_user_language(user_id)
+            result = gemini_service.generate_numerology(numerology_data[user_id], lang)
             await save_message_to_archive(user_id, 'numerology', result)
-
-            # Уменьшаем количество доступных нумерологий
             await add_numerology_count(user_id, -1)
 
             await status_msg.delete()
-            await send_long_message(callback.message, f"🌌 Ваш нумерологический разбор\n\n{result}")
+            result_text = await get_text(user_id, 'numerology_result').format(result=result)
+            await send_long_message(callback.message, result_text)
         else:
-            await status_msg.edit_text("❌ Сервис временно недоступен.")
+            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
     finally:
-        # Удаляем временные данные, если они остались
         numerology_data.pop(user_id, None)
 
 
@@ -1342,11 +1268,11 @@ async def numerology_fill_new_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.answer()
 
+    user_id = callback.from_user.id
     data = await state.get_data()
     if not data.get('numerology_paid', False):
         await callback.message.answer(
-            "⚠️ Сначала необходимо оплатить нумерологию.\n\n"
-            "💰 Стоимость: 888 ₽",
+            await get_text(user_id, 'numerology_payment_required'),
             reply_markup=get_numerology_payment_keyboard()
         )
         await state.set_state(NumerologyStates.PAYMENT)
@@ -1354,7 +1280,7 @@ async def numerology_fill_new_data(callback: CallbackQuery, state: FSMContext):
 
     await state.set_state(NumerologyStates.WAITING_NAME)
     await callback.message.answer(
-        "✏️ Введите имя для нумерологии:",
+        await get_text(user_id, 'numerology_fill_new_data'),
         reply_markup=get_cancel_keyboard()
     )
 
@@ -1369,8 +1295,7 @@ async def numerology_payment(callback: CallbackQuery, state: FSMContext):
 
     if not yookassa.is_configured:
         await callback.message.answer(
-            "⚠️ Платежная система временно недоступна.\n"
-            "Пожалуйста, попробуйте позже."
+            await get_text(user_id, 'numerology_payment_error')
         )
         return
 
@@ -1386,17 +1311,14 @@ async def numerology_payment(callback: CallbackQuery, state: FSMContext):
         await state.update_data(payment_id=result['payment_id'], numerology_paid=True)
 
         await callback.message.answer(
-            "💳 Оплата 888 ₽\n\n"
-            "Нажмите на кнопку ниже, чтобы перейти к оплате.\n\n"
-            "⚠️ После оплаты нумерология будет доступна сразу.\n"
-            "Это может занять до 1 минуты.",
+            await get_text(user_id, 'numerology_payment_process'),
             reply_markup=get_payment_url_keyboard(result['confirmation_url'])
         )
 
         await state.set_state(NumerologyStates.PAYMENT)
     else:
         await callback.message.answer(
-            f"❌ Ошибка при создании платежа: {result['error']}"
+            await get_text(user_id, 'numerology_payment_fail').format(error=result['error'])
         )
 
 
@@ -1408,81 +1330,71 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
 
     user_id = callback.from_user.id
 
-    # Проверяем, есть ли временные ручные данные
     manual_data = numerology_data.get(user_id)
     if manual_data and manual_data.get('is_manual') is True:
-        # Используем ручные данные
         user_data = {k: v for k, v in manual_data.items() if k != 'is_manual'}
-        # Удаляем временные данные, чтобы они не использовались повторно
         numerology_data.pop(user_id, None)
     else:
-        # Используем данные из БД
         user_data_from_db = await get_user_data(user_id)
         if not user_data_from_db or not user_data_from_db.get('name'):
             await callback.message.answer(
-                "❌ Данные не найдены. Пожалуйста, начните заново.",
+                await get_text(user_id, 'error_not_found'),
                 reply_markup=get_main_menu()
             )
             await state.clear()
             return
         user_data = user_data_from_db
-        # Если были временные данные (например, от use_my_data), удаляем их
         numerology_data.pop(user_id, None)
 
-    # Генерация
-    status_msg = await callback.message.answer(
-        "🌌 Начинаю расчёт нумерологии... 🔮"
-    )
+    status_msg = await callback.message.answer(await get_text(user_id, 'numerology_confirm_start'))
 
     try:
-        await status_msg.edit_text("✨ Вычисляю числовой код судьбы...")
+        await status_msg.edit_text(await get_text(user_id, 'numerology_status_calc'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("🔢 Анализирую числа жизненного пути...")
+        await status_msg.edit_text(await get_text(user_id, 'numerology_status_analyze'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("📊 Формирую полный разбор...")
+        await status_msg.edit_text(await get_text(user_id, 'numerology_status_format'))
         await asyncio.sleep(2)
 
         if gemini_service:
-            result = gemini_service.generate_numerology(user_data)
-
-            # Сохраняем в архив
+            lang = await get_user_language(user_id)
+            result = gemini_service.generate_numerology(user_data, lang)
             await save_message_to_archive(user_id, 'numerology', result)
-
-            # Уменьшаем количество доступных нумерологий
             await add_numerology_count(user_id, -1)
 
             await status_msg.delete()
-            await send_long_message(callback.message, f"🌌 Ваш нумерологический разбор\n\n{result}")
+            result_text = await get_text(user_id, 'numerology_result').format(result=result)
+            await send_long_message(callback.message, result_text)
         else:
-            await status_msg.edit_text("❌ Сервис временно недоступен.")
+            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
     finally:
-        # Очистка на всякий случай
         numerology_data.pop(user_id, None)
 
 
 # Сбор данных для нумерологии (аналогично натальной карте)
 @dp.message(NumerologyStates.WAITING_NAME)
 async def process_numerology_name(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     if len(message.text) < 2:
-        await message.answer("❌ Имя должно содержать хотя бы 2 символа:")
+        await message.answer(await get_text(user_id, 'error_name_short'))
         return
     await state.update_data(numerology_name=message.text)
     await state.set_state(NumerologyStates.WAITING_BIRTH_DATE)
     await message.answer(
-        f"✅ Имя: {message.text}\n\n"
-        "📅 Введите дату рождения в формате ДД.ММ.ГГГГ",
+        await get_text(user_id, 'numerology_name_prompt').format(name=message.text),
         reply_markup=get_cancel_keyboard()
     )
 
 
 @dp.message(NumerologyStates.WAITING_BIRTH_DATE)
 async def process_numerology_birth_date(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     date_pattern = r'^\d{2}\.\d{2}\.\d{4}$'
     if not re.match(date_pattern, message.text):
         await message.answer(
-            "❌ Неверный формат! Используйте ДД.ММ.ГГГГ",
+            await get_text(user_id, 'error_invalid_date_format'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -1492,22 +1404,26 @@ async def process_numerology_birth_date(message: Message, state: FSMContext):
         await state.update_data(numerology_birth_date=message.text, numerology_zodiac=zodiac)
         await state.set_state(NumerologyStates.WAITING_BIRTH_TIME)
         await message.answer(
-            f"✅ Знак зодиака: {get_zodiac_emoji(zodiac)} {zodiac}\n\n"
-            "🕒 Введите время рождения (ЧЧ:ММ)\n"
-            "Например: 15:30\n"
-            "Если не знаете - напишите 00:00",
+            await get_text(user_id, 'numerology_birth_date').format(
+                emoji=get_zodiac_emoji(zodiac),
+                zodiac=zodiac
+            ),
             reply_markup=get_cancel_keyboard()
         )
     except ValueError:
-        await message.answer("❌ Неверная дата! Попробуйте еще раз:")
+        await message.answer(
+            await get_text(user_id, 'error_invalid_date'),
+            reply_markup=get_cancel_keyboard()
+        )
 
 
 @dp.message(NumerologyStates.WAITING_BIRTH_TIME)
 async def process_numerology_birth_time(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     time_pattern = r'^\d{2}:\d{2}$'
     if not re.match(time_pattern, message.text):
         await message.answer(
-            "❌ Неверный формат! Используйте ЧЧ:ММ",
+            await get_text(user_id, 'error_invalid_time_format'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -1516,48 +1432,51 @@ async def process_numerology_birth_time(message: Message, state: FSMContext):
         await state.update_data(numerology_birth_time=message.text)
         await state.set_state(NumerologyStates.WAITING_BIRTH_PLACE)
         await message.answer(
-            "📍 Введите место рождения:\n"
-            "Город, Страна",
+            await get_text(user_id, 'numerology_birth_time'),
             reply_markup=get_cancel_keyboard()
         )
     except ValueError:
-        await message.answer("❌ Неверное время! Попробуйте еще раз:")
+        await message.answer(
+            await get_text(user_id, 'error_invalid_time'),
+            reply_markup=get_cancel_keyboard()
+        )
 
 
 @dp.message(NumerologyStates.WAITING_BIRTH_PLACE)
 async def process_numerology_birth_place(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     if len(message.text) < 3:
-        await message.answer("❌ Укажите город и страну (минимум 3 символа):")
+        await message.answer(
+            await get_text(user_id, 'error_invalid_place'),
+            reply_markup=get_cancel_keyboard()
+        )
         return
     await state.update_data(numerology_birth_place=message.text)
     await state.set_state(NumerologyStates.WAITING_GENDER)
     await message.answer(
-        "👤 Укажите пол:\n"
-        "М - мужской\n"
-        "Ж - женский\n\n"
-        "Напишите: М или Ж",
+        await get_text(user_id, 'numerology_gender'),
         reply_markup=get_cancel_keyboard()
     )
 
 
 @dp.message(NumerologyStates.WAITING_GENDER)
 async def process_numerology_gender(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     gender = message.text.upper()
     if gender not in ["М", "Ж"]:
-        await message.answer("❌ Напишите М или Ж:", reply_markup=get_cancel_keyboard())
+        await message.answer(
+            await get_text(user_id, 'error_invalid_gender'),
+            reply_markup=get_cancel_keyboard()
+        )
         return
 
     db_gender = 'M' if gender == 'М' else 'F'
     data = await state.get_data()
-    user_id = message.from_user.id
 
-    # Получаем данные пользователя из БД (для проверки количества доступных нумерологий)
     user_data_from_db = await get_user_data(user_id)
     numer_count = user_data_from_db.get('numerology_count', 0) if user_data_from_db else 0
 
-    # Если есть доступные нумерологии – показываем подтверждение
     if numer_count > 0:
-        # Сохраняем введённые данные с флагом is_manual=True
         numerology_data[user_id] = {
             'name': data.get('numerology_name'),
             'birth_date': data.get('numerology_birth_date'),
@@ -1565,19 +1484,17 @@ async def process_numerology_gender(message: Message, state: FSMContext):
             'birth_place': data.get('numerology_birth_place'),
             'gender': db_gender,
             'zodiac': data.get('numerology_zodiac'),
-            'is_manual': True   # <-- флаг: ручные данные
+            'is_manual': True
         }
 
         zodiac_emoji = get_zodiac_emoji(data.get('numerology_zodiac', 'Неизвестно'))
-        profile_text = (
-            f"🔢 Нумерология — познай себя\n\n"
-            f"Введенные данные:\n"
-            f"👤 Имя: {data.get('numerology_name')}\n"
-            f"📅 Дата рождения: {data.get('numerology_birth_date')}\n"
-            f"🕒 Время рождения: {data.get('numerology_birth_time')}\n"
-            f"📍 Место рождения: {data.get('numerology_birth_place')}\n"
-            f"{zodiac_emoji} Знак зодиака: {data.get('numerology_zodiac')}\n\n"
-            "Получить нумерологический разбор?"
+        profile_text = await get_text(user_id, 'numerology_confirm_data').format(
+            name=data.get('numerology_name'),
+            birth_date=data.get('numerology_birth_date'),
+            birth_time=data.get('numerology_birth_time'),
+            birth_place=data.get('numerology_birth_place'),
+            emoji=zodiac_emoji,
+            zodiac=data.get('numerology_zodiac')
         )
         await state.set_state(NumerologyStates.CONFIRM_DATA)
         await message.answer(
@@ -1586,16 +1503,14 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         )
         return
 
-    # Если нет доступных нумерологий – показываем оплату
     if not data.get('numerology_paid', False):
         await message.answer(
-            "⚠️ Оплата не подтверждена. Пожалуйста, оплатите 888 ₽.",
+            await get_text(user_id, 'numerology_payment_not_confirmed'),
             reply_markup=get_numerology_payment_keyboard()
         )
         await state.set_state(NumerologyStates.PAYMENT)
         return
 
-    # Старая логика (если оплата есть, но это уже не требуется, но оставим для надёжности)
     user_data_for_calc = {
         'name': data.get('numerology_name'),
         'birth_date': data.get('numerology_birth_date'),
@@ -1609,35 +1524,38 @@ async def process_numerology_gender(message: Message, state: FSMContext):
     await state.clear()
 
     zodiac_emoji = get_zodiac_emoji(data.get('numerology_zodiac', 'Неизвестно'))
-    profile_text = (
-        f"✅ Данные сохранены!\n\n"
-        f"👤 Имя: {data.get('numerology_name')}\n"
-        f"📅 Дата рождения: {data.get('numerology_birth_date')}\n"
-        f"🕒 Время рождения: {data.get('numerology_birth_time')}\n"
-        f"📍 Место рождения: {data.get('numerology_birth_place')}\n"
-        f"👤 Пол: {'Мужской' if gender == 'М' else 'Женский'}\n"
-        f"{zodiac_emoji} Знак зодиака: {data.get('numerology_zodiac')}\n\n"
-        "🌌 Начинаю расчёт нумерологии... 🔮"
+    gender_display = 'Мужской' if gender == 'М' else 'Женский'
+
+    profile_text = await get_text(user_id, 'numerology_data_saved').format(
+        name=data.get('numerology_name'),
+        birth_date=data.get('numerology_birth_date'),
+        birth_time=data.get('numerology_birth_time'),
+        birth_place=data.get('numerology_birth_place'),
+        gender=gender_display,
+        emoji=zodiac_emoji,
+        zodiac=data.get('numerology_zodiac')
     )
 
     status_msg = await message.answer(profile_text)
 
     try:
-        await status_msg.edit_text("✨ Вычисляю числовой код судьбы...")
+        await status_msg.edit_text(await get_text(user_id, 'numerology_status_calc'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("🔢 Анализирую числа жизненного пути...")
+        await status_msg.edit_text(await get_text(user_id, 'numerology_status_analyze'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("📊 Формирую полный разбор...")
+        await status_msg.edit_text(await get_text(user_id, 'numerology_status_format'))
         await asyncio.sleep(2)
 
         if gemini_service:
-            result = gemini_service.generate_numerology(numerology_data[user_id])
+            lang = await get_user_language(user_id)
+            result = gemini_service.generate_numerology(numerology_data[user_id], lang)
             await save_message_to_archive(user_id, 'numerology', result)
             await add_numerology_count(user_id, -1)
             await status_msg.delete()
-            await send_long_message(message, f"🌌 Ваш нумерологический разбор\n\n{result}")
+            result_text = await get_text(user_id, 'numerology_result').format(result=result)
+            await send_long_message(message, result_text)
         else:
-            await status_msg.edit_text("❌ Сервис временно недоступен.")
+            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
     finally:
@@ -1648,10 +1566,11 @@ async def process_numerology_gender(message: Message, state: FSMContext):
 async def edit_numerology_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.answer()
+    user_id = callback.from_user.id
     await state.update_data(is_numerology_edit=True)
     await state.set_state(NumerologyStates.WAITING_NAME)
     await callback.message.answer(
-        "✏️ Введите ваше имя для нумерологии:",
+        await get_text(user_id, 'numerology_edit_name'),
         reply_markup=get_cancel_keyboard()
     )
 
@@ -1662,6 +1581,7 @@ async def edit_timezone(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.delete()
 
+    user_id = callback.from_user.id
     await state.update_data(
         is_timezone_edit=True,
         is_edit=False,
@@ -1670,7 +1590,7 @@ async def edit_timezone(callback: CallbackQuery, state: FSMContext):
 
     await state.set_state(UserDataStates.WAITING_TIMEZONE)
     await callback.message.answer(
-        "🕒 Выберите ваш часовой пояс:",
+        await get_text(user_id, 'choose_timezone'),
         reply_markup=get_timezone_keyboard()
     )
 
@@ -1688,15 +1608,13 @@ async def start_astrology(message: Message, state: FSMContext):
         astro_count = user_data.get('astrology_count', 0)
 
         if astro_count > 0:
-            profile_text = (
-                f"🌙 Астрология — узнай судьбу\n\n"
-                f"Ваши данные:\n"
-                f"👤 Имя: {user_data.get('name', 'Не указано')}\n"
-                f"📅 Дата рождения: {user_data.get('birth_date', 'Не указана')}\n"
-                f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
-                f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
-                f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n\n"
-                "Хотите получить астрологический разбор?"
+            profile_text = await get_text(user_id, 'astrology_start').format(
+                name=user_data.get('name', 'Не указано'),
+                birth_date=user_data.get('birth_date', 'Не указана'),
+                birth_time=user_data.get('birth_time', 'Не указано'),
+                birth_place=user_data.get('birth_place', 'Не указано'),
+                emoji=zodiac_emoji,
+                zodiac=user_data.get('zodiac', 'Неизвестно')
             )
             await message.answer(
                 profile_text,
@@ -1705,25 +1623,14 @@ async def start_astrology(message: Message, state: FSMContext):
             await state.set_state(AstrologyStates.CONFIRM_DATA)
         else:
             await message.answer(
-                "🌌 Натальная карта — ваш личный астрологический портрет\n\n"
-                "Узнайте, что говорят звёзды о вашем характере, эмоциях, отношениях и предназначении:\n\n"
-                "✨ Портрет личности\n"
-                "🌙 Эмоциональный мир\n"
-                "🗣 Общение и отношения\n"
-                "⭐ Сильные стороны\n"
-                "🌱 Зоны роста\n"
-                "🎯 Таланты и интересы\n"
-                "💡 Практические рекомендации\n\n"
-                "✨ Персональный разбор составляется по дате, времени и месту рождения.\n\n"
-                "💰 Стоимость: 999 ₽",
+                await get_text(user_id, 'astrology_no_data'),
                 reply_markup=get_astrology_payment_keyboard()
             )
             await state.set_state(AstrologyStates.PAYMENT)
     else:
         await state.set_state(AstrologyStates.WAITING_NAME)
         await message.answer(
-            "🌙 Для астрологического расчёта мне нужно узнать вас получше.\n\n"
-            "❓ Как вас зовут?",
+            await get_text(user_id, 'astrology_no_user_data'),
             reply_markup=get_cancel_keyboard()
         )
 
@@ -1741,8 +1648,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
 
     if not data.get('astrology_paid', False):
         await callback.message.answer(
-            "⚠️ Сначала необходимо оплатить астрологию.\n\n"
-            "💰 Стоимость: 999 ₽",
+            await get_text(user_id, 'astrology_payment_required'),
             reply_markup=get_astrology_payment_keyboard()
         )
         await state.set_state(AstrologyStates.PAYMENT)
@@ -1751,7 +1657,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
     user_data_from_db = await get_user_data(user_id)
     if not user_data_from_db or not user_data_from_db.get('name'):
         await callback.message.answer(
-            "❌ Данные не найдены. Пожалуйста, заполните заново.",
+            await get_text(user_id, 'astrology_data_not_found'),
             reply_markup=get_main_menu()
         )
         await state.clear()
@@ -1764,51 +1670,55 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         'birth_place': user_data_from_db.get('birth_place'),
         'gender': user_data_from_db.get('gender'),
         'zodiac': user_data_from_db.get('zodiac'),
-        'is_manual': False   # <-- флаг: данные из профиля
+        'is_manual': False
     }
 
     await state.clear()
 
     zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
-    profile_text = (
-        f"✅ Используем ваши данные:\n\n"
-        f"👤 Имя: {user_data_from_db.get('name')}\n"
-        f"📅 Дата рождения: {user_data_from_db.get('birth_date')}\n"
-        f"🕒 Время рождения: {user_data_from_db.get('birth_time')}\n"
-        f"📍 Место рождения: {user_data_from_db.get('birth_place')}\n"
-        f"👤 Пол: {'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'}\n"
-        f"{zodiac_emoji} Знак зодиака: {user_data_from_db.get('zodiac')}\n\n"
-        "🌙 Начинаю астрологический расчёт... ✨"
+    gender_display = 'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'
+
+    profile_text = await get_text(user_id, 'astrology_use_data_confirm').format(
+        name=user_data_from_db.get('name'),
+        birth_date=user_data_from_db.get('birth_date'),
+        birth_time=user_data_from_db.get('birth_time'),
+        birth_place=user_data_from_db.get('birth_place'),
+        gender=gender_display,
+        emoji=zodiac_emoji,
+        zodiac=user_data_from_db.get('zodiac')
     )
 
     status_msg = await callback.message.answer(profile_text)
 
     try:
-        await status_msg.edit_text("✨ Изучаю положение планет...")
+        await status_msg.edit_text(await get_text(user_id, 'astrology_status_planets'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("🌙 Анализирую дома и аспекты...")
+        await status_msg.edit_text(await get_text(user_id, 'astrology_status_houses'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("⭐ Формирую полный разбор...")
+        await status_msg.edit_text(await get_text(user_id, 'astrology_status_final'))
         await asyncio.sleep(2)
 
         if gemini_service:
             calculator = AstrologyCalculator(user_data_from_db)
             parameters_text = calculator.get_display_parameters()
+            lang = await get_user_language(user_id)
             prompt = calculator.build_prompt()
-            interpretation = gemini_service.send_raw_prompt(prompt)
+            interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
-            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n{interpretation}"
+            final_message = await get_text(user_id, 'astrology_result').format(
+                parameters=parameters_text,
+                interpretation=interpretation
+            )
             await save_message_to_archive(user_id, 'astrology', final_message)
-
             await add_astrology_count(user_id, -1)
+
             await status_msg.delete()
             await send_long_message(callback.message, final_message)
         else:
-            await status_msg.edit_text("❌ Сервис временно недоступен.")
+            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
     finally:
-        # Очищаем временные данные, если они остались
         astrology_data.pop(user_id, None)
 
 
@@ -1818,11 +1728,11 @@ async def astrology_fill_new_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.answer()
 
+    user_id = callback.from_user.id
     data = await state.get_data()
     if not data.get('astrology_paid', False):
         await callback.message.answer(
-            "⚠️ Сначала необходимо оплатить астрологию.\n\n"
-            "💰 Стоимость: 999 ₽",
+            await get_text(user_id, 'astrology_payment_required'),
             reply_markup=get_astrology_payment_keyboard()
         )
         await state.set_state(AstrologyStates.PAYMENT)
@@ -1830,7 +1740,7 @@ async def astrology_fill_new_data(callback: CallbackQuery, state: FSMContext):
 
     await state.set_state(AstrologyStates.WAITING_NAME)
     await callback.message.answer(
-        "✏️ Введите имя для астрологии:",
+        await get_text(user_id, 'astrology_fill_new_data'),
         reply_markup=get_cancel_keyboard()
     )
 
@@ -1845,8 +1755,7 @@ async def astrology_payment(callback: CallbackQuery, state: FSMContext):
 
     if not yookassa.is_configured:
         await callback.message.answer(
-            "⚠️ Платежная система временно недоступна.\n"
-            "Пожалуйста, попробуйте позже."
+            await get_text(user_id, 'astrology_payment_error')
         )
         return
 
@@ -1862,17 +1771,14 @@ async def astrology_payment(callback: CallbackQuery, state: FSMContext):
         await state.update_data(payment_id=result['payment_id'], astrology_paid=True)
 
         await callback.message.answer(
-            "💳 Оплата 999 ₽\n\n"
-            "Нажмите на кнопку ниже, чтобы перейти к оплате.\n\n"
-            "⚠️ После оплаты астрология будет доступна сразу.\n"
-            "Это может занять до 1 минуты.",
+            await get_text(user_id, 'astrology_payment_process'),
             reply_markup=get_payment_url_keyboard(result['confirmation_url'])
         )
 
         await state.set_state(AstrologyStates.PAYMENT)
     else:
         await callback.message.answer(
-            f"❌ Ошибка при создании платежа: {result['error']}"
+            await get_text(user_id, 'astrology_payment_fail').format(error=result['error'])
         )
 
 
@@ -1884,82 +1790,78 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
 
     user_id = callback.from_user.id
 
-    # Проверяем, есть ли временные ручные данные
     manual_data = astrology_data.get(user_id)
     if manual_data and manual_data.get('is_manual') is True:
-        # Используем ручные данные
         user_data = {k: v for k, v in manual_data.items() if k != 'is_manual'}
-        # Удаляем временные данные, чтобы они не использовались повторно
         astrology_data.pop(user_id, None)
     else:
-        # Используем данные из БД
         user_data_from_db = await get_user_data(user_id)
         if not user_data_from_db or not user_data_from_db.get('name'):
             await callback.message.answer(
-                "❌ Данные не найдены. Пожалуйста, начните заново.",
+                await get_text(user_id, 'error_not_found'),
                 reply_markup=get_main_menu()
             )
             await state.clear()
             return
         user_data = user_data_from_db
-        # Если были временные данные (например, от use_my_data), удаляем их
         astrology_data.pop(user_id, None)
 
-    # Генерация
-    status_msg = await callback.message.answer(
-        "🌙 Начинаю астрологический расчёт... ✨"
-    )
+    status_msg = await callback.message.answer(await get_text(user_id, 'astrology_confirm_start'))
 
     try:
-        await status_msg.edit_text("✨ Изучаю положение планет...")
+        await status_msg.edit_text(await get_text(user_id, 'astrology_status_planets'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("🌙 Анализирую дома и аспекты...")
+        await status_msg.edit_text(await get_text(user_id, 'astrology_status_houses'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("⭐ Формирую полный разбор...")
+        await status_msg.edit_text(await get_text(user_id, 'astrology_status_final'))
         await asyncio.sleep(2)
 
         if gemini_service:
             calculator = AstrologyCalculator(user_data)
             parameters_text = calculator.get_display_parameters()
+            lang = await get_user_language(user_id)
             prompt = calculator.build_prompt()
-            interpretation = gemini_service.send_raw_prompt(prompt)
+            interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
-            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n💬 Интерпретация нейросети:\n\n{interpretation}"
+            final_message = await get_text(user_id, 'astrology_result').format(
+                parameters=parameters_text,
+                interpretation=interpretation
+            )
             await save_message_to_archive(user_id, 'astrology', final_message)
-
             await add_astrology_count(user_id, -1)
+
             await status_msg.delete()
             await send_long_message(callback.message, final_message)
         else:
-            await status_msg.edit_text("❌ Сервис временно недоступен.")
+            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
     finally:
-        # Очистка на всякий случай
         astrology_data.pop(user_id, None)
 
 
 # Сбор данных для астрологии
 @dp.message(AstrologyStates.WAITING_NAME)
 async def process_astrology_name(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     if len(message.text) < 2:
-        await message.answer("❌ Имя должно содержать хотя бы 2 символа:")
+        await message.answer(await get_text(user_id, 'error_name_short'))
         return
     await state.update_data(astrology_name=message.text)
     await state.set_state(AstrologyStates.WAITING_BIRTH_DATE)
     await message.answer(
-        f"✅ Имя: {message.text}\n\n"
-        "📅 Введите дату рождения в формате ДД.ММ.ГГГГ",
+        await get_text(user_id, 'astrology_name_prompt').format(name=message.text),
         reply_markup=get_cancel_keyboard()
     )
 
 
 @dp.message(AstrologyStates.WAITING_BIRTH_DATE)
 async def process_astrology_birth_date(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     date_pattern = r'^\d{2}\.\d{2}\.\d{4}$'
     if not re.match(date_pattern, message.text):
         await message.answer(
-            "❌ Неверный формат! Используйте ДД.ММ.ГГГГ",
+            await get_text(user_id, 'error_invalid_date_format'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -1969,22 +1871,26 @@ async def process_astrology_birth_date(message: Message, state: FSMContext):
         await state.update_data(astrology_birth_date=message.text, astrology_zodiac=zodiac)
         await state.set_state(AstrologyStates.WAITING_BIRTH_TIME)
         await message.answer(
-            f"✅ Знак зодиака: {get_zodiac_emoji(zodiac)} {zodiac}\n\n"
-            "🕒 Введите время рождения (ЧЧ:ММ)\n"
-            "Например: 15:30\n"
-            "Если не знаете - напишите 00:00",
+            await get_text(user_id, 'astrology_birth_date').format(
+                emoji=get_zodiac_emoji(zodiac),
+                zodiac=zodiac
+            ),
             reply_markup=get_cancel_keyboard()
         )
     except ValueError:
-        await message.answer("❌ Неверная дата! Попробуйте еще раз:")
+        await message.answer(
+            await get_text(user_id, 'error_invalid_date'),
+            reply_markup=get_cancel_keyboard()
+        )
 
 
 @dp.message(AstrologyStates.WAITING_BIRTH_TIME)
 async def process_astrology_birth_time(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     time_pattern = r'^\d{2}:\d{2}$'
     if not re.match(time_pattern, message.text):
         await message.answer(
-            "❌ Неверный формат! Используйте ЧЧ:ММ",
+            await get_text(user_id, 'error_invalid_time_format'),
             reply_markup=get_cancel_keyboard()
         )
         return
@@ -1993,51 +1899,51 @@ async def process_astrology_birth_time(message: Message, state: FSMContext):
         await state.update_data(astrology_birth_time=message.text)
         await state.set_state(AstrologyStates.WAITING_BIRTH_PLACE)
         await message.answer(
-            "📍 Введите место рождения:\n"
-            "Город, Страна",
+            await get_text(user_id, 'astrology_birth_time'),
             reply_markup=get_cancel_keyboard()
         )
     except ValueError:
-        await message.answer("❌ Неверное время! Попробуйте еще раз:")
+        await message.answer(
+            await get_text(user_id, 'error_invalid_time'),
+            reply_markup=get_cancel_keyboard()
+        )
 
 
 @dp.message(AstrologyStates.WAITING_BIRTH_PLACE)
 async def process_astrology_birth_place(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     if len(message.text) < 3:
-        await message.answer("❌ Укажите город и страну (минимум 3 символа):")
+        await message.answer(
+            await get_text(user_id, 'error_invalid_place'),
+            reply_markup=get_cancel_keyboard()
+        )
         return
     await state.update_data(astrology_birth_place=message.text)
     await state.set_state(AstrologyStates.WAITING_GENDER)
     await message.answer(
-        "👤 Укажите пол:\n"
-        "М - мужской\n"
-        "Ж - женский\n\n"
-        "Напишите: М или Ж",
+        await get_text(user_id, 'astrology_gender'),
         reply_markup=get_cancel_keyboard()
     )
 
 
 @dp.message(AstrologyStates.WAITING_GENDER)
 async def process_astrology_gender(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     gender = message.text.upper()
     if gender not in ["М", "Ж"]:
         await message.answer(
-            "❌ Напишите М или Ж:",
+            await get_text(user_id, 'error_invalid_gender'),
             reply_markup=get_cancel_keyboard()
         )
         return
 
     db_gender = 'M' if gender == 'М' else 'F'
     data = await state.get_data()
-    user_id = message.from_user.id
 
-    # Получаем данные пользователя из БД (для проверки количества доступных астрологий)
     user_data_from_db = await get_user_data(user_id)
     astro_count = user_data_from_db.get('astrology_count', 0) if user_data_from_db else 0
 
-    # Если есть доступные астрологии – показываем подтверждение
     if astro_count > 0:
-        # Сохраняем введённые данные во временное хранилище с флагом is_manual=True
         astrology_data[user_id] = {
             'name': data.get('astrology_name'),
             'birth_date': data.get('astrology_birth_date'),
@@ -2045,19 +1951,17 @@ async def process_astrology_gender(message: Message, state: FSMContext):
             'birth_place': data.get('astrology_birth_place'),
             'gender': db_gender,
             'zodiac': data.get('astrology_zodiac'),
-            'is_manual': True   # <-- флаг: ручные данные
+            'is_manual': True
         }
 
         zodiac_emoji = get_zodiac_emoji(data.get('astrology_zodiac', 'Неизвестно'))
-        profile_text = (
-            f"🌙 Астрология — узнай судьбу\n\n"
-            f"Введенные данные:\n"
-            f"👤 Имя: {data.get('astrology_name')}\n"
-            f"📅 Дата рождения: {data.get('astrology_birth_date')}\n"
-            f"🕒 Время рождения: {data.get('astrology_birth_time')}\n"
-            f"📍 Место рождения: {data.get('astrology_birth_place')}\n"
-            f"{zodiac_emoji} Знак зодиака: {data.get('astrology_zodiac')}\n\n"
-            "Получить астрологический разбор?"
+        profile_text = await get_text(user_id, 'astrology_confirm_data').format(
+            name=data.get('astrology_name'),
+            birth_date=data.get('astrology_birth_date'),
+            birth_time=data.get('astrology_birth_time'),
+            birth_place=data.get('astrology_birth_place'),
+            emoji=zodiac_emoji,
+            zodiac=data.get('astrology_zodiac')
         )
         await state.set_state(AstrologyStates.CONFIRM_DATA)
         await message.answer(
@@ -2066,16 +1970,14 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         )
         return
 
-    # Если нет доступных астрологий – показываем оплату
     if not data.get('astrology_paid', False):
         await message.answer(
-            "⚠️ Оплата не подтверждена. Пожалуйста, оплатите 999 ₽.",
+            await get_text(user_id, 'astrology_payment_not_confirmed'),
             reply_markup=get_astrology_payment_keyboard()
         )
         await state.set_state(AstrologyStates.PAYMENT)
         return
 
-    # Старая логика (если оплата есть, но это уже не требуется, но оставим для надёжности)
     user_data_for_calc = {
         'name': data.get('astrology_name'),
         'birth_date': data.get('astrology_birth_date'),
@@ -2089,45 +1991,49 @@ async def process_astrology_gender(message: Message, state: FSMContext):
     await state.clear()
 
     zodiac_emoji = get_zodiac_emoji(data.get('astrology_zodiac', 'Неизвестно'))
-    profile_text = (
-        f"✅ Данные сохранены!\n\n"
-        f"👤 Имя: {data.get('astrology_name')}\n"
-        f"📅 Дата рождения: {data.get('astrology_birth_date')}\n"
-        f"🕒 Время рождения: {data.get('astrology_birth_time')}\n"
-        f"📍 Место рождения: {data.get('astrology_birth_place')}\n"
-        f"👤 Пол: {'Мужской' if gender == 'М' else 'Женский'}\n"
-        f"{zodiac_emoji} Знак зодиака: {data.get('astrology_zodiac')}\n\n"
-        "🌙 Начинаю астрологический расчёт... ✨"
+    gender_display = 'Мужской' if gender == 'М' else 'Женский'
+
+    profile_text = await get_text(user_id, 'astrology_data_saved').format(
+        name=data.get('astrology_name'),
+        birth_date=data.get('astrology_birth_date'),
+        birth_time=data.get('astrology_birth_time'),
+        birth_place=data.get('astrology_birth_place'),
+        gender=gender_display,
+        emoji=zodiac_emoji,
+        zodiac=data.get('astrology_zodiac')
     )
 
     status_msg = await message.answer(profile_text)
 
     try:
-        await status_msg.edit_text("✨ Изучаю положение планет...")
+        await status_msg.edit_text(await get_text(user_id, 'astrology_status_planets'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("🌙 Анализирую дома и аспекты...")
+        await status_msg.edit_text(await get_text(user_id, 'astrology_status_houses'))
         await asyncio.sleep(1)
-        await status_msg.edit_text("⭐ Формирую полный разбор...")
+        await status_msg.edit_text(await get_text(user_id, 'astrology_status_final'))
         await asyncio.sleep(2)
 
         if gemini_service:
             calculator = AstrologyCalculator(user_data_for_calc)
             parameters_text = calculator.get_display_parameters()
+            lang = await get_user_language(user_id)
             prompt = calculator.build_prompt()
-            interpretation = gemini_service.send_raw_prompt(prompt)
+            interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
-            final_message = f"🌙 Ваш астрологический разбор\n\n{parameters_text}\n\n💬 Интерпретация нейросети:\n\n{interpretation}"
+            final_message = await get_text(user_id, 'astrology_result').format(
+                parameters=parameters_text,
+                interpretation=interpretation
+            )
             await save_message_to_archive(user_id, 'astrology', final_message)
-
             await add_astrology_count(user_id, -1)
+
             await status_msg.delete()
             await send_long_message(message, final_message)
         else:
-            await status_msg.edit_text("❌ Сервис временно недоступен.")
+            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
     finally:
-        # Очистка временных данных
         astrology_data.pop(user_id, None)
 
 
@@ -2135,10 +2041,11 @@ async def process_astrology_gender(message: Message, state: FSMContext):
 async def edit_astrology_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.answer()
+    user_id = callback.from_user.id
     await state.update_data(is_astrology_edit=True)
     await state.set_state(AstrologyStates.WAITING_NAME)
     await callback.message.answer(
-        "✏️ Введите ваше имя для астрологии:",
+        await get_text(user_id, 'astrology_edit_name'),
         reply_markup=get_cancel_keyboard()
     )
 
@@ -2165,43 +2072,40 @@ async def profile(message: Message):
     user_data = await get_user_data(user_id)
 
     if user_data and user_data.get('name'):
-        # ... (существующий код показа профиля)
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
         gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'
         timezone = user_data.get('timezone_offset', 3)
-        profile_text = (
-            f"👤 Ваш профиль\n\n"
-            f"Имя: {user_data.get('name', 'Не указано')}\n"
-            f"📅 Дата рождения: {user_data.get('birth_date', 'Не указана')}\n"
-            f"🕒 Время рождения: {user_data.get('birth_time', 'Не указано')}\n"
-            f"📍 Место рождения: {user_data.get('birth_place', 'Не указано')}\n"
-            f"👤 Пол: {gender_display}\n"
-            f"{zodiac_emoji} Знак зодиака: {user_data.get('zodiac', 'Неизвестно')}\n"
-            f"🕒 Часовой пояс: UTC+{timezone}"
+
+        profile_text = await get_text(user_id, 'profile_text').format(
+            name=user_data.get('name', 'Не указано'),
+            birth_date=user_data.get('birth_date', 'Не указана'),
+            birth_time=user_data.get('birth_time', 'Не указано'),
+            birth_place=user_data.get('birth_place', 'Не указано'),
+            gender=gender_display,
+            emoji=zodiac_emoji,
+            zodiac=user_data.get('zodiac', 'Неизвестно'),
+            timezone=timezone
         )
+
         is_subscribed = await check_subscription_db(user_id)
         if is_subscribed:
-            profile_text += "\n\n⭐ Подписка: **Активна** ✅"
+            profile_text += await get_text(user_id, 'profile_subscription_active')
+
         await message.answer(profile_text, reply_markup=get_profile_keyboard())
     else:
-        # Нет данных – предлагаем заполнить
         consent_url = os.getenv('CONSENT_URL', 'ссылка на согласие')
         privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику')
         can_use = await can_use_feature_db(user_id, 'horoscope')
 
         if can_use:
-            text = (
-                "📝 У вас пока нет сохраненных данных.\n"
-                "Чтобы заполнить профиль, нажмите 🔮 **Гороскоп на сегодня** или **Заполнить и Сохранить**.\n\n"
-                f"📄 Нажимая «**Заполнить и Сохранить**», вы даёте [согласие на обработку персональных данных]({consent_url}) "
-                f"в соответствии с [Политикой конфиденциальности]({privacy_url})."
+            text = await get_text(user_id, 'profile_no_data_message').format(
+                consent_url=consent_url,
+                privacy_url=privacy_url
             )
         else:
-            text = (
-                "📝 У вас пока нет сохраненных данных.\n"
-                "Чтобы заполнить профиль, нажмите **Заполнить и Сохранить**.\n\n"
-                f"📄 Нажимая «Заполнить и Сохранить», вы даёте [согласие на обработку персональных данных]({consent_url}) "
-                f"в соответствии с [Политикой конфиденциальности]({privacy_url})."
+            text = await get_text(user_id, 'profile_no_data_message_can_use').format(
+                consent_url=consent_url,
+                privacy_url=privacy_url
             )
         await message.answer(text, reply_markup=get_fill_profile_keyboard(), parse_mode="Markdown")
 
@@ -2218,7 +2122,6 @@ async def edit_profile(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    # Сохраняем флаг редактирования
     await state.update_data(
         old_data=old,
         new_data=old.copy(),
@@ -2230,9 +2133,9 @@ async def edit_profile(callback: CallbackQuery, state: FSMContext):
     logger.info(f"🟢 Начало редактирования для {user_id}, старые данные: {old}")
 
     await state.set_state(UserDataStates.WAITING_NAME)
+    prompt = await get_text(user_id, 'edit_name_prompt').format(name=old.get('name', 'не указано'))
     await callback.message.edit_text(
-        f"✏️ Текущее имя: {old.get('name', 'не указано')}\n\n"
-        "Введите новое имя или нажмите «Пропустить».",
+        prompt,
         reply_markup=get_skip_keyboard()
     )
 
@@ -2243,21 +2146,20 @@ async def fill_and_save(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.delete()
 
-    # Устанавливаем флаг, что это заполнение профиля
+    user_id = callback.from_user.id
     await state.update_data(fill_mode=True)
 
     await state.set_state(UserDataStates.WAITING_NAME)
     await callback.message.answer(
-        "📝 Давайте заполним ваш профиль.\n\n"
-        "❓ Как вас зовут?",
-        reply_markup=get_cancel_keyboard()  # ← добавлено
+        await get_text(user_id, 'profile_fill_intro'),
+        reply_markup=get_cancel_keyboard()
     )
-
 
 
 @dp.callback_query(F.data == "skip_edit")
 async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
+    user_id = callback.from_user.id
     current_state = await state.get_state()
     state_data = await state.get_data()
     new_data = state_data.get('new_data', {})
@@ -2267,30 +2169,43 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
 
     if current_state == UserDataStates.WAITING_NAME:
         await state.set_state(UserDataStates.WAITING_BIRTH_DATE)
+        prompt = await get_text(user_id, 'skip_birth_date').format(
+            date=old.get('birth_date', 'не указана')
+        )
         await callback.message.edit_text(
-            f"✏️ Текущая дата рождения: {old.get('birth_date', 'не указана')}\n\n"
-            "Введите новую дату в формате ДД.ММ.ГГГГ или нажмите «Пропустить».",
+            prompt,
             reply_markup=get_skip_keyboard()
         )
     elif current_state == UserDataStates.WAITING_BIRTH_DATE:
         await state.set_state(UserDataStates.WAITING_BIRTH_TIME)
+        prompt = await get_text(user_id, 'skip_birth_time').format(
+            time=old.get('birth_time', 'не указано')
+        )
         await callback.message.edit_text(
-            f"✏️ Текущее время рождения: {old.get('birth_time', 'не указано')}\n\n"
-            "Введите новое время в формате ЧЧ:ММ или нажмите «Пропустить».",
+            prompt,
             reply_markup=get_skip_keyboard()
         )
     elif current_state == UserDataStates.WAITING_BIRTH_TIME:
         await state.set_state(UserDataStates.WAITING_BIRTH_PLACE)
+        prompt = await get_text(user_id, 'skip_birth_place').format(
+            place=old.get('birth_place', 'не указано')
+        )
         await callback.message.edit_text(
-            f"✏️ Текущее место рождения: {old.get('birth_place', 'не указано')}\n\n"
-            "Введите новое место (город, страна) или нажмите «Пропустить».",
+            prompt,
             reply_markup=get_skip_keyboard()
         )
     elif current_state == UserDataStates.WAITING_BIRTH_PLACE:
         await state.set_state(UserDataStates.WAITING_GENDER)
+        current_gender = old.get('gender')
+        if current_gender == 'M':
+            gender_display = 'Мужской'
+        elif current_gender == 'F':
+            gender_display = 'Женский'
+        else:
+            gender_display = 'не указан'
+        prompt = await get_text(user_id, 'skip_gender').format(gender=gender_display)
         await callback.message.edit_text(
-            f"✏️ Текущий пол: {'Мужской' if old.get('gender') == 'М' else 'Женский' if old.get('gender') == 'Ж' else 'не указан'}\n\n"
-            "Введите новый пол (М или Ж) или нажмите «Пропустить».",
+            prompt,
             reply_markup=get_skip_keyboard()
         )
     elif current_state == UserDataStates.WAITING_GENDER:
@@ -2366,7 +2281,9 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
         if i == 1:
             await message.answer(part)
         else:
-            await message.answer(f"📄 Продолжение ({i}/{len(parts)}):\n\n{part}")
+            user_id = message.from_user.id
+            continuation_text = await get_text(user_id, 'continuation').format(i=i, total=len(parts), text=part)
+            await message.answer(continuation_text)
 
 
 # ==================== ЭКСПЕРТ ====================
@@ -2389,14 +2306,7 @@ async def expert_request(message: Message):
             f"\n♈ Знак зодиака: {user_data_from_db.get('zodiac', 'Неизвестно')}"
         )
 
-    expert_text = (
-        "👩‍🏫 Личный астролог\n\n"
-        "Индивидуальный разбор от эксперта по астрологии.\n\n"
-        "Вы сможете задать вопросы и получить детальный анализ по интересующим вас темам. "
-        "Эксперт подготовит персональные рекомендации именно для вашей ситуации.\n\n"
-        "💰 Стоимость: 5000 ₽\n\n"
-        "Нажмите кнопку ниже, чтобы отправить заявку эксперту."
-    )
+    expert_text = await get_text(user_id, 'expert_intro')
 
     await message.answer(
         expert_text,
@@ -2426,8 +2336,7 @@ async def send_expert_request(callback: CallbackQuery):
         )
 
     await callback.message.answer(
-        "✅ Заявка отправлена! 📩\n\n"
-        "Эксперт свяжется с вами в ближайшее время.",
+        await get_text(user_id, 'expert_sent'),
         reply_markup=get_main_menu()
     )
 
@@ -2456,22 +2365,12 @@ async def show_subscription(message: Message):
 
     if is_subscribed:
         await message.answer(
-            "⭐ Ваша подписка активна!\n\n"
-            "✅ Доступны все функции Premium\n"
-            "📅 Подписка активна\n\n"
-            "Хотите продлить подписку?",
+            await get_text(user_id, 'subscription_active'),
             reply_markup=get_subscription_active_keyboard()
         )
     else:
         await message.answer(
-            "⭐ Подписка 333 ₽/МЕС\n\n"
-            "✨ Что вы получите:\n"
-            "✓ Ежедневный персональный гороскоп\n"
-            "✓ Авто отправка гороскопа в 8:00\n"
-            "✓ Совместимость без ограничений\n"
-            "✓ Архив прогнозов\n"
-            "💰 333 ₽ / месяц\n\n"
-            "Нажмите кнопку ниже, чтобы оформить подписку.",
+            await get_text(user_id, 'subscription_inactive'),
             reply_markup=get_subscription_keyboard()
         )
 
@@ -2484,8 +2383,7 @@ async def subscribe_payment(callback: CallbackQuery):
 
     if not yookassa.is_configured:
         await callback.message.answer(
-            "⚠️ Платежная система временно недоступна.\n"
-            "Пожалуйста, попробуйте позже или свяжитесь с поддержкой."
+            await get_text(user_id, 'subscription_payment_error')
         )
         return
 
@@ -2500,10 +2398,7 @@ async def subscribe_payment(callback: CallbackQuery):
         await save_payment_db(user_id, result['payment_id'], 333.00, 'subscription', 'pending')
 
         await callback.message.answer(
-            "💳 Оплата 333 ₽\n\n"
-            "Нажмите на кнопку ниже, чтобы перейти к оплате.\n\n"
-            "⚠️ После оплаты подписка активируется автоматически.\n"
-            "Это может занять до 1 минуты.",
+            await get_text(user_id, 'subscription_payment_process'),
             reply_markup=get_subscription_payment_keyboard(result['confirmation_url'])
         )
     else:
@@ -2517,10 +2412,9 @@ async def subscribe_extend(callback: CallbackQuery):
     await callback.message.delete()
     await callback.answer()
 
+    user_id = callback.from_user.id
     await callback.message.answer(
-        "🔄 Продление подписки\n\n"
-        "💰 333 ₽ / месяц\n\n"
-        "Нажмите кнопку ниже для продления.",
+        await get_text(user_id, 'subscription_extend'),
         reply_markup=get_subscription_keyboard()
     )
 
@@ -2533,8 +2427,7 @@ async def show_archive(message: Message):
 
     if not messages:
         await message.answer(
-            "📚 Архив пуст\n\n"
-            "У вас пока нет сохранённых прогнозов.",
+            await get_text(user_id, 'archive_empty'),
             reply_markup=get_main_menu()
         )
         return
@@ -2553,7 +2446,7 @@ async def show_archive(message: Message):
         'astrology': '🌙',
     }
 
-    archive_text = "📚 Ваш архив прогнозов\n\n"
+    archive_text = await get_text(user_id, 'archive_title')
 
     for i, msg in enumerate(messages, 1):
         date_str = msg.date.strftime("%d.%m.%Y %H:%M")
@@ -2563,11 +2456,15 @@ async def show_archive(message: Message):
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         preview = preview.replace('\n', ' ')
 
-        archive_text += f"{i}. {emoji} {type_name} — {date_str}\n"
-        archive_text += f"   📄 {preview}\n\n"
+        archive_text += await get_text(user_id, 'archive_item').format(
+            i=i,
+            emoji=emoji,
+            type=type_name,
+            date=date_str,
+            preview=preview
+        )
 
-    archive_text += "━━━━━━━━━━━━━━━━━━━━━\n"
-    archive_text += "💡 Нажмите на кнопку ниже, чтобы посмотреть полный прогноз."
+    archive_text += await get_text(user_id, 'archive_footer')
 
     await message.answer(
         archive_text,
@@ -2605,10 +2502,12 @@ async def show_archive_message(callback: CallbackQuery):
     """Показать полное сообщение из архива"""
     await callback.answer()
 
+    user_id = callback.from_user.id
+
     try:
         message_id = int(callback.data.replace("archive_", ""))
     except ValueError:
-        await callback.message.answer("❌ Неверный формат запроса.")
+        await callback.message.answer(await get_text(user_id, 'error_not_found'))
         return
 
     try:
@@ -2617,7 +2516,7 @@ async def show_archive_message(callback: CallbackQuery):
 
         if not msg:
             await callback.message.answer(
-                "❌ Сообщение не найдено или у вас нет доступа.",
+                await get_text(user_id, 'error_not_found'),
                 reply_markup=get_main_menu()
             )
             return
@@ -2641,14 +2540,13 @@ async def show_archive_message(callback: CallbackQuery):
         emoji = type_emoji.get(msg.message_type, '📝')
         type_name = type_display.get(msg.message_type, msg.message_type)
 
-        full_text = (
-            f"{emoji} {type_name}\n"
-            f"📅 {msg.date.strftime('%d.%m.%Y %H:%M')}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{msg.content}"
+        full_text = await get_text(user_id, 'archive_message_header').format(
+            emoji=emoji,
+            type=type_name,
+            date=msg.date.strftime('%d.%m.%Y %H:%M'),
+            content=msg.content
         )
 
-        # --- Используем send_long_message для длинных сообщений ---
         await send_long_message(callback.message, full_text)
 
     except Exception as e:
@@ -2657,6 +2555,8 @@ async def show_archive_message(callback: CallbackQuery):
             reply_markup=get_main_menu()
         )
 
+
+# ==================== ОТМЕНА ПОДПИСКИ ====================
 
 @dp.callback_query(F.data == "cancel_subscription")
 async def cancel_subscription_callback(callback: CallbackQuery):
@@ -2678,15 +2578,14 @@ async def cancel_subscription_callback(callback: CallbackQuery):
 
         if not user:
             await callback.message.answer(
-                "❌ Пользователь не найден в базе данных.",
+                await get_text(user_id, 'subscription_cancel_not_found'),
                 reply_markup=get_main_menu()
             )
             return
 
         if not user.is_subscribed:
             await callback.message.answer(
-                "📌 У вас нет активной подписки.\n"
-                "Оформить подписку можно в разделе ⭐ Подписка.",
+                await get_text(user_id, 'subscription_not_active'),
                 reply_markup=get_main_menu()
             )
             await callback.message.delete()
@@ -2704,9 +2603,7 @@ async def cancel_subscription_callback(callback: CallbackQuery):
         await callback.message.delete()
 
         await callback.message.answer(
-            "❌ Ваша подписка отменена.\n\n"
-            "Вы больше не будете получать ежедневные гороскопы.\n"
-            "Вы можете оформить подписку снова в любой момент в разделе ⭐ Подписка.",
+            await get_text(user_id, 'subscription_canceled'),
             reply_markup=get_main_menu()
         )
 
@@ -2717,15 +2614,14 @@ async def cancel_subscription_callback(callback: CallbackQuery):
         )
 
 
+# ==================== ПОДДЕРЖКА ====================
+
 @dp.callback_query(F.data == "support")
 async def support(callback: CallbackQuery):
     await callback.answer()
+    user_id = callback.from_user.id
     support_url = os.getenv('SUPPORT_URL', 'https://t.me/ваш_username')
-    text = (
-        "🆘 **Поддержка**\n\n"
-        "Если у вас возникли вопросы по работе бота, оплате, подписке или вы заметили ошибку, напишите администратору.\n\n"
-        "Мы постараемся ответить как можно быстрее 👇"
-    )
+    text = await get_text(user_id, 'support_text')
     await callback.message.edit_text(
         text,
         reply_markup=get_support_keyboard(support_url),
@@ -2747,16 +2643,19 @@ async def back_to_profile(callback: CallbackQuery):
     await profile(fake_msg)
 
 
+# ==================== ПРОВЕРКА ПЛАТЕЖА ====================
+
 @dp.callback_query(F.data == "check_payment")
 async def check_payment(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
+    user_id = callback.from_user.id
     data = await state.get_data()
     payment_id = data.get('payment_id')
 
     if not payment_id:
         await callback.message.answer(
-            "❌ Информация о платеже не найдена."
+            await get_text(user_id, 'error_payment_not_found')
         )
         return
 
@@ -2764,8 +2663,7 @@ async def check_payment(callback: CallbackQuery, state: FSMContext):
 
     if result['success'] and result['paid']:
         await callback.message.answer(
-            "✅ Оплата прошла успешно!\n\n"
-            "Теперь вы можете получить натальную карту.",
+            await get_text(user_id, 'payment_success'),
             reply_markup=get_main_menu()
         )
 
@@ -2777,11 +2675,47 @@ async def check_payment(callback: CallbackQuery, state: FSMContext):
         await state.clear()
     else:
         await callback.message.answer(
-            "⏳ Оплата пока не подтверждена.\n"
-            "Пожалуйста, завершите оплату или проверьте статус позже.",
+            await get_text(user_id, 'payment_not_confirmed'),
             reply_markup=get_payment_url_keyboard(callback.message.text)
         )
 
+
+# ==================== ВЫБОР ЯЗЫКА ====================
+
+@dp.message(F.text == "🌐 En/Ru")
+async def change_language(message: Message):
+    """Показать выбор языка"""
+    user_id = message.from_user.id
+    text = await get_text(user_id, 'choose_language')
+    await message.answer(
+        text,
+        reply_markup=get_language_keyboard()
+    )
+
+
+@dp.callback_query(F.data.startswith("lang_"))
+async def set_language(callback: CallbackQuery):
+    lang = callback.data.split("_")[1]
+    user_id = callback.from_user.id
+
+    from core.models import User
+    from asgiref.sync import sync_to_async
+
+    try:
+        user = await sync_to_async(User.objects.get)(telegram_id=user_id)
+        user.language = lang
+        await sync_to_async(user.save)()
+        await callback.answer()
+
+        # Получаем подтверждение на выбранном языке (уже сохранённом)
+        confirm_text = await get_text(user_id, 'language_set')
+        await callback.message.delete()
+        await callback.message.answer(confirm_text, reply_markup=get_main_menu())
+    except User.DoesNotExist:
+        await callback.answer("❌ Ошибка: пользователь не найден", show_alert=True)
+
+
+# ==================== ТЕСТОВАЯ РАССЫЛКА ====================
 
 @dp.message(Command("test_send"))
 async def test_send(message: Message):
@@ -2799,9 +2733,9 @@ async def test_send(message: Message):
 
 @dp.message()
 async def handle_unknown(message: Message):
+    user_id = message.from_user.id
     await message.answer(
-        "❓ Я не понял вашу команду.\n"
-        "Используйте кнопки меню или напишите /start"
+        await get_text(user_id, 'unknown_command')
     )
 
 

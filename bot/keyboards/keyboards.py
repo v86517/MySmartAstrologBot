@@ -19,8 +19,9 @@ def get_main_menu():
     builder.add(KeyboardButton(text="⭐ Premium"))
     builder.add(KeyboardButton(text="👩‍🏫 Личный астролог"))
     builder.add(KeyboardButton(text="📖 Мои прогнозы"))
+    builder.add(KeyboardButton(text="🌐 En/Ru"))  # новая кнопка
     builder.add(KeyboardButton(text="👤 Мой профиль"))
-    builder.adjust(2, 2, 2, 2)
+    builder.adjust(2, 2, 2, 3)   # последняя строка – одна кнопка
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -348,4 +349,12 @@ def get_horoscope_confirm_keyboard():
     builder.button(text="🔮 Получить гороскоп на сегодня", callback_data="confirm_horoscope")
     builder.button(text="❌ Отмена", callback_data="cancel_horoscope")
     builder.adjust(1)
+    return builder.as_markup()
+
+def get_language_keyboard():
+    """Клавиатура для выбора языка (inline)"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="English", callback_data="lang_en")
+    builder.button(text="Русский", callback_data="lang_ru")
+    builder.adjust(2)  # две кнопки в строке
     return builder.as_markup()
