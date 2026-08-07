@@ -57,7 +57,7 @@ from bot.db import (
     save_message_to_archive,
     get_user_archive,
     get_archive_message,
-    get_user_language
+    get_user_language,
 )
 from bot.scheduler import setup_scheduler, send_daily_horoscopes
 from asgiref.sync import sync_to_async
@@ -168,7 +168,8 @@ async def start_horoscope(message: Message, state: FSMContext):
         user_data = await get_user_data(user_id)
         if user_data and user_data.get('name'):
             zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
-            profile_text = await get_text(user_id, 'horoscope_confirm_data').format(
+            template = await get_text(user_id, 'horoscope_confirm_data')
+            profile_text = template.format(
                 name=user_data.get('name', 'Не указано'),
                 birth_date=user_data.get('birth_date', 'Не указана'),
                 birth_time=user_data.get('birth_time', 'Не указано'),
@@ -217,7 +218,8 @@ async def start_horoscope(message: Message, state: FSMContext):
         await save_message_to_archive(user_id, 'horoscope', horoscope)
         await mark_feature_used_db(user_id, 'horoscope')
         await status_msg.delete()
-        result_text = await get_text(user_id, 'horoscope_result').format(date=today, horoscope=horoscope)
+        result_template = await get_text(user_id, 'horoscope_result')
+        result_text = result_template.format(date=today, horoscope=horoscope)
         await send_long_message(message, result_text)
 
         if not is_subscribed:
@@ -255,9 +257,8 @@ async def process_name(message: Message, state: FSMContext):
         await state.update_data(new_data=new_data)
 
         await state.set_state(UserDataStates.WAITING_BIRTH_DATE)
-        prompt = await get_text(user_id, 'skip_birth_date').format(
-            date=old.get('birth_date', 'не указана')
-        )
+        template = await get_text(user_id, 'skip_birth_date')
+        prompt = template.format(date=old.get('birth_date', 'не указана'))
         await message.answer(
             prompt,
             reply_markup=get_skip_keyboard()
@@ -309,9 +310,8 @@ async def process_birth_date(message: Message, state: FSMContext):
         await state.update_data(new_data=new_data)
 
         await state.set_state(UserDataStates.WAITING_BIRTH_TIME)
-        prompt = await get_text(user_id, 'skip_birth_time').format(
-            time=old.get('birth_time', 'не указано')
-        )
+        template = await get_text(user_id, 'skip_birth_time')
+        prompt = template.format(time=old.get('birth_time', 'не указано'))
         await message.answer(
             prompt,
             reply_markup=get_skip_keyboard()
@@ -373,9 +373,8 @@ async def process_birth_time(message: Message, state: FSMContext):
         await state.update_data(new_data=new_data)
 
         await state.set_state(UserDataStates.WAITING_BIRTH_PLACE)
-        prompt = await get_text(user_id, 'skip_birth_place').format(
-            place=old.get('birth_place', 'не указано')
-        )
+        template = await get_text(user_id, 'skip_birth_place')
+        prompt = template.format(place=old.get('birth_place', 'не указано'))
         await message.answer(
             prompt,
             reply_markup=get_skip_keyboard()
@@ -438,7 +437,8 @@ async def process_birth_place(message: Message, state: FSMContext):
         else:
             gender_display = 'не указан'
 
-        prompt = await get_text(user_id, 'skip_gender').format(gender=gender_display)
+        template = await get_text(user_id, 'skip_gender')
+        prompt = template.format(gender=gender_display)
         await message.answer(
             prompt,
             reply_markup=get_skip_keyboard()
@@ -541,7 +541,8 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
     horoscope = gemini_service.generate_horoscope(user_data, today, lang)
     await save_message_to_archive(user_id, 'horoscope', horoscope)
     await status_msg.delete()
-    result_text = await get_text(user_id, 'horoscope_result').format(date=today, horoscope=horoscope)
+    result_template = await get_text(user_id, 'horoscope_result')
+    result_text = result_template.format(date=today, horoscope=horoscope)
     await send_long_message(callback.message, result_text)
 
     await state.clear()
@@ -588,7 +589,8 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         await save_user_data(user_id, new_data)
         await state.clear()
         profile_text = format_profile_data(new_data)
-        msg = await get_text(user_id, 'profile_updated').format(profile=profile_text)
+        template = await get_text(user_id, 'profile_updated')
+        msg = template.format(profile=profile_text)
         await callback.message.delete()
         await callback.message.answer(msg, reply_markup=get_profile_keyboard())
         return
@@ -600,7 +602,8 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         await save_user_data(user_id, temp_data)
         await state.clear()
         profile_text = format_profile_data(temp_data)
-        msg = await get_text(user_id, 'profile_data_saved').format(profile=profile_text)
+        template = await get_text(user_id, 'profile_data_saved')
+        msg = template.format(profile=profile_text)
         await callback.message.delete()
         await callback.message.answer(msg, reply_markup=get_profile_keyboard())
         return
@@ -615,7 +618,8 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         user_data = await get_user_data(user_id)
         profile_text = format_profile_data(user_data)
-        msg = await get_text(user_id, 'timezone_updated').format(profile=profile_text)
+        template = await get_text(user_id, 'timezone_updated')
+        msg = template.format(profile=profile_text)
         await callback.message.delete()
         await callback.message.answer(msg, reply_markup=get_profile_keyboard())
         return
@@ -628,10 +632,8 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
     profile_text = format_profile_data(temp_data)
     privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
 
-    save_text = await get_text(user_id, 'profile_save_confirm').format(
-        profile=profile_text,
-        privacy_url=privacy_url
-    )
+    template = await get_text(user_id, 'profile_save_confirm')
+    save_text = template.format(profile=profile_text, privacy_url=privacy_url)
 
     await state.set_state(UserDataStates.ASKING_SAVE)
     await callback.message.delete()
@@ -666,7 +668,8 @@ async def save_data(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
     profile_text = format_profile_data(temp_data)
-    msg = await get_text(user_id, 'profile_data_saved').format(profile=profile_text)
+    template = await get_text(user_id, 'profile_data_saved')
+    msg = template.format(profile=profile_text)
     await callback.message.edit_text(
         f"{msg}\n\n{await get_text(user_id, 'profile_continue_prompt')}",
         reply_markup=get_after_save_keyboard()
@@ -695,7 +698,8 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     await mark_feature_used_db(user_id, 'horoscope')
     await save_message_to_archive(user_id, 'horoscope', horoscope)
     await status_msg.delete()
-    result_text = await get_text(user_id, 'horoscope_result').format(date=today, horoscope=horoscope)
+    result_template = await get_text(user_id, 'horoscope_result')
+    result_text = result_template.format(date=today, horoscope=horoscope)
     await callback.message.answer(result_text)
 
     await state.clear()
@@ -739,7 +743,8 @@ async def start_compatibility(message: Message, state: FSMContext):
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
         gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'
 
-        profile_text = await get_text(user_id, 'compatibility_use_data').format(
+        template = await get_text(user_id, 'compatibility_use_data')
+        profile_text = template.format(
             name=user_data.get('name', 'Не указано'),
             birth_date=user_data.get('birth_date', 'Не указана'),
             birth_time=user_data.get('birth_time', 'Не указано'),
@@ -817,8 +822,9 @@ async def process_person1_name(message: Message, state: FSMContext):
     await state.update_data(person1_name=message.text)
     await state.set_state(CompatibilityStates.WAITING_PERSON1_BIRTH_DATE)
 
+    template = await get_text(user_id, 'compatibility_person1_name')
     await message.answer(
-        await get_text(user_id, 'compatibility_person1_name').format(name=message.text),
+        template.format(name=message.text),
         reply_markup=get_cancel_keyboard()
     )
 
@@ -845,8 +851,9 @@ async def process_person1_birth_date(message: Message, state: FSMContext):
         )
         await state.set_state(CompatibilityStates.WAITING_PERSON1_BIRTH_TIME)
 
+        template = await get_text(user_id, 'compatibility_person1_birth_date')
         await message.answer(
-            await get_text(user_id, 'compatibility_person1_birth_date').format(
+            template.format(
                 emoji=get_zodiac_emoji(zodiac),
                 zodiac=zodiac
             ),
@@ -936,8 +943,9 @@ async def process_person1_gender(message: Message, state: FSMContext):
     await state.set_state(CompatibilityStates.WAITING_PERSON2_NAME)
 
     gender_display = 'Мужской' if gender == 'М' else 'Женский'
+    template = await get_text(user_id, 'compatibility_person1_complete')
     await message.answer(
-        await get_text(user_id, 'compatibility_person1_complete').format(
+        template.format(
             name=person1['name'],
             birth_date=person1['birth_date'],
             birth_time=person1['birth_time'],
@@ -962,8 +970,9 @@ async def process_person2_name(message: Message, state: FSMContext):
     await state.update_data(person2_name=message.text)
     await state.set_state(CompatibilityStates.WAITING_PERSON2_BIRTH_DATE)
 
+    template = await get_text(user_id, 'compatibility_person2_name')
     await message.answer(
-        await get_text(user_id, 'compatibility_person2_name').format(name=message.text),
+        template.format(name=message.text),
         reply_markup=get_cancel_keyboard()
     )
 
@@ -990,8 +999,9 @@ async def process_person2_birth_date(message: Message, state: FSMContext):
         )
         await state.set_state(CompatibilityStates.WAITING_PERSON2_BIRTH_TIME)
 
+        template = await get_text(user_id, 'compatibility_person2_birth_date')
         await message.answer(
-            await get_text(user_id, 'compatibility_person2_birth_date').format(
+            template.format(
                 emoji=get_zodiac_emoji(zodiac),
                 zodiac=zodiac
             ),
@@ -1092,7 +1102,8 @@ async def process_person2_gender(message: Message, state: FSMContext):
     zodiac1_emoji = get_zodiac_emoji(person1['zodiac'])
     zodiac2_emoji = get_zodiac_emoji(person2['zodiac'])
 
-    summary_text = await get_text(user_id, 'compatibility_summary').format(
+    template = await get_text(user_id, 'compatibility_summary')
+    summary_text = template.format(
         name1=person1['name'],
         date1=person1['birth_date'],
         time1=person1['birth_time'],
@@ -1117,8 +1128,8 @@ async def process_person2_gender(message: Message, state: FSMContext):
         await status_msg.edit_text(await get_text(user_id, 'compatibility_status_forecast'))
         await asyncio.sleep(1)
 
-        lang = await get_user_language(user_id)
         if gemini_service:
+            lang = await get_user_language(user_id)
             result = gemini_service.generate_compatibility_from_prompt(person1, person2, lang)
 
             user_id = message.from_user.id
@@ -1127,7 +1138,8 @@ async def process_person2_gender(message: Message, state: FSMContext):
             await save_message_to_archive(user_id, 'compatibility', result)
 
             await status_msg.delete()
-            result_text = await get_text(user_id, 'compatibility_result').format(result=result)
+            result_template = await get_text(user_id, 'compatibility_result')
+            result_text = result_template.format(result=result)
             await send_long_message(message, result_text)
 
             if not await check_subscription_db(user_id):
@@ -1155,7 +1167,8 @@ async def start_numerology(message: Message, state: FSMContext):
         numer_count = user_data.get('numerology_count', 0)
 
         if numer_count > 0:
-            profile_text = await get_text(user_id, 'numerology_start').format(
+            template = await get_text(user_id, 'numerology_start')
+            profile_text = template.format(
                 name=user_data.get('name', 'Не указано'),
                 birth_date=user_data.get('birth_date', 'Не указана'),
                 birth_time=user_data.get('birth_time', 'Не указано'),
@@ -1225,7 +1238,8 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
     zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
     gender_display = 'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'
 
-    profile_text = await get_text(user_id, 'numerology_use_data_confirm').format(
+    template = await get_text(user_id, 'numerology_use_data_confirm')
+    profile_text = template.format(
         name=user_data_from_db.get('name'),
         birth_date=user_data_from_db.get('birth_date'),
         birth_time=user_data_from_db.get('birth_time'),
@@ -1252,7 +1266,8 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
             await add_numerology_count(user_id, -1)
 
             await status_msg.delete()
-            result_text = await get_text(user_id, 'numerology_result').format(result=result)
+            result_template = await get_text(user_id, 'numerology_result')
+            result_text = result_template.format(result=result)
             await send_long_message(callback.message, result_text)
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
@@ -1317,8 +1332,9 @@ async def numerology_payment(callback: CallbackQuery, state: FSMContext):
 
         await state.set_state(NumerologyStates.PAYMENT)
     else:
+        error_template = await get_text(user_id, 'numerology_payment_fail')
         await callback.message.answer(
-            await get_text(user_id, 'numerology_payment_fail').format(error=result['error'])
+            error_template.format(error=result['error'])
         )
 
 
@@ -1363,7 +1379,8 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
             await add_numerology_count(user_id, -1)
 
             await status_msg.delete()
-            result_text = await get_text(user_id, 'numerology_result').format(result=result)
+            result_template = await get_text(user_id, 'numerology_result')
+            result_text = result_template.format(result=result)
             await send_long_message(callback.message, result_text)
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
@@ -1382,8 +1399,9 @@ async def process_numerology_name(message: Message, state: FSMContext):
         return
     await state.update_data(numerology_name=message.text)
     await state.set_state(NumerologyStates.WAITING_BIRTH_DATE)
+    template = await get_text(user_id, 'numerology_name_prompt')
     await message.answer(
-        await get_text(user_id, 'numerology_name_prompt').format(name=message.text),
+        template.format(name=message.text),
         reply_markup=get_cancel_keyboard()
     )
 
@@ -1403,8 +1421,9 @@ async def process_numerology_birth_date(message: Message, state: FSMContext):
         zodiac = calculate_zodiac_sign(birth_date.day, birth_date.month)
         await state.update_data(numerology_birth_date=message.text, numerology_zodiac=zodiac)
         await state.set_state(NumerologyStates.WAITING_BIRTH_TIME)
+        template = await get_text(user_id, 'numerology_birth_date')
         await message.answer(
-            await get_text(user_id, 'numerology_birth_date').format(
+            template.format(
                 emoji=get_zodiac_emoji(zodiac),
                 zodiac=zodiac
             ),
@@ -1488,7 +1507,8 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         }
 
         zodiac_emoji = get_zodiac_emoji(data.get('numerology_zodiac', 'Неизвестно'))
-        profile_text = await get_text(user_id, 'numerology_confirm_data').format(
+        template = await get_text(user_id, 'numerology_confirm_data')
+        profile_text = template.format(
             name=data.get('numerology_name'),
             birth_date=data.get('numerology_birth_date'),
             birth_time=data.get('numerology_birth_time'),
@@ -1526,7 +1546,8 @@ async def process_numerology_gender(message: Message, state: FSMContext):
     zodiac_emoji = get_zodiac_emoji(data.get('numerology_zodiac', 'Неизвестно'))
     gender_display = 'Мужской' if gender == 'М' else 'Женский'
 
-    profile_text = await get_text(user_id, 'numerology_data_saved').format(
+    template = await get_text(user_id, 'numerology_data_saved')
+    profile_text = template.format(
         name=data.get('numerology_name'),
         birth_date=data.get('numerology_birth_date'),
         birth_time=data.get('numerology_birth_time'),
@@ -1552,7 +1573,8 @@ async def process_numerology_gender(message: Message, state: FSMContext):
             await save_message_to_archive(user_id, 'numerology', result)
             await add_numerology_count(user_id, -1)
             await status_msg.delete()
-            result_text = await get_text(user_id, 'numerology_result').format(result=result)
+            result_template = await get_text(user_id, 'numerology_result')
+            result_text = result_template.format(result=result)
             await send_long_message(message, result_text)
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
@@ -1608,7 +1630,8 @@ async def start_astrology(message: Message, state: FSMContext):
         astro_count = user_data.get('astrology_count', 0)
 
         if astro_count > 0:
-            profile_text = await get_text(user_id, 'astrology_start').format(
+            template = await get_text(user_id, 'astrology_start')
+            profile_text = template.format(
                 name=user_data.get('name', 'Не указано'),
                 birth_date=user_data.get('birth_date', 'Не указана'),
                 birth_time=user_data.get('birth_time', 'Не указано'),
@@ -1678,7 +1701,8 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
     zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
     gender_display = 'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'
 
-    profile_text = await get_text(user_id, 'astrology_use_data_confirm').format(
+    template = await get_text(user_id, 'astrology_use_data_confirm')
+    profile_text = template.format(
         name=user_data_from_db.get('name'),
         birth_date=user_data_from_db.get('birth_date'),
         birth_time=user_data_from_db.get('birth_time'),
@@ -1699,13 +1723,14 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
+            lang = await get_user_language(user_id)
             calculator = AstrologyCalculator(user_data_from_db)
             parameters_text = calculator.get_display_parameters()
-            lang = await get_user_language(user_id)
             prompt = calculator.build_prompt()
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
-            final_message = await get_text(user_id, 'astrology_result').format(
+            template = await get_text(user_id, 'astrology_result')
+            final_message = template.format(
                 parameters=parameters_text,
                 interpretation=interpretation
             )
@@ -1777,8 +1802,9 @@ async def astrology_payment(callback: CallbackQuery, state: FSMContext):
 
         await state.set_state(AstrologyStates.PAYMENT)
     else:
+        error_template = await get_text(user_id, 'astrology_payment_fail')
         await callback.message.answer(
-            await get_text(user_id, 'astrology_payment_fail').format(error=result['error'])
+            error_template.format(error=result['error'])
         )
 
 
@@ -1817,13 +1843,14 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
+            lang = await get_user_language(user_id)
             calculator = AstrologyCalculator(user_data)
             parameters_text = calculator.get_display_parameters()
-            lang = await get_user_language(user_id)
             prompt = calculator.build_prompt()
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
-            final_message = await get_text(user_id, 'astrology_result').format(
+            template = await get_text(user_id, 'astrology_result')
+            final_message = template.format(
                 parameters=parameters_text,
                 interpretation=interpretation
             )
@@ -1849,8 +1876,9 @@ async def process_astrology_name(message: Message, state: FSMContext):
         return
     await state.update_data(astrology_name=message.text)
     await state.set_state(AstrologyStates.WAITING_BIRTH_DATE)
+    template = await get_text(user_id, 'astrology_name_prompt')
     await message.answer(
-        await get_text(user_id, 'astrology_name_prompt').format(name=message.text),
+        template.format(name=message.text),
         reply_markup=get_cancel_keyboard()
     )
 
@@ -1870,8 +1898,9 @@ async def process_astrology_birth_date(message: Message, state: FSMContext):
         zodiac = calculate_zodiac_sign(birth_date.day, birth_date.month)
         await state.update_data(astrology_birth_date=message.text, astrology_zodiac=zodiac)
         await state.set_state(AstrologyStates.WAITING_BIRTH_TIME)
+        template = await get_text(user_id, 'astrology_birth_date')
         await message.answer(
-            await get_text(user_id, 'astrology_birth_date').format(
+            template.format(
                 emoji=get_zodiac_emoji(zodiac),
                 zodiac=zodiac
             ),
@@ -1955,7 +1984,8 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         }
 
         zodiac_emoji = get_zodiac_emoji(data.get('astrology_zodiac', 'Неизвестно'))
-        profile_text = await get_text(user_id, 'astrology_confirm_data').format(
+        template = await get_text(user_id, 'astrology_confirm_data')
+        profile_text = template.format(
             name=data.get('astrology_name'),
             birth_date=data.get('astrology_birth_date'),
             birth_time=data.get('astrology_birth_time'),
@@ -1993,7 +2023,8 @@ async def process_astrology_gender(message: Message, state: FSMContext):
     zodiac_emoji = get_zodiac_emoji(data.get('astrology_zodiac', 'Неизвестно'))
     gender_display = 'Мужской' if gender == 'М' else 'Женский'
 
-    profile_text = await get_text(user_id, 'astrology_data_saved').format(
+    template = await get_text(user_id, 'astrology_data_saved')
+    profile_text = template.format(
         name=data.get('astrology_name'),
         birth_date=data.get('astrology_birth_date'),
         birth_time=data.get('astrology_birth_time'),
@@ -2014,13 +2045,14 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
+            lang = await get_user_language(user_id)
             calculator = AstrologyCalculator(user_data_for_calc)
             parameters_text = calculator.get_display_parameters()
-            lang = await get_user_language(user_id)
             prompt = calculator.build_prompt()
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
-            final_message = await get_text(user_id, 'astrology_result').format(
+            template = await get_text(user_id, 'astrology_result')
+            final_message = template.format(
                 parameters=parameters_text,
                 interpretation=interpretation
             )
@@ -2076,7 +2108,8 @@ async def profile(message: Message):
         gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'
         timezone = user_data.get('timezone_offset', 3)
 
-        profile_text = await get_text(user_id, 'profile_text').format(
+        template = await get_text(user_id, 'profile_text')
+        profile_text = template.format(
             name=user_data.get('name', 'Не указано'),
             birth_date=user_data.get('birth_date', 'Не указана'),
             birth_time=user_data.get('birth_time', 'Не указано'),
@@ -2098,15 +2131,11 @@ async def profile(message: Message):
         can_use = await can_use_feature_db(user_id, 'horoscope')
 
         if can_use:
-            text = await get_text(user_id, 'profile_no_data_message').format(
-                consent_url=consent_url,
-                privacy_url=privacy_url
-            )
+            template = await get_text(user_id, 'profile_no_data_message')
+            text = template.format(consent_url=consent_url, privacy_url=privacy_url)
         else:
-            text = await get_text(user_id, 'profile_no_data_message_can_use').format(
-                consent_url=consent_url,
-                privacy_url=privacy_url
-            )
+            template = await get_text(user_id, 'profile_no_data_message_can_use')
+            text = template.format(consent_url=consent_url, privacy_url=privacy_url)
         await message.answer(text, reply_markup=get_fill_profile_keyboard(), parse_mode="Markdown")
 
 
@@ -2133,7 +2162,8 @@ async def edit_profile(callback: CallbackQuery, state: FSMContext):
     logger.info(f"🟢 Начало редактирования для {user_id}, старые данные: {old}")
 
     await state.set_state(UserDataStates.WAITING_NAME)
-    prompt = await get_text(user_id, 'edit_name_prompt').format(name=old.get('name', 'не указано'))
+    template = await get_text(user_id, 'edit_name_prompt')
+    prompt = template.format(name=old.get('name', 'не указано'))
     await callback.message.edit_text(
         prompt,
         reply_markup=get_skip_keyboard()
@@ -2169,27 +2199,24 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
 
     if current_state == UserDataStates.WAITING_NAME:
         await state.set_state(UserDataStates.WAITING_BIRTH_DATE)
-        prompt = await get_text(user_id, 'skip_birth_date').format(
-            date=old.get('birth_date', 'не указана')
-        )
+        template = await get_text(user_id, 'skip_birth_date')
+        prompt = template.format(date=old.get('birth_date', 'не указана'))
         await callback.message.edit_text(
             prompt,
             reply_markup=get_skip_keyboard()
         )
     elif current_state == UserDataStates.WAITING_BIRTH_DATE:
         await state.set_state(UserDataStates.WAITING_BIRTH_TIME)
-        prompt = await get_text(user_id, 'skip_birth_time').format(
-            time=old.get('birth_time', 'не указано')
-        )
+        template = await get_text(user_id, 'skip_birth_time')
+        prompt = template.format(time=old.get('birth_time', 'не указано'))
         await callback.message.edit_text(
             prompt,
             reply_markup=get_skip_keyboard()
         )
     elif current_state == UserDataStates.WAITING_BIRTH_TIME:
         await state.set_state(UserDataStates.WAITING_BIRTH_PLACE)
-        prompt = await get_text(user_id, 'skip_birth_place').format(
-            place=old.get('birth_place', 'не указано')
-        )
+        template = await get_text(user_id, 'skip_birth_place')
+        prompt = template.format(place=old.get('birth_place', 'не указано'))
         await callback.message.edit_text(
             prompt,
             reply_markup=get_skip_keyboard()
@@ -2203,7 +2230,8 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
             gender_display = 'Женский'
         else:
             gender_display = 'не указан'
-        prompt = await get_text(user_id, 'skip_gender').format(gender=gender_display)
+        template = await get_text(user_id, 'skip_gender')
+        prompt = template.format(gender=gender_display)
         await callback.message.edit_text(
             prompt,
             reply_markup=get_skip_keyboard()
@@ -2282,7 +2310,8 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
             await message.answer(part)
         else:
             user_id = message.from_user.id
-            continuation_text = await get_text(user_id, 'continuation').format(i=i, total=len(parts), text=part)
+            template = await get_text(user_id, 'continuation')
+            continuation_text = template.format(i=i, total=len(parts), text=part)
             await message.answer(continuation_text)
 
 
@@ -2456,7 +2485,8 @@ async def show_archive(message: Message):
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         preview = preview.replace('\n', ' ')
 
-        archive_text += await get_text(user_id, 'archive_item').format(
+        template = await get_text(user_id, 'archive_item')
+        archive_text += template.format(
             i=i,
             emoji=emoji,
             type=type_name,
@@ -2540,7 +2570,8 @@ async def show_archive_message(callback: CallbackQuery):
         emoji = type_emoji.get(msg.message_type, '📝')
         type_name = type_display.get(msg.message_type, msg.message_type)
 
-        full_text = await get_text(user_id, 'archive_message_header').format(
+        template = await get_text(user_id, 'archive_message_header')
+        full_text = template.format(
             emoji=emoji,
             type=type_name,
             date=msg.date.strftime('%d.%m.%Y %H:%M'),
@@ -2678,7 +2709,6 @@ async def check_payment(callback: CallbackQuery, state: FSMContext):
             await get_text(user_id, 'payment_not_confirmed'),
             reply_markup=get_payment_url_keyboard(callback.message.text)
         )
-
 
 # ==================== ВЫБОР ЯЗЫКА ====================
 
