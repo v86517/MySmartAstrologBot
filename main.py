@@ -1780,7 +1780,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             lang = await get_user_language(user_id)
             calculator = AstrologyCalculator(user_data_from_db)
-            parameters_text = calculator.get_display_parameters()
+            parameters_text = calculator.get_display_parameters(lang)
             prompt = calculator.build_prompt()
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
@@ -1900,7 +1900,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             lang = await get_user_language(user_id)
             calculator = AstrologyCalculator(user_data)
-            parameters_text = calculator.get_display_parameters()
+            parameters_text = calculator.get_display_parameters(lang)
             prompt = calculator.build_prompt()
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
@@ -2102,7 +2102,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         if gemini_service:
             lang = await get_user_language(user_id)
             calculator = AstrologyCalculator(user_data_for_calc)
-            parameters_text = calculator.get_display_parameters()
+            parameters_text = calculator.get_display_parameters(lang)
             prompt = calculator.build_prompt()
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
@@ -2146,7 +2146,12 @@ async def profile(message: Message):
 
     if user_data and user_data.get('name'):
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
-        gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'
+        if user_data.get('gender') == 'M':
+            gender_display = await get_text(user_id, 'astro_gender_male')
+        elif user_data.get('gender') == 'F':
+            gender_display = await get_text(user_id, 'astro_gender_female')
+        else:
+            gender_display = await get_text(user_id, 'astro_gender_unknown')
         timezone = user_data.get('timezone_offset', 3)
 
         template = await get_text(user_id, 'profile_text')
