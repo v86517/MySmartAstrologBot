@@ -158,14 +158,47 @@ async def cmd_menu(message: Message, state: FSMContext):
     )
 
 
+# ==================== ТЕСТОВАЯ РАССЫЛКА ====================
+
+@dp.message(Command("test_send"))
+async def test_send(message: Message):
+    ADMIN_ID = 5484157606
+
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ У вас нет доступа к этой команде.")
+        return
+
+    await message.answer("⏳ Начинаю тестовую рассылку...")
+    await send_daily_horoscopes(bot)
+
+
+# ==================== ВЫБОР ЯЗЫКА ====================
+
+@dp.message(F.text == "🌐 En/Ru")
+async def change_language(message: Message):
+    """Показать выбор языка"""
+    user_id = message.from_user.id
+    text = await get_text(user_id, 'choose_language')
+    await message.answer(
+        text,
+        reply_markup=get_language_keyboard()
+    )
+
+
 # ==================== ОБРАБОТЧИК ТЕКСТОВЫХ КОМАНД МЕНЮ (только если нет активного состояния) ====================
 
-@dp.message(F.text, ~F.state)
+@dp.message(F.text)
 async def handle_menu_commands(message: Message, state: FSMContext):
     """
-    Обрабатывает текстовые команды главного меню.
-    Срабатывает только когда нет активного FSM-состояния.
+    Обрабатывает текстовые команды главного меню,
+    только если нет активного FSM-состояния.
     """
+    # Проверяем, есть ли активное состояние
+    current_state = await state.get_state()
+    if current_state is not None:
+        # Если состояние активно, пропускаем обработку
+        return
+
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
     texts = TEXTS.get(lang, TEXTS['ru'])
@@ -2716,19 +2749,6 @@ async def check_payment(callback: CallbackQuery, state: FSMContext):
         )
 
 
-# ==================== ВЫБОР ЯЗЫКА ====================
-
-@dp.message(F.text == "🌐 En/Ru")
-async def change_language(message: Message):
-    """Показать выбор языка"""
-    user_id = message.from_user.id
-    text = await get_text(user_id, 'choose_language')
-    await message.answer(
-        text,
-        reply_markup=get_language_keyboard()
-    )
-
-
 @dp.callback_query(F.data.startswith("lang_"))
 async def set_language(callback: CallbackQuery):
     lang = callback.data.split("_")[1]
@@ -2744,20 +2764,6 @@ async def set_language(callback: CallbackQuery):
         await callback.message.answer(confirm_text, reply_markup=get_main_menu(lang))
     except User.DoesNotExist:
         await callback.answer("❌ Ошибка: пользователь не найден", show_alert=True)
-
-
-# ==================== ТЕСТОВАЯ РАССЫЛКА ====================
-
-@dp.message(Command("test_send"))
-async def test_send(message: Message):
-    ADMIN_ID = 5484157606
-
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ У вас нет доступа к этой команде.")
-        return
-
-    await message.answer("⏳ Начинаю тестовую рассылку...")
-    await send_daily_horoscopes(bot)
 
 
 # ==================== ОБРАБОТКА НЕИЗВЕСТНЫХ СООБЩЕНИЙ ====================
