@@ -66,6 +66,8 @@ from bot.yookassa_client import yookassa
 from bot.db import save_payment_db, activate_subscription_db, add_numerology_count, add_astrology_count
 from bot.calculators.astrology_calculator import AstrologyCalculator
 
+from bot.locales import TEXTS
+
 MESSAGE_TYPES_DISPLAY = {
     'horoscope': '🔮 Гороскоп',
     'compatibility': '💕 Совместимость',
@@ -158,7 +160,7 @@ async def cmd_menu(message: Message, state: FSMContext):
 
 # ==================== ОБРАБОТЧИКИ КНОПОК ГЛАВНОГО МЕНЮ (callback) ====================
 
-@dp.callback_query(F.data == "menu_horoscope")
+#@dp.callback_query(F.data == "menu_horoscope")
 async def menu_horoscope(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     class FakeMessage:
@@ -171,7 +173,7 @@ async def menu_horoscope(callback: CallbackQuery, state: FSMContext):
     await start_horoscope(fake_msg, state)
 
 
-@dp.callback_query(F.data == "menu_compatibility")
+#@dp.callback_query(F.data == "menu_compatibility")
 async def menu_compatibility(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     class FakeMessage:
@@ -183,7 +185,7 @@ async def menu_compatibility(callback: CallbackQuery, state: FSMContext):
     await start_compatibility(fake_msg, state)
 
 
-@dp.callback_query(F.data == "menu_numerology")
+#@dp.callback_query(F.data == "menu_numerology")
 async def menu_numerology(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     class FakeMessage:
@@ -195,7 +197,7 @@ async def menu_numerology(callback: CallbackQuery, state: FSMContext):
     await start_numerology(fake_msg, state)
 
 
-@dp.callback_query(F.data == "menu_astrology")
+#@dp.callback_query(F.data == "menu_astrology")
 async def menu_astrology(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     class FakeMessage:
@@ -207,7 +209,7 @@ async def menu_astrology(callback: CallbackQuery, state: FSMContext):
     await start_astrology(fake_msg, state)
 
 
-@dp.callback_query(F.data == "menu_premium")
+#@dp.callback_query(F.data == "menu_premium")
 async def menu_premium(callback: CallbackQuery):
     await callback.answer()
     class FakeMessage:
@@ -219,7 +221,7 @@ async def menu_premium(callback: CallbackQuery):
     await show_subscription(fake_msg)
 
 
-@dp.callback_query(F.data == "menu_expert")
+#@dp.callback_query(F.data == "menu_expert")
 async def menu_expert(callback: CallbackQuery):
     await callback.answer()
     class FakeMessage:
@@ -231,7 +233,7 @@ async def menu_expert(callback: CallbackQuery):
     await expert_request(fake_msg)
 
 
-@dp.callback_query(F.data == "menu_archive")
+#@dp.callback_query(F.data == "menu_archive")
 async def menu_archive(callback: CallbackQuery):
     await callback.answer()
     class FakeMessage:
@@ -243,7 +245,7 @@ async def menu_archive(callback: CallbackQuery):
     await show_archive(fake_msg)
 
 
-@dp.callback_query(F.data == "menu_profile")
+#@dp.callback_query(F.data == "menu_profile")
 async def menu_profile(callback: CallbackQuery):
     await callback.answer()
     class FakeMessage:
@@ -283,7 +285,7 @@ async def back_to_main_menu(callback: CallbackQuery):
 
 # ==================== ГОРОСКОП ====================
 
-@dp.message(F.text == "🔮 Гороскоп на сегодня")
+#@dp.message(F.text == "🔮 Гороскоп на сегодня")
 async def start_horoscope(message: Message, state: FSMContext):
     """Получение гороскопа"""
     user_id = message.from_user.id
@@ -799,7 +801,7 @@ async def close_subscription(callback: CallbackQuery):
 
 # ==================== СОВМЕСТИМОСТЬ ====================
 
-@dp.message(F.text == "💕 Совместимость")
+#@dp.message(F.text == "💕 Совместимость")
 async def start_compatibility(message: Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
@@ -1240,7 +1242,7 @@ async def process_person2_gender(message: Message, state: FSMContext):
 
 # ==================== НУМЕРОЛОГИЯ ====================
 
-@dp.message(F.text == "🔢 Нумерология")
+#@dp.message(F.text == "🔢 Нумерология")
 async def start_numerology(message: Message, state: FSMContext):
     """Начало оформления нумерологии"""
     user_id = message.from_user.id
@@ -1691,7 +1693,7 @@ async def edit_numerology_data(callback: CallbackQuery, state: FSMContext):
 
 # ==================== АСТРОЛОГИЯ ====================
 
-@dp.message(F.text == "🌌 Натальная карта")
+#@dp.message(F.text == "🌌 Натальная карта")
 async def start_astrology(message: Message, state: FSMContext):
     """Начало оформления астрологии"""
     user_id = message.from_user.id
@@ -2387,7 +2389,7 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
 
 # ==================== ЭКСПЕРТ ====================
 
-@dp.message(F.text == "👩‍🏫 Личный астролог")
+#@dp.message(F.text == "👩‍🏫 Личный астролог")
 async def expert_request(message: Message):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
@@ -2459,7 +2461,7 @@ async def send_expert_request(callback: CallbackQuery):
 
 # ==================== ПОДПИСКА ====================
 
-@dp.message(F.text == "⭐ Premium")
+#@dp.message(F.text == "⭐ Premium")
 async def show_subscription(message: Message):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
@@ -2816,6 +2818,43 @@ async def test_send(message: Message):
 
     await message.answer("⏳ Начинаю тестовую рассылку...")
     await send_daily_horoscopes(bot)
+
+
+# ==================== ОБРАБОТЧИК ТЕКСТОВЫХ КОМАНД МЕНЮ (только если нет активного состояния) ====================
+
+@dp.message(F.text, ~F.state)  # срабатывает только если состояние None
+async def handle_menu_commands(message: Message, state: FSMContext):
+    """
+    Обрабатывает текстовые команды главного меню.
+    Срабатывает только когда нет активного FSM-состояния.
+    """
+    user_id = message.from_user.id
+    lang = await get_user_language(user_id)
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    text = message.text
+
+    # Сопоставляем текст с командами меню
+    if text == texts['menu_horoscope']:
+        await start_horoscope(message, state)
+    elif text == texts['menu_compatibility']:
+        await start_compatibility(message, state)
+    elif text == texts['menu_numerology']:
+        await start_numerology(message, state)
+    elif text == texts['menu_astrology']:
+        await start_astrology(message, state)
+    elif text == texts['menu_premium']:
+        await show_subscription(message)
+    elif text == texts['menu_expert']:
+        await expert_request(message)
+    elif text == texts['menu_archive']:
+        await show_archive(message)
+    elif text == texts['menu_profile']:
+        await profile(message)
+    elif text == texts['menu_language']:
+        await change_language(message)
+    else:
+        # Если текст не совпал ни с одной командой, передаём в обработчик неизвестных
+        await handle_unknown(message)
 
 
 # ==================== ОБРАБОТКА НЕИЗВЕСТНЫХ СООБЩЕНИЙ ====================
