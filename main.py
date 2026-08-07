@@ -43,7 +43,7 @@ from bot.keyboards.keyboards import (
     get_language_keyboard,
 )
 from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates, HoroscopeStates
-from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji
+from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji, get_zodiac_sign_localized
 from bot.services.gemini import GeminiService
 
 from bot.db import (
@@ -65,7 +65,6 @@ from core.models import User
 from bot.yookassa_client import yookassa
 from bot.db import save_payment_db, activate_subscription_db, add_numerology_count, add_astrology_count
 from bot.calculators.astrology_calculator import AstrologyCalculator
-
 from bot.locales import TEXTS
 
 MESSAGE_TYPES_DISPLAY = {
@@ -105,10 +104,11 @@ except Exception as e:
 numerology_data = {}
 astrology_data = {}
 
-def format_profile_data(data: dict) -> str:
-    """Форматирует данные пользователя для отображения (статический, без локализации)"""
+def format_profile_data(data: dict, lang: str) -> str:
+    """Форматирует данные пользователя для отображения с учётом языка"""
     gender_display = 'Мужской' if data.get('gender') == 'M' else 'Женский' if data.get('gender') == 'F' else 'Не указан'
     zodiac_emoji = get_zodiac_emoji(data.get('zodiac', 'Неизвестно'))
+    zodiac_name = get_zodiac_sign_localized(data.get('zodiac', 'Неизвестно'), lang)
     timezone = data.get('timezone_offset', 3)
     return (
         f"👤 Имя: {data.get('name', 'Не указано')}\n"
@@ -116,7 +116,7 @@ def format_profile_data(data: dict) -> str:
         f"🕒 Время рождения: {data.get('birth_time', 'Не указано')}\n"
         f"📍 Место рождения: {data.get('birth_place', 'Не указано')}\n"
         f"👤 Пол: {gender_display}\n"
-        f"{zodiac_emoji} Знак зодиака: {data.get('zodiac', 'Неизвестно')}\n"
+        f"{zodiac_emoji} Знак зодиака: {zodiac_name}\n"
         f"🕒 Часовой пояс: UTC+{timezone}"
     )
 
@@ -158,118 +158,43 @@ async def cmd_menu(message: Message, state: FSMContext):
     )
 
 
-# ==================== ОБРАБОТЧИКИ КНОПОК ГЛАВНОГО МЕНЮ (callback) ====================
+# ==================== ОБРАБОТЧИК ТЕКСТОВЫХ КОМАНД МЕНЮ (только если нет активного состояния) ====================
 
-#@dp.callback_query(F.data == "menu_horoscope")
-async def menu_horoscope(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    class FakeMessage:
-        def __init__(self, callback):
-            self.from_user = callback.from_user
-            self.chat = callback.message.chat
-            self.answer = callback.message.answer
-            self.text = "🔮 Гороскоп на сегодня"
-    fake_msg = FakeMessage(callback)
-    await start_horoscope(fake_msg, state)
+@dp.message(F.text, ~F.state)
+async def handle_menu_commands(message: Message, state: FSMContext):
+    """
+    Обрабатывает текстовые команды главного меню.
+    Срабатывает только когда нет активного FSM-состояния.
+    """
+    user_id = message.from_user.id
+    lang = await get_user_language(user_id)
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    text = message.text
 
-
-#@dp.callback_query(F.data == "menu_compatibility")
-async def menu_compatibility(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    class FakeMessage:
-        def __init__(self, callback):
-            self.from_user = callback.from_user
-            self.chat = callback.message.chat
-            self.answer = callback.message.answer
-    fake_msg = FakeMessage(callback)
-    await start_compatibility(fake_msg, state)
-
-
-#@dp.callback_query(F.data == "menu_numerology")
-async def menu_numerology(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    class FakeMessage:
-        def __init__(self, callback):
-            self.from_user = callback.from_user
-            self.chat = callback.message.chat
-            self.answer = callback.message.answer
-    fake_msg = FakeMessage(callback)
-    await start_numerology(fake_msg, state)
+    if text == texts['menu_horoscope']:
+        await start_horoscope(message, state)
+    elif text == texts['menu_compatibility']:
+        await start_compatibility(message, state)
+    elif text == texts['menu_numerology']:
+        await start_numerology(message, state)
+    elif text == texts['menu_astrology']:
+        await start_astrology(message, state)
+    elif text == texts['menu_premium']:
+        await show_subscription(message)
+    elif text == texts['menu_expert']:
+        await expert_request(message)
+    elif text == texts['menu_archive']:
+        await show_archive(message)
+    elif text == texts['menu_profile']:
+        await profile(message)
+    elif text == texts['menu_language']:
+        await change_language(message)
+    else:
+        # Если текст не совпал ни с одной командой, передаём в обработчик неизвестных
+        await handle_unknown(message)
 
 
-#@dp.callback_query(F.data == "menu_astrology")
-async def menu_astrology(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    class FakeMessage:
-        def __init__(self, callback):
-            self.from_user = callback.from_user
-            self.chat = callback.message.chat
-            self.answer = callback.message.answer
-    fake_msg = FakeMessage(callback)
-    await start_astrology(fake_msg, state)
-
-
-#@dp.callback_query(F.data == "menu_premium")
-async def menu_premium(callback: CallbackQuery):
-    await callback.answer()
-    class FakeMessage:
-        def __init__(self, callback):
-            self.from_user = callback.from_user
-            self.chat = callback.message.chat
-            self.answer = callback.message.answer
-    fake_msg = FakeMessage(callback)
-    await show_subscription(fake_msg)
-
-
-#@dp.callback_query(F.data == "menu_expert")
-async def menu_expert(callback: CallbackQuery):
-    await callback.answer()
-    class FakeMessage:
-        def __init__(self, callback):
-            self.from_user = callback.from_user
-            self.chat = callback.message.chat
-            self.answer = callback.message.answer
-    fake_msg = FakeMessage(callback)
-    await expert_request(fake_msg)
-
-
-#@dp.callback_query(F.data == "menu_archive")
-async def menu_archive(callback: CallbackQuery):
-    await callback.answer()
-    class FakeMessage:
-        def __init__(self, callback):
-            self.from_user = callback.from_user
-            self.chat = callback.message.chat
-            self.answer = callback.message.answer
-    fake_msg = FakeMessage(callback)
-    await show_archive(fake_msg)
-
-
-#@dp.callback_query(F.data == "menu_profile")
-async def menu_profile(callback: CallbackQuery):
-    await callback.answer()
-    class FakeMessage:
-        def __init__(self, callback):
-            self.from_user = callback.from_user
-            self.chat = callback.message.chat
-            self.answer = callback.message.answer
-    fake_msg = FakeMessage(callback)
-    await profile(fake_msg)
-
-
-@dp.callback_query(F.data == "menu_language")
-async def menu_language(callback: CallbackQuery):
-    await callback.answer()
-    class FakeMessage:
-        def __init__(self, callback):
-            self.from_user = callback.from_user
-            self.chat = callback.message.chat
-            self.answer = callback.message.answer
-    fake_msg = FakeMessage(callback)
-    await change_language(fake_msg)
-
-
-# ==================== ОБРАБОТЧИК main_menu (возврат в главное меню) ====================
+# ==================== ОБРАБОТЧИК main_menu (возврат в главное меню) — для callback ====================
 
 @dp.callback_query(F.data == "main_menu")
 async def back_to_main_menu(callback: CallbackQuery):
@@ -285,7 +210,6 @@ async def back_to_main_menu(callback: CallbackQuery):
 
 # ==================== ГОРОСКОП ====================
 
-#@dp.message(F.text == "🔮 Гороскоп на сегодня")
 async def start_horoscope(message: Message, state: FSMContext):
     """Получение гороскопа"""
     user_id = message.from_user.id
@@ -297,6 +221,7 @@ async def start_horoscope(message: Message, state: FSMContext):
         user_data = await get_user_data(user_id)
         if user_data and user_data.get('name'):
             zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+            zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
             template = await get_text(user_id, 'horoscope_confirm_data')
             profile_text = template.format(
                 name=user_data.get('name', 'Не указано'),
@@ -304,7 +229,7 @@ async def start_horoscope(message: Message, state: FSMContext):
                 birth_time=user_data.get('birth_time', 'Не указано'),
                 birth_place=user_data.get('birth_place', 'Не указано'),
                 emoji=zodiac_emoji,
-                zodiac=user_data.get('zodiac', 'Неизвестно')
+                zodiac=zodiac_name
             )
             await state.set_state(HoroscopeStates.CONFIRM)
             await message.answer(
@@ -443,8 +368,9 @@ async def process_birth_date(message: Message, state: FSMContext):
             zodiac = calculate_zodiac_sign(birth_date.day, birth_date.month)
             await state.update_data(birth_date=message.text, zodiac=zodiac)
             await state.set_state(UserDataStates.WAITING_BIRTH_TIME)
+            zodiac_name = get_zodiac_sign_localized(zodiac, lang)
             await message.answer(
-                f"✅ Отлично! Знак зодиака: {get_zodiac_emoji(zodiac)} {zodiac}\n\n"
+                f"✅ Отлично! Знак зодиака: {get_zodiac_emoji(zodiac)} {zodiac_name}\n\n"
                 "🕒 Шаг 3 из 5\n\nУкажите точное время рождения в формате:\nЧЧ:ММ\n\n"
                 "Например: 15:30\nЕсли не знаете, напишите 00:00",
                 reply_markup=get_cancel_keyboard(lang)
@@ -668,7 +594,7 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         new_data['timezone_offset'] = tz_offset
         await save_user_data(user_id, new_data)
         await state.clear()
-        profile_text = format_profile_data(new_data)
+        profile_text = format_profile_data(new_data, lang)
         template = await get_text(user_id, 'profile_updated')
         msg = template.format(profile=profile_text)
         await callback.message.delete()
@@ -681,7 +607,7 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         temp_data['timezone_offset'] = tz_offset
         await save_user_data(user_id, temp_data)
         await state.clear()
-        profile_text = format_profile_data(temp_data)
+        profile_text = format_profile_data(temp_data, lang)
         template = await get_text(user_id, 'profile_data_saved')
         msg = template.format(profile=profile_text)
         await callback.message.delete()
@@ -695,7 +621,7 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         await sync_to_async(user.save)()
         await state.clear()
         user_data = await get_user_data(user_id)
-        profile_text = format_profile_data(user_data)
+        profile_text = format_profile_data(user_data, lang)
         template = await get_text(user_id, 'timezone_updated')
         msg = template.format(profile=profile_text)
         await callback.message.delete()
@@ -707,7 +633,7 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
     temp_data['timezone_offset'] = tz_offset
     await state.update_data(temp_data=temp_data)
 
-    profile_text = format_profile_data(temp_data)
+    profile_text = format_profile_data(temp_data, lang)
     privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
 
     template = await get_text(user_id, 'profile_save_confirm')
@@ -721,11 +647,14 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data.startswith("zodiac_"))
 async def process_zodiac_choice(callback: CallbackQuery, state: FSMContext):
     zodiac = callback.data.replace("zodiac_", "")
+    user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     await state.update_data(zodiac=zodiac)
     await state.set_state(UserDataStates.WAITING_BIRTH_DATE)
 
+    zodiac_name = get_zodiac_sign_localized(zodiac, lang)
     await callback.message.edit_text(
-        f"✅ Выбран знак: {get_zodiac_emoji(zodiac)} {zodiac}\n\n📅 Теперь укажите дату рождения в формате ДД.ММ.ГГГГ"
+        f"✅ Выбран знак: {get_zodiac_emoji(zodiac)} {zodiac_name}\n\n📅 Теперь укажите дату рождения в формате ДД.ММ.ГГГГ"
     )
     await callback.answer()
 
@@ -742,7 +671,7 @@ async def save_data(callback: CallbackQuery, state: FSMContext):
     await save_user_data(user_id, temp_data)
     await state.clear()
 
-    profile_text = format_profile_data(temp_data)
+    profile_text = format_profile_data(temp_data, lang)
     template = await get_text(user_id, 'profile_data_saved')
     msg = template.format(profile=profile_text)
     await callback.message.edit_text(
@@ -801,7 +730,6 @@ async def close_subscription(callback: CallbackQuery):
 
 # ==================== СОВМЕСТИМОСТЬ ====================
 
-#@dp.message(F.text == "💕 Совместимость")
 async def start_compatibility(message: Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
@@ -818,6 +746,7 @@ async def start_compatibility(message: Message, state: FSMContext):
 
     if user_data and user_data.get('name'):
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+        zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
         gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'
 
         template = await get_text(user_id, 'compatibility_use_data')
@@ -828,7 +757,7 @@ async def start_compatibility(message: Message, state: FSMContext):
             birth_place=user_data.get('birth_place', 'Не указано'),
             gender=gender_display,
             emoji=zodiac_emoji,
-            zodiac=user_data.get('zodiac', 'Неизвестно')
+            zodiac=zodiac_name
         )
 
         await message.answer(
@@ -925,6 +854,7 @@ async def process_person1_birth_date(message: Message, state: FSMContext):
     try:
         birth_date = datetime.strptime(message.text, "%d.%m.%Y")
         zodiac = calculate_zodiac_sign(birth_date.day, birth_date.month)
+        zodiac_name = get_zodiac_sign_localized(zodiac, lang)
 
         await state.update_data(
             person1_birth_date=message.text,
@@ -936,7 +866,7 @@ async def process_person1_birth_date(message: Message, state: FSMContext):
         await message.answer(
             template.format(
                 emoji=get_zodiac_emoji(zodiac),
-                zodiac=zodiac
+                zodiac=zodiac_name
             ),
             reply_markup=get_cancel_keyboard(lang)
         )
@@ -1027,6 +957,7 @@ async def process_person1_gender(message: Message, state: FSMContext):
     await state.set_state(CompatibilityStates.WAITING_PERSON2_NAME)
 
     gender_display = 'Мужской' if gender == 'М' else 'Женский'
+    zodiac1_name = get_zodiac_sign_localized(person1['zodiac'], lang)
     template = await get_text(user_id, 'compatibility_person1_complete')
     await message.answer(
         template.format(
@@ -1036,7 +967,7 @@ async def process_person1_gender(message: Message, state: FSMContext):
             birth_place=person1['birth_place'],
             gender=gender_display,
             emoji=get_zodiac_emoji(person1['zodiac']),
-            zodiac=person1['zodiac']
+            zodiac=zodiac1_name
         ),
         reply_markup=get_cancel_keyboard(lang)
     )
@@ -1078,6 +1009,7 @@ async def process_person2_birth_date(message: Message, state: FSMContext):
     try:
         birth_date = datetime.strptime(message.text, "%d.%m.%Y")
         zodiac = calculate_zodiac_sign(birth_date.day, birth_date.month)
+        zodiac_name = get_zodiac_sign_localized(zodiac, lang)
 
         await state.update_data(
             person2_birth_date=message.text,
@@ -1089,7 +1021,7 @@ async def process_person2_birth_date(message: Message, state: FSMContext):
         await message.answer(
             template.format(
                 emoji=get_zodiac_emoji(zodiac),
-                zodiac=zodiac
+                zodiac=zodiac_name
             ),
             reply_markup=get_cancel_keyboard(lang)
         )
@@ -1188,6 +1120,8 @@ async def process_person2_gender(message: Message, state: FSMContext):
 
     await state.clear()
 
+    zodiac1_name = get_zodiac_sign_localized(person1['zodiac'], lang)
+    zodiac2_name = get_zodiac_sign_localized(person2['zodiac'], lang)
     zodiac1_emoji = get_zodiac_emoji(person1['zodiac'])
     zodiac2_emoji = get_zodiac_emoji(person2['zodiac'])
 
@@ -1198,13 +1132,13 @@ async def process_person2_gender(message: Message, state: FSMContext):
         time1=person1['birth_time'],
         place1=person1['birth_place'],
         emoji1=zodiac1_emoji,
-        zodiac1=person1['zodiac'],
+        zodiac1=zodiac1_name,
         name2=person2['name'],
         date2=person2['birth_date'],
         time2=person2['birth_time'],
         place2=person2['birth_place'],
         emoji2=zodiac2_emoji,
-        zodiac2=person2['zodiac']
+        zodiac2=zodiac2_name
     )
 
     status_msg = await message.answer(summary_text)
@@ -1242,7 +1176,6 @@ async def process_person2_gender(message: Message, state: FSMContext):
 
 # ==================== НУМЕРОЛОГИЯ ====================
 
-#@dp.message(F.text == "🔢 Нумерология")
 async def start_numerology(message: Message, state: FSMContext):
     """Начало оформления нумерологии"""
     user_id = message.from_user.id
@@ -1251,6 +1184,7 @@ async def start_numerology(message: Message, state: FSMContext):
 
     if user_data and user_data.get('name'):
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+        zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
         numer_count = user_data.get('numerology_count', 0)
 
         if numer_count > 0:
@@ -1261,7 +1195,7 @@ async def start_numerology(message: Message, state: FSMContext):
                 birth_time=user_data.get('birth_time', 'Не указано'),
                 birth_place=user_data.get('birth_place', 'Не указано'),
                 emoji=zodiac_emoji,
-                zodiac=user_data.get('zodiac', 'Неизвестно')
+                zodiac=zodiac_name
             )
             await message.answer(
                 profile_text,
@@ -1324,6 +1258,7 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
     zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
+    zodiac_name = get_zodiac_sign_localized(user_data_from_db.get('zodiac', 'Неизвестно'), lang)
     gender_display = 'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'
 
     template = await get_text(user_id, 'numerology_use_data_confirm')
@@ -1334,7 +1269,7 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         birth_place=user_data_from_db.get('birth_place'),
         gender=gender_display,
         emoji=zodiac_emoji,
-        zodiac=user_data_from_db.get('zodiac')
+        zodiac=zodiac_name
     )
 
     status_msg = await callback.message.answer(profile_text)
@@ -1479,7 +1414,7 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         numerology_data.pop(user_id, None)
 
 
-# Сбор данных для нумерологии (аналогично натальной карте)
+# Сбор данных для нумерологии
 @dp.message(NumerologyStates.WAITING_NAME)
 async def process_numerology_name(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -1510,13 +1445,14 @@ async def process_numerology_birth_date(message: Message, state: FSMContext):
     try:
         birth_date = datetime.strptime(message.text, "%d.%m.%Y")
         zodiac = calculate_zodiac_sign(birth_date.day, birth_date.month)
+        zodiac_name = get_zodiac_sign_localized(zodiac, lang)
         await state.update_data(numerology_birth_date=message.text, numerology_zodiac=zodiac)
         await state.set_state(NumerologyStates.WAITING_BIRTH_TIME)
         template = await get_text(user_id, 'numerology_birth_date')
         await message.answer(
             template.format(
                 emoji=get_zodiac_emoji(zodiac),
-                zodiac=zodiac
+                zodiac=zodiac_name
             ),
             reply_markup=get_cancel_keyboard(lang)
         )
@@ -1601,6 +1537,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         }
 
         zodiac_emoji = get_zodiac_emoji(data.get('numerology_zodiac', 'Неизвестно'))
+        zodiac_name = get_zodiac_sign_localized(data.get('numerology_zodiac', 'Неизвестно'), lang)
         template = await get_text(user_id, 'numerology_confirm_data')
         profile_text = template.format(
             name=data.get('numerology_name'),
@@ -1608,7 +1545,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
             birth_time=data.get('numerology_birth_time'),
             birth_place=data.get('numerology_birth_place'),
             emoji=zodiac_emoji,
-            zodiac=data.get('numerology_zodiac')
+            zodiac=zodiac_name
         )
         await state.set_state(NumerologyStates.CONFIRM_DATA)
         await message.answer(
@@ -1638,6 +1575,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
     await state.clear()
 
     zodiac_emoji = get_zodiac_emoji(data.get('numerology_zodiac', 'Неизвестно'))
+    zodiac_name = get_zodiac_sign_localized(data.get('numerology_zodiac', 'Неизвестно'), lang)
     gender_display = 'Мужской' if gender == 'М' else 'Женский'
 
     template = await get_text(user_id, 'numerology_data_saved')
@@ -1648,7 +1586,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         birth_place=data.get('numerology_birth_place'),
         gender=gender_display,
         emoji=zodiac_emoji,
-        zodiac=data.get('numerology_zodiac')
+        zodiac=zodiac_name
     )
 
     status_msg = await message.answer(profile_text)
@@ -1693,7 +1631,6 @@ async def edit_numerology_data(callback: CallbackQuery, state: FSMContext):
 
 # ==================== АСТРОЛОГИЯ ====================
 
-#@dp.message(F.text == "🌌 Натальная карта")
 async def start_astrology(message: Message, state: FSMContext):
     """Начало оформления астрологии"""
     user_id = message.from_user.id
@@ -1702,6 +1639,7 @@ async def start_astrology(message: Message, state: FSMContext):
 
     if user_data and user_data.get('name'):
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+        zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
         astro_count = user_data.get('astrology_count', 0)
 
         if astro_count > 0:
@@ -1712,7 +1650,7 @@ async def start_astrology(message: Message, state: FSMContext):
                 birth_time=user_data.get('birth_time', 'Не указано'),
                 birth_place=user_data.get('birth_place', 'Не указано'),
                 emoji=zodiac_emoji,
-                zodiac=user_data.get('zodiac', 'Неизвестно')
+                zodiac=zodiac_name
             )
             await message.answer(
                 profile_text,
@@ -1775,6 +1713,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
     zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
+    zodiac_name = get_zodiac_sign_localized(user_data_from_db.get('zodiac', 'Неизвестно'), lang)
     gender_display = 'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'
 
     template = await get_text(user_id, 'astrology_use_data_confirm')
@@ -1785,7 +1724,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         birth_place=user_data_from_db.get('birth_place'),
         gender=gender_display,
         emoji=zodiac_emoji,
-        zodiac=user_data_from_db.get('zodiac')
+        zodiac=zodiac_name
     )
 
     status_msg = await callback.message.answer(profile_text)
@@ -1975,13 +1914,14 @@ async def process_astrology_birth_date(message: Message, state: FSMContext):
     try:
         birth_date = datetime.strptime(message.text, "%d.%m.%Y")
         zodiac = calculate_zodiac_sign(birth_date.day, birth_date.month)
+        zodiac_name = get_zodiac_sign_localized(zodiac, lang)
         await state.update_data(astrology_birth_date=message.text, astrology_zodiac=zodiac)
         await state.set_state(AstrologyStates.WAITING_BIRTH_TIME)
         template = await get_text(user_id, 'astrology_birth_date')
         await message.answer(
             template.format(
                 emoji=get_zodiac_emoji(zodiac),
-                zodiac=zodiac
+                zodiac=zodiac_name
             ),
             reply_markup=get_cancel_keyboard(lang)
         )
@@ -2066,6 +2006,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         }
 
         zodiac_emoji = get_zodiac_emoji(data.get('astrology_zodiac', 'Неизвестно'))
+        zodiac_name = get_zodiac_sign_localized(data.get('astrology_zodiac', 'Неизвестно'), lang)
         template = await get_text(user_id, 'astrology_confirm_data')
         profile_text = template.format(
             name=data.get('astrology_name'),
@@ -2073,7 +2014,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
             birth_time=data.get('astrology_birth_time'),
             birth_place=data.get('astrology_birth_place'),
             emoji=zodiac_emoji,
-            zodiac=data.get('astrology_zodiac')
+            zodiac=zodiac_name
         )
         await state.set_state(AstrologyStates.CONFIRM_DATA)
         await message.answer(
@@ -2103,6 +2044,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
     await state.clear()
 
     zodiac_emoji = get_zodiac_emoji(data.get('astrology_zodiac', 'Неизвестно'))
+    zodiac_name = get_zodiac_sign_localized(data.get('astrology_zodiac', 'Неизвестно'), lang)
     gender_display = 'Мужской' if gender == 'М' else 'Женский'
 
     template = await get_text(user_id, 'astrology_data_saved')
@@ -2113,7 +2055,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         birth_place=data.get('astrology_birth_place'),
         gender=gender_display,
         emoji=zodiac_emoji,
-        zodiac=data.get('astrology_zodiac')
+        zodiac=zodiac_name
     )
 
     status_msg = await message.answer(profile_text)
@@ -2174,8 +2116,8 @@ async def profile(message: Message):
 
     if user_data and user_data.get('name'):
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+        zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
 
-        # Получаем перевод пола
         if user_data.get('gender') == 'M':
             gender_display = await get_text(user_id, 'astro_gender_male')
         elif user_data.get('gender') == 'F':
@@ -2193,7 +2135,7 @@ async def profile(message: Message):
             birth_place=user_data.get('birth_place', 'Не указано'),
             gender=gender_display,
             emoji=zodiac_emoji,
-            zodiac=user_data.get('zodiac', 'Неизвестно'),
+            zodiac=zodiac_name,
             timezone=timezone
         )
 
@@ -2318,6 +2260,7 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
         else:
             gender_display = await get_text(user_id, 'astro_gender_unknown')
         zodiac_emoji = get_zodiac_emoji(user_obj.zodiac_sign or 'Неизвестно')
+        zodiac_name = get_zodiac_sign_localized(user_obj.zodiac_sign or 'Неизвестно', lang)
         profile_text = (
             f"✅ Данные успешно обновлены!\n\n"
             f"👤 Имя: {user_obj.name or 'Не указано'}\n"
@@ -2325,7 +2268,7 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
             f"🕒 Время рождения: {user_obj.birth_time.strftime('%H:%M') if user_obj.birth_time else 'Не указано'}\n"
             f"📍 Место рождения: {user_obj.birth_place or 'Не указано'}\n"
             f"👤 Пол: {gender_display}\n"
-            f"{zodiac_emoji} Знак зодиака: {user_obj.zodiac_sign or 'Неизвестно'}"
+            f"{zodiac_emoji} Знак зодиака: {zodiac_name}"
         )
         await callback.message.edit_text(profile_text, reply_markup=get_main_menu(lang))
     else:
@@ -2342,6 +2285,7 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
         else:
             gender_display = await get_text(user_id, 'astro_gender_unknown')
         zodiac_emoji = get_zodiac_emoji(user_obj.zodiac_sign or 'Неизвестно')
+        zodiac_name = get_zodiac_sign_localized(user_obj.zodiac_sign or 'Неизвестно', lang)
         profile_text = (
             f"✅ Данные успешно обновлены!\n\n"
             f"👤 Имя: {user_obj.name or 'Не указано'}\n"
@@ -2349,7 +2293,7 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
             f"🕒 Время рождения: {user_obj.birth_time.strftime('%H:%M') if user_obj.birth_time else 'Не указано'}\n"
             f"📍 Место рождения: {user_obj.birth_place or 'Не указано'}\n"
             f"👤 Пол: {gender_display}\n"
-            f"{zodiac_emoji} Знак зодиака: {user_obj.zodiac_sign or 'Неизвестно'}"
+            f"{zodiac_emoji} Знак зодиака: {zodiac_name}"
         )
         await callback.message.edit_text(profile_text, reply_markup=get_main_menu(lang))
 
@@ -2389,7 +2333,6 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
 
 # ==================== ЭКСПЕРТ ====================
 
-#@dp.message(F.text == "👩‍🏫 Личный астролог")
 async def expert_request(message: Message):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
@@ -2461,7 +2404,6 @@ async def send_expert_request(callback: CallbackQuery):
 
 # ==================== ПОДПИСКА ====================
 
-#@dp.message(F.text == "⭐ Premium")
 async def show_subscription(message: Message):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
@@ -2733,13 +2675,11 @@ async def support(callback: CallbackQuery):
 async def back_to_profile(callback: CallbackQuery):
     await callback.answer()
     await callback.message.delete()
-
     class FakeMessage:
         def __init__(self, callback):
             self.from_user = callback.from_user
             self.chat = callback.message.chat
             self.answer = callback.message.answer
-
     fake_msg = FakeMessage(callback)
     await profile(fake_msg)
 
@@ -2818,43 +2758,6 @@ async def test_send(message: Message):
 
     await message.answer("⏳ Начинаю тестовую рассылку...")
     await send_daily_horoscopes(bot)
-
-
-# ==================== ОБРАБОТЧИК ТЕКСТОВЫХ КОМАНД МЕНЮ (только если нет активного состояния) ====================
-
-@dp.message(F.text, ~F.state)  # срабатывает только если состояние None
-async def handle_menu_commands(message: Message, state: FSMContext):
-    """
-    Обрабатывает текстовые команды главного меню.
-    Срабатывает только когда нет активного FSM-состояния.
-    """
-    user_id = message.from_user.id
-    lang = await get_user_language(user_id)
-    texts = TEXTS.get(lang, TEXTS['ru'])
-    text = message.text
-
-    # Сопоставляем текст с командами меню
-    if text == texts['menu_horoscope']:
-        await start_horoscope(message, state)
-    elif text == texts['menu_compatibility']:
-        await start_compatibility(message, state)
-    elif text == texts['menu_numerology']:
-        await start_numerology(message, state)
-    elif text == texts['menu_astrology']:
-        await start_astrology(message, state)
-    elif text == texts['menu_premium']:
-        await show_subscription(message)
-    elif text == texts['menu_expert']:
-        await expert_request(message)
-    elif text == texts['menu_archive']:
-        await show_archive(message)
-    elif text == texts['menu_profile']:
-        await profile(message)
-    elif text == texts['menu_language']:
-        await change_language(message)
-    else:
-        # Если текст не совпал ни с одной командой, передаём в обработчик неизвестных
-        await handle_unknown(message)
 
 
 # ==================== ОБРАБОТКА НЕИЗВЕСТНЫХ СООБЩЕНИЙ ====================

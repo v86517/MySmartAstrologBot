@@ -1,3 +1,5 @@
+from bot.locales import TEXTS
+
 def calculate_zodiac_sign(day: int, month: int) -> str:
     """Расчет знака зодиака по дню и месяцу рождения"""
     if (month == 3 and day >= 21) or (month == 4 and day <= 20):
@@ -42,3 +44,8 @@ def get_zodiac_emoji(sign: str) -> str:
         "Рыбы": "♓",
     }
     return emojis.get(sign, "⭐")
+
+def get_zodiac_sign_localized(sign: str, lang: str) -> str:
+    """Возвращает локализованное название знака зодиака."""
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    return texts.get('zodiac_signs', {}).get(sign, sign)
