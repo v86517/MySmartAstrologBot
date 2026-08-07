@@ -23,7 +23,7 @@ def get_main_menu(lang: str = 'ru'):
     builder.add(KeyboardButton(text=texts['menu_archive']))
     builder.add(KeyboardButton(text=texts['menu_profile']))
     builder.add(KeyboardButton(text=texts['menu_language']))
-    builder.adjust(2, 2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 3)
     return builder.as_markup(resize_keyboard=True)
 
 
