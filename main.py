@@ -1805,6 +1805,7 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
     finally:
         numerology_data.pop(user_id, None)
+        await state.clear()   # <-- ОБЯЗАТЕЛЬНО сбрасываем состояние
 
 
 @dp.callback_query(F.data == "edit_numerology_data")
@@ -2029,6 +2030,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
     finally:
         astrology_data.pop(user_id, None)
+        await state.clear()   # <-- ОБЯЗАТЕЛЬНО сбрасываем состояние
 
 
 @dp.callback_query(F.data == "edit_astrology_data")
