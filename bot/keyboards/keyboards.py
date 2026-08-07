@@ -3,7 +3,6 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 import os
 import django
 
-# Настройка Django перед импортом моделей
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()
 
@@ -12,26 +11,24 @@ from bot.locales import TEXTS
 
 
 def get_main_menu(lang: str = 'ru'):
-    """
-    Возвращает Inline-клавиатуру главного меню с текстами на указанном языке.
-    """
-    builder = InlineKeyboardBuilder()
+    """Главное меню (ReplyKeyboard) — локализованное"""
+    builder = ReplyKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['menu_horoscope'], callback_data="menu_horoscope")
-    builder.button(text=texts['menu_compatibility'], callback_data="menu_compatibility")
-    builder.button(text=texts['menu_numerology'], callback_data="menu_numerology")
-    builder.button(text=texts['menu_astrology'], callback_data="menu_astrology")
-    builder.button(text=texts['menu_premium'], callback_data="menu_premium")
-    builder.button(text=texts['menu_expert'], callback_data="menu_expert")
-    builder.button(text=texts['menu_archive'], callback_data="menu_archive")
-    builder.button(text=texts['menu_profile'], callback_data="menu_profile")
-    builder.button(text=texts['menu_language'], callback_data="menu_language")
-    builder.adjust(2, 2, 2, 2, 1)  # 4 строки по 2 кнопки и последняя строка с одной кнопкой
-    return builder.as_markup()
+    builder.add(KeyboardButton(text=texts['menu_horoscope']))
+    builder.add(KeyboardButton(text=texts['menu_compatibility']))
+    builder.add(KeyboardButton(text=texts['menu_numerology']))
+    builder.add(KeyboardButton(text=texts['menu_astrology']))
+    builder.add(KeyboardButton(text=texts['menu_premium']))
+    builder.add(KeyboardButton(text=texts['menu_expert']))
+    builder.add(KeyboardButton(text=texts['menu_archive']))
+    builder.add(KeyboardButton(text=texts['menu_profile']))
+    builder.add(KeyboardButton(text=texts['menu_language']))
+    builder.adjust(2, 2, 2, 2, 1)
+    return builder.as_markup(resize_keyboard=True)
 
 
 def get_zodiac_keyboard():
-    """Клавиатура для выбора знака зодиака"""
+    """Клавиатура для выбора знака зодиака (без локализации — только эмодзи и названия)"""
     builder = InlineKeyboardBuilder()
     zodiacs = [
         ("♈ Овен", "Овен"),
@@ -54,7 +51,7 @@ def get_zodiac_keyboard():
 
 
 def get_zodiac_keyboard_person2():
-    """Клавиатура для выбора знака зодиака (человек 2)"""
+    """Клавиатура для выбора знака зодиака (человек 2) — без локализации"""
     builder = InlineKeyboardBuilder()
     zodiacs = [
         ("♈ Овен", "Овен"),
@@ -76,281 +73,300 @@ def get_zodiac_keyboard_person2():
     return builder.as_markup()
 
 
-def get_cancel_keyboard():
+def get_cancel_keyboard(lang: str = 'ru'):
     """Кнопка отмены"""
     builder = InlineKeyboardBuilder()
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     return builder.as_markup()
 
 
-def get_compatibility_keyboard():
+def get_compatibility_keyboard(lang: str = 'ru'):
     """Кнопки для совместимости"""
     builder = InlineKeyboardBuilder()
-    builder.button(text="👤 Использовать мои данные", callback_data="use_my_data")
-    builder.button(text="✏️ Заполнить заново", callback_data="fill_person1")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_use_my_data'], callback_data="use_my_data")
+    builder.button(text=texts['kb_fill_new'], callback_data="fill_person1")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_confirm_keyboard():
+def get_confirm_keyboard(lang: str = 'ru'):
     """Кнопки подтверждения данных"""
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Да, всё верно", callback_data="confirm_data")
-    builder.button(text="✏️ Изменить", callback_data="edit_person1")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_confirm'], callback_data="confirm_data")
+    builder.button(text=texts['kb_edit'], callback_data="edit_person1")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_continue_keyboard():
+def get_continue_keyboard(lang: str = 'ru'):
     """Кнопка продолжения"""
     builder = InlineKeyboardBuilder()
-    builder.button(text="➡️ Продолжить", callback_data="continue_to_person2")
-    builder.button(text="✏️ Изменить", callback_data="edit_person1")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_continue'], callback_data="continue_to_person2")
+    builder.button(text=texts['kb_edit'], callback_data="edit_person1")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_natal_payment_keyboard():
-    """Клавиатура для оплаты натальной карты"""
+def get_natal_payment_keyboard(lang: str = 'ru'):
+    """Клавиатура для оплаты натальной карты (устаревшая, но оставим)"""
     builder = InlineKeyboardBuilder()
-    builder.button(text="💳 Оплатить 888 ₽", callback_data="natal_pay")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_pay_888'], callback_data="natal_pay")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_natal_confirm_keyboard():
-    """Клавиатура для подтверждения данных натальной карты"""
+def get_natal_confirm_keyboard(lang: str = 'ru'):
+    """Клавиатура для подтверждения данных натальной карты (устаревшая)"""
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Получить карту", callback_data="natal_confirm")
-    builder.button(text="✏️ Изменить данные", callback_data="edit_natal_data")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_get_card'], callback_data="natal_confirm")
+    builder.button(text=texts['kb_edit_data'], callback_data="edit_natal_data")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_natal_use_data_keyboard():
-    """Клавиатура для выбора использования данных"""
+def get_natal_use_data_keyboard(lang: str = 'ru'):
+    """Клавиатура для выбора использования данных (устаревшая)"""
     builder = InlineKeyboardBuilder()
-    builder.button(text="👤 Использовать мои данные", callback_data="natal_use_my_data")
-    builder.button(text="✏️ Заполнить другие данные", callback_data="natal_fill_new_data")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_use_my_data'], callback_data="natal_use_my_data")
+    builder.button(text=texts['kb_fill_new'], callback_data="natal_fill_new_data")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_numerology_payment_keyboard():
-    """Клавиатура для оплаты нумерологии (888 ₽)"""
+def get_numerology_payment_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="💳 Оплатить 888 ₽", callback_data="numerology_pay")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_pay_888'], callback_data="numerology_pay")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
-def get_numerology_confirm_keyboard():
-    """Клавиатура для подтверждения данных нумерологии"""
+
+def get_numerology_confirm_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Получить разбор", callback_data="numerology_confirm")
-    builder.button(text="✏️ Изменить данные", callback_data="edit_numerology_data")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_get_analysis'], callback_data="numerology_confirm")
+    builder.button(text=texts['kb_edit_data'], callback_data="edit_numerology_data")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
-def get_numerology_use_data_keyboard():
-    """Клавиатура для выбора использования сохранённых данных (нумерология)"""
+
+def get_numerology_use_data_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="👤 Использовать мои данные", callback_data="numerology_use_my_data")
-    builder.button(text="✏️ Заполнить другие данные", callback_data="numerology_fill_new_data")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_use_my_data'], callback_data="numerology_use_my_data")
+    builder.button(text=texts['kb_fill_new'], callback_data="numerology_fill_new_data")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_astrology_payment_keyboard():
-    """Клавиатура для оплаты астрологии (999 ₽)"""
+def get_astrology_payment_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="💳 Оплатить 999 ₽", callback_data="astrology_pay")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_pay_999'], callback_data="astrology_pay")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
-def get_astrology_confirm_keyboard():
-    """Клавиатура для подтверждения данных астрологии"""
+
+def get_astrology_confirm_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Получить разбор", callback_data="astrology_confirm")
-    builder.button(text="✏️ Изменить данные", callback_data="edit_astrology_data")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_get_analysis'], callback_data="astrology_confirm")
+    builder.button(text=texts['kb_edit_data'], callback_data="edit_astrology_data")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
-def get_astrology_use_data_keyboard():
-    """Клавиатура для выбора использования сохранённых данных (астрология)"""
+
+def get_astrology_use_data_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="👤 Использовать мои данные", callback_data="astrology_use_my_data")
-    builder.button(text="✏️ Заполнить другие данные", callback_data="astrology_fill_new_data")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_use_my_data'], callback_data="astrology_use_my_data")
+    builder.button(text=texts['kb_fill_new'], callback_data="astrology_fill_new_data")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_expert_keyboard():
-    """Клавиатура для эксперта"""
+def get_expert_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="📩 Отправить заявку эксперту", callback_data="expert_request")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_send_request'], callback_data="expert_request")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_subscription_keyboard():
-    """Клавиатура для подписки"""
+def get_subscription_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="⭐ Оформить подписку 333 ₽", callback_data="subscribe_pay")
-    builder.button(text="❌ Отмена", callback_data="close_subscription")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_pay_333'], callback_data="subscribe_pay")
+    builder.button(text=texts['kb_cancel'], callback_data="close_subscription")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_subscription_active_keyboard():
-    """Клавиатура для активной подписки"""
+def get_subscription_active_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="📅 Продлить подписку", callback_data="subscribe_extend")
-    builder.button(text="❌ Отмена", callback_data="close_subscription")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_extend'], callback_data="subscribe_extend")
+    builder.button(text=texts['kb_cancel'], callback_data="close_subscription")
     builder.adjust(1)
     return builder.as_markup()
 
-def get_save_data_keyboard():
+
+def get_save_data_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Сохранить", callback_data="save_data")
-    builder.button(text="❌ Не сохранять", callback_data="dont_save_data")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_save'], callback_data="save_data")
+    builder.button(text=texts['kb_dont_save'], callback_data="dont_save_data")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_archive_keyboard(messages):
+def get_archive_keyboard(messages, lang: str = 'ru'):
     """Клавиатура для архива с кнопками на каждое сообщение"""
     builder = InlineKeyboardBuilder()
-
+    texts = TEXTS.get(lang, TEXTS['ru'])
     type_emoji = {
         'horoscope': '🔮',
         'compatibility': '💕',
-        'natal_chart': '🌌'
+        'natal_chart': '🌌',
+        'numerology': '🔢',
+        'astrology': '🌙',
     }
-
     type_display = {
         'horoscope': 'Гороскоп',
         'compatibility': 'Совместимость',
-        'natal_chart': 'Натальная карта'
+        'natal_chart': 'Натальная карта',
+        'numerology': 'Нумерология',
+        'astrology': 'Астрология',
     }
-
     for msg in messages:
         emoji = type_emoji.get(msg.message_type, '📝')
         type_name = type_display.get(msg.message_type, msg.message_type)
         date_str = msg.date.strftime("%d.%m")
-
         button_text = f"{emoji} {type_name} ({date_str})"
-
-        builder.button(
-            text=button_text,
-            callback_data=f"archive_{msg.id}"
-        )
-
-    builder.button(text="🔄 Обновить", callback_data="archive_refresh")
-    builder.button(text="🏠 Главное меню", callback_data="main_menu")
-
+        builder.button(text=button_text, callback_data=f"archive_{msg.id}")
+    builder.button(text=texts['kb_refresh'], callback_data="archive_refresh")
+    builder.button(text=texts['kb_main_menu'], callback_data="main_menu")
     builder.adjust(1)
-
     return builder.as_markup()
 
 
-def get_profile_keyboard():
+def get_profile_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="✏️ Изменить данные", callback_data="edit_profile")
-    builder.button(text="🕒 Сменить часовой пояс", callback_data="edit_timezone")
-    builder.button(text="❌ Отменить подписку", callback_data="cancel_subscription")
-    builder.button(text="🆘 Поддержка", callback_data="support")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_edit_profile'], callback_data="edit_profile")
+    builder.button(text=texts['kb_change_timezone'], callback_data="edit_timezone")
+    builder.button(text=texts['kb_cancel_subscription'], callback_data="cancel_subscription")
+    builder.button(text=texts['kb_support'], callback_data="support")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_support_keyboard(support_url: str):
+def get_support_keyboard(support_url: str, lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="💬 Написать в поддержку", url=support_url)
-    builder.button(text="❌ Отмена", callback_data="back_to_profile")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_write_support'], url=support_url)
+    builder.button(text=texts['kb_cancel'], callback_data="back_to_profile")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_payment_url_keyboard(url: str) -> InlineKeyboardMarkup:
-    """Клавиатура со ссылкой на оплату"""
+def get_payment_url_keyboard(url: str, lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="💳 Перейти к оплате", url=url)
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_go_pay'], url=url)
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_skip_keyboard():
+def get_skip_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="⏩ Пропустить", callback_data="skip_edit")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_skip'], callback_data="skip_edit")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def get_timezone_keyboard():
+def get_timezone_keyboard(lang: str = 'ru'):  # lang не используется, но оставим для совместимости
     builder = InlineKeyboardBuilder()
     for i in range(1, 13):
         builder.button(text=f"UTC+{i}", callback_data=f"tz_{i}")
-    builder.button(text="❌ Отмена", callback_data="cancel")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(3, 3, 3, 3)
     return builder.as_markup()
 
 
-def get_after_timezone_keyboard():
-    """Клавиатура после выбора часового пояса"""
+def get_after_timezone_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="🏠 Главное меню", callback_data="main_menu")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_main_menu'], callback_data="main_menu")
     builder.adjust(1)
     return builder.as_markup()
 
-def get_after_save_keyboard():
+
+def get_after_save_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="❌ Отмена", callback_data="main_menu")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_cancel'], callback_data="main_menu")
     return builder.as_markup()
 
-def get_subscription_promo_keyboard():
-    """Клавиатура с одной кнопкой для оформления подписки (используется в промо)"""
+
+def get_subscription_promo_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="⭐ Оформить подписку 333 ₽", callback_data="subscribe_pay")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_pay_333'], callback_data="subscribe_pay")
     return builder.as_markup()
 
-def get_subscription_payment_keyboard(url: str):
-    """Клавиатура для оплаты подписки со ссылкой и кнопкой отмены без сообщения"""
+
+def get_subscription_payment_keyboard(url: str, lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="💳 Перейти к оплате", url=url)
-    builder.button(text="❌ Отмена", callback_data="close_subscription")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_go_pay'], url=url)
+    builder.button(text=texts['kb_cancel'], callback_data="close_subscription")
     builder.adjust(1)
     return builder.as_markup()
 
-def get_fill_profile_keyboard(consent_url: str = None, privacy_url: str = None):
-    """Клавиатура для заполнения профиля с ссылками и кнопкой"""
+
+def get_fill_profile_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="📄 Заполнить и Сохранить", callback_data="fill_and_save")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_fill_and_save'], callback_data="fill_and_save")
     return builder.as_markup()
 
-def get_horoscope_confirm_keyboard():
+
+def get_horoscope_confirm_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="🔮 Получить гороскоп на сегодня", callback_data="confirm_horoscope")
-    builder.button(text="❌ Отмена", callback_data="cancel_horoscope")
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_get_horoscope'], callback_data="confirm_horoscope")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel_horoscope")
     builder.adjust(1)
     return builder.as_markup()
+
 
 def get_language_keyboard():
-    """Клавиатура для выбора языка (inline)"""
+    """Клавиатура выбора языка (без перевода)"""
     builder = InlineKeyboardBuilder()
     builder.button(text="English", callback_data="lang_en")
     builder.button(text="Русский", callback_data="lang_ru")

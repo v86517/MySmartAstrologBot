@@ -104,7 +104,7 @@ numerology_data = {}
 astrology_data = {}
 
 def format_profile_data(data: dict) -> str:
-    """Форматирует данные пользователя для отображения"""
+    """Форматирует данные пользователя для отображения (статический, без локализации)"""
     gender_display = 'Мужской' if data.get('gender') == 'M' else 'Женский' if data.get('gender') == 'F' else 'Не указан'
     zodiac_emoji = get_zodiac_emoji(data.get('zodiac', 'Неизвестно'))
     timezone = data.get('timezone_offset', 3)
@@ -161,13 +161,12 @@ async def cmd_menu(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "menu_horoscope")
 async def menu_horoscope(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    # Создаём объект Message для передачи в существующие функции
     class FakeMessage:
         def __init__(self, callback):
             self.from_user = callback.from_user
             self.chat = callback.message.chat
             self.answer = callback.message.answer
-            self.text = "🔮 Гороскоп на сегодня"  # не используется
+            self.text = "🔮 Гороскоп на сегодня"
     fake_msg = FakeMessage(callback)
     await start_horoscope(fake_msg, state)
 
@@ -282,9 +281,6 @@ async def back_to_main_menu(callback: CallbackQuery):
     )
 
 
-# ==================== ОСТАЛЬНЫЕ ОБРАБОТЧИКИ (ГОРОСКОП, СОВМЕСТИМОСТЬ, И Т.Д.) СЛЕДУЮТ В СЛЕДУЮЩИХ ЧАСТЯХ ====================
-
-
 # ==================== ГОРОСКОП ====================
 
 @dp.message(F.text == "🔮 Гороскоп на сегодня")
@@ -292,6 +288,7 @@ async def start_horoscope(message: Message, state: FSMContext):
     """Получение гороскопа"""
     user_id = message.from_user.id
     is_subscribed = await check_subscription_db(user_id)
+    lang = await get_user_language(user_id)
 
     # Если есть подписка – показываем подтверждение
     if is_subscribed:
@@ -310,14 +307,14 @@ async def start_horoscope(message: Message, state: FSMContext):
             await state.set_state(HoroscopeStates.CONFIRM)
             await message.answer(
                 profile_text,
-                reply_markup=get_horoscope_confirm_keyboard()
+                reply_markup=get_horoscope_confirm_keyboard(lang)
             )
         else:
             # Если данных нет – предлагаем заполнить (как обычно)
             await state.set_state(UserDataStates.WAITING_NAME)
             await message.answer(
                 await get_text(user_id, 'horoscope_intro'),
-                reply_markup=get_cancel_keyboard()
+                reply_markup=get_cancel_keyboard(lang)
             )
         return
 
@@ -325,7 +322,7 @@ async def start_horoscope(message: Message, state: FSMContext):
     if not await can_use_feature_db(user_id, 'horoscope'):
         await message.answer(
             await get_text(user_id, 'horoscope_free_ready'),
-            reply_markup=get_subscription_keyboard()
+            reply_markup=get_subscription_keyboard(lang)
         )
         return
 
@@ -342,7 +339,6 @@ async def start_horoscope(message: Message, state: FSMContext):
         await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
         await asyncio.sleep(1)
 
-        lang = await get_user_language(user_id)
         today = datetime.now().strftime("%d.%m.%Y")
         horoscope = gemini_service.generate_horoscope(user_data, today, lang)
         await save_message_to_archive(user_id, 'horoscope', horoscope)
@@ -355,13 +351,13 @@ async def start_horoscope(message: Message, state: FSMContext):
         if not is_subscribed:
             await message.answer(
                 await get_text(user_id, 'horoscope_promo'),
-                reply_markup=get_subscription_promo_keyboard()
+                reply_markup=get_subscription_promo_keyboard(lang)
             )
     else:
         await state.set_state(UserDataStates.WAITING_NAME)
         await message.answer(
             await get_text(user_id, 'horoscope_intro'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
@@ -370,6 +366,7 @@ async def start_horoscope(message: Message, state: FSMContext):
 @dp.message(UserDataStates.WAITING_NAME)
 async def process_name(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
     new_data = state_data.get('new_data', {})
@@ -388,7 +385,7 @@ async def process_name(message: Message, state: FSMContext):
         await state.set_state(UserDataStates.WAITING_BIRTH_DATE)
         template = await get_text(user_id, 'skip_birth_date')
         prompt = template.format(date=old.get('birth_date', 'не указана'))
-        await message.answer(prompt, reply_markup=get_skip_keyboard())
+        await message.answer(prompt, reply_markup=get_skip_keyboard(lang))
         logger.info(f"📝 Шаг ИМЯ, new_data после: {new_data}")
     else:
         if len(message.text) < 2:
@@ -406,6 +403,7 @@ async def process_name(message: Message, state: FSMContext):
 @dp.message(UserDataStates.WAITING_BIRTH_DATE)
 async def process_birth_date(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
     new_data = state_data.get('new_data', {})
@@ -422,7 +420,7 @@ async def process_birth_date(message: Message, state: FSMContext):
                 new_data['zodiac'] = zodiac
                 logger.info(f"📝 Шаг ДАТА, обновлена дата: {new_data['birth_date']}, знак: {new_data['zodiac']}")
             except ValueError:
-                await message.answer(await get_text(user_id, 'error_invalid_date'), reply_markup=get_cancel_keyboard())
+                await message.answer(await get_text(user_id, 'error_invalid_date'), reply_markup=get_cancel_keyboard(lang))
                 return
         else:
             logger.info("📝 Шаг ДАТА, дата не изменена")
@@ -431,12 +429,12 @@ async def process_birth_date(message: Message, state: FSMContext):
         await state.set_state(UserDataStates.WAITING_BIRTH_TIME)
         template = await get_text(user_id, 'skip_birth_time')
         prompt = template.format(time=old.get('birth_time', 'не указано'))
-        await message.answer(prompt, reply_markup=get_skip_keyboard())
+        await message.answer(prompt, reply_markup=get_skip_keyboard(lang))
         logger.info(f"📝 Шаг ДАТА, new_data после: {new_data}")
     else:
         date_pattern = r'^\d{2}\.\d{2}\.\d{4}$'
         if not re.match(date_pattern, message.text):
-            await message.answer(await get_text(user_id, 'error_invalid_date_format'), reply_markup=get_cancel_keyboard())
+            await message.answer(await get_text(user_id, 'error_invalid_date_format'), reply_markup=get_cancel_keyboard(lang))
             return
         try:
             birth_date = datetime.strptime(message.text, "%d.%m.%Y")
@@ -447,10 +445,10 @@ async def process_birth_date(message: Message, state: FSMContext):
                 f"✅ Отлично! Знак зодиака: {get_zodiac_emoji(zodiac)} {zodiac}\n\n"
                 "🕒 Шаг 3 из 5\n\nУкажите точное время рождения в формате:\nЧЧ:ММ\n\n"
                 "Например: 15:30\nЕсли не знаете, напишите 00:00",
-                reply_markup=get_cancel_keyboard()
+                reply_markup=get_cancel_keyboard(lang)
             )
         except ValueError:
-            await message.answer(await get_text(user_id, 'error_invalid_date'), reply_markup=get_cancel_keyboard())
+            await message.answer(await get_text(user_id, 'error_invalid_date'), reply_markup=get_cancel_keyboard(lang))
 
 
 # ==================== ШАГ 3: ВРЕМЯ РОЖДЕНИЯ ====================
@@ -458,6 +456,7 @@ async def process_birth_date(message: Message, state: FSMContext):
 @dp.message(UserDataStates.WAITING_BIRTH_TIME)
 async def process_birth_time(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
     new_data = state_data.get('new_data', {})
@@ -481,12 +480,12 @@ async def process_birth_time(message: Message, state: FSMContext):
         await state.set_state(UserDataStates.WAITING_BIRTH_PLACE)
         template = await get_text(user_id, 'skip_birth_place')
         prompt = template.format(place=old.get('birth_place', 'не указано'))
-        await message.answer(prompt, reply_markup=get_skip_keyboard())
+        await message.answer(prompt, reply_markup=get_skip_keyboard(lang))
         logger.info(f"📝 Шаг ВРЕМЯ, new_data после: {new_data}")
     else:
         time_pattern = r'^\d{2}:\d{2}$'
         if not re.match(time_pattern, message.text):
-            await message.answer(await get_text(user_id, 'error_invalid_time_format'), reply_markup=get_cancel_keyboard())
+            await message.answer(await get_text(user_id, 'error_invalid_time_format'), reply_markup=get_cancel_keyboard(lang))
             return
         try:
             datetime.strptime(message.text, "%H:%M")
@@ -494,10 +493,10 @@ async def process_birth_time(message: Message, state: FSMContext):
             await state.set_state(UserDataStates.WAITING_BIRTH_PLACE)
             await message.answer(
                 "📍 Шаг 4 из 5\n\nУкажите место рождения:\nГород, Страна\n\nНапример: Москва, Россия",
-                reply_markup=get_cancel_keyboard()
+                reply_markup=get_cancel_keyboard(lang)
             )
         except ValueError:
-            await message.answer(await get_text(user_id, 'error_invalid_time'), reply_markup=get_cancel_keyboard())
+            await message.answer(await get_text(user_id, 'error_invalid_time'), reply_markup=get_cancel_keyboard(lang))
 
 
 # ==================== ШАГ 4: МЕСТО РОЖДЕНИЯ ====================
@@ -505,6 +504,7 @@ async def process_birth_time(message: Message, state: FSMContext):
 @dp.message(UserDataStates.WAITING_BIRTH_PLACE)
 async def process_birth_place(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
     new_data = state_data.get('new_data', {})
@@ -532,17 +532,17 @@ async def process_birth_place(message: Message, state: FSMContext):
 
         template = await get_text(user_id, 'skip_gender')
         prompt = template.format(gender=gender_display)
-        await message.answer(prompt, reply_markup=get_skip_keyboard())
+        await message.answer(prompt, reply_markup=get_skip_keyboard(lang))
         logger.info(f"📝 Шаг МЕСТО, new_data после: {new_data}")
     else:
         if len(message.text) < 3:
-            await message.answer(await get_text(user_id, 'error_invalid_place'), reply_markup=get_cancel_keyboard())
+            await message.answer(await get_text(user_id, 'error_invalid_place'), reply_markup=get_cancel_keyboard(lang))
             return
         await state.update_data(birth_place=message.text)
         await state.set_state(UserDataStates.WAITING_GENDER)
         await message.answer(
             "👤 Шаг 5 из 5 (последний!)\n\nУкажите ваш пол:\nМ - мужской\nЖ - женский\n\nНапишите: М или Ж",
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
@@ -551,6 +551,7 @@ async def process_birth_place(message: Message, state: FSMContext):
 @dp.message(UserDataStates.WAITING_GENDER)
 async def process_gender(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     gender = message.text.upper()
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
@@ -567,12 +568,12 @@ async def process_gender(message: Message, state: FSMContext):
 
         await state.update_data(new_data=new_data)
         await state.set_state(UserDataStates.WAITING_TIMEZONE)
-        await message.answer(await get_text(user_id, 'choose_timezone'), reply_markup=get_timezone_keyboard())
+        await message.answer(await get_text(user_id, 'choose_timezone'), reply_markup=get_timezone_keyboard(lang))
         return
 
     # ----- Обычный режим (первое заполнение) -----
     if gender not in ["М", "Ж"]:
-        await message.answer(await get_text(user_id, 'error_gender_only'), reply_markup=get_cancel_keyboard())
+        await message.answer(await get_text(user_id, 'error_gender_only'), reply_markup=get_cancel_keyboard(lang))
         return
 
     db_gender = 'M' if gender == 'М' else 'F'
@@ -583,7 +584,7 @@ async def process_gender(message: Message, state: FSMContext):
     await state.set_state(UserDataStates.WAITING_TIMEZONE)
     await message.answer(
         "🕒 Выберите ваш часовой пояс:\nЭто нужно для точного расчёта гороскопа и отправки прогнозов.",
-        reply_markup=get_timezone_keyboard()
+        reply_markup=get_timezone_keyboard(lang)
     )
 
 
@@ -593,6 +594,7 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
 
     if not user_data or not user_data.get('name'):
@@ -612,7 +614,6 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
     await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
     await asyncio.sleep(1)
 
-    lang = await get_user_language(user_id)
     today = datetime.now().strftime("%d.%m.%Y")
     horoscope = gemini_service.generate_horoscope(user_data, today, lang)
     await save_message_to_archive(user_id, 'horoscope', horoscope)
@@ -622,7 +623,6 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
     await send_long_message(callback.message, result_text)
 
     await state.clear()
-    lang = await get_user_language(user_id)
     await callback.message.answer(" ", reply_markup=get_main_menu(lang))
 
 
@@ -658,6 +658,7 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
     fill_mode = state_data.get('fill_mode', False)
     is_timezone_edit = state_data.get('is_timezone_edit', False)
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     # ---- Режим редактирования профиля (изменение всех данных) ----
     if is_edit:
@@ -669,7 +670,6 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         template = await get_text(user_id, 'profile_updated')
         msg = template.format(profile=profile_text)
         await callback.message.delete()
-        lang = await get_user_language(user_id)
         await callback.message.answer(msg, reply_markup=get_profile_keyboard(lang))
         return
 
@@ -683,7 +683,6 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         template = await get_text(user_id, 'profile_data_saved')
         msg = template.format(profile=profile_text)
         await callback.message.delete()
-        lang = await get_user_language(user_id)
         await callback.message.answer(msg, reply_markup=get_profile_keyboard(lang))
         return
 
@@ -698,7 +697,6 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         template = await get_text(user_id, 'timezone_updated')
         msg = template.format(profile=profile_text)
         await callback.message.delete()
-        lang = await get_user_language(user_id)
         await callback.message.answer(msg, reply_markup=get_profile_keyboard(lang))
         return
 
@@ -715,7 +713,7 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
 
     await state.set_state(UserDataStates.ASKING_SAVE)
     await callback.message.delete()
-    await callback.message.answer(save_text, reply_markup=get_save_data_keyboard(), parse_mode="Markdown")
+    await callback.message.answer(save_text, reply_markup=get_save_data_keyboard(lang), parse_mode="Markdown")
 
 
 @dp.callback_query(F.data.startswith("zodiac_"))
@@ -737,6 +735,7 @@ async def save_data(callback: CallbackQuery, state: FSMContext):
     state_data = await state.get_data()
     temp_data = state_data.get('temp_data', {})
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     await save_user_data(user_id, temp_data)
     await state.clear()
@@ -744,7 +743,6 @@ async def save_data(callback: CallbackQuery, state: FSMContext):
     profile_text = format_profile_data(temp_data)
     template = await get_text(user_id, 'profile_data_saved')
     msg = template.format(profile=profile_text)
-    lang = await get_user_language(user_id)
     await callback.message.edit_text(
         f"{msg}\n\n{await get_text(user_id, 'profile_continue_prompt')}",
         reply_markup=get_after_save_keyboard(lang)
@@ -758,6 +756,7 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     state_data = await state.get_data()
     temp_data = state_data.get('temp_data', {})
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     await callback.message.delete()
 
@@ -768,7 +767,6 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
     await asyncio.sleep(1)
 
-    lang = await get_user_language(user_id)
     today = datetime.now().strftime("%d.%m.%Y")
     horoscope = gemini_service.generate_horoscope(temp_data, today, lang)
     await mark_feature_used_db(user_id, 'horoscope')
@@ -783,10 +781,9 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     if not await check_subscription_db(user_id):
         await callback.message.answer(
             await get_text(user_id, 'horoscope_promo'),
-            reply_markup=get_subscription_promo_keyboard()
+            reply_markup=get_subscription_promo_keyboard(lang)
         )
 
-    lang = await get_user_language(user_id)
     await callback.message.answer(" ", reply_markup=get_main_menu(lang))
 
 
@@ -805,12 +802,13 @@ async def close_subscription(callback: CallbackQuery):
 @dp.message(F.text == "💕 Совместимость")
 async def start_compatibility(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
 
     # Проверка лимита
     if not await can_use_feature_db(user_id, 'compatibility'):
         await message.answer(
             await get_text(user_id, 'compatibility_limit'),
-            reply_markup=get_subscription_keyboard()
+            reply_markup=get_subscription_keyboard(lang)
         )
         return
 
@@ -833,7 +831,7 @@ async def start_compatibility(message: Message, state: FSMContext):
 
         await message.answer(
             profile_text,
-            reply_markup=get_compatibility_keyboard()
+            reply_markup=get_compatibility_keyboard(lang)
         )
 
         await state.update_data(person1_data=user_data)
@@ -843,7 +841,7 @@ async def start_compatibility(message: Message, state: FSMContext):
         await state.set_state(CompatibilityStates.WAITING_PERSON1_NAME)
         await message.answer(
             await get_text(user_id, 'compatibility_intro'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
@@ -853,6 +851,7 @@ async def use_my_data(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     data = await state.get_data()
     person1 = data.get('person1_data', {})
@@ -860,7 +859,7 @@ async def use_my_data(callback: CallbackQuery, state: FSMContext):
     if not person1:
         await callback.message.answer(
             await get_text(user_id, 'error_not_found'),
-            reply_markup=get_main_menu(await get_user_language(user_id))
+            reply_markup=get_main_menu(lang)
         )
         await state.clear()
         return
@@ -870,7 +869,7 @@ async def use_my_data(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.answer(
         await get_text(user_id, 'compatibility_person1_saved'),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
@@ -878,11 +877,12 @@ async def use_my_data(callback: CallbackQuery, state: FSMContext):
 async def fill_person1(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     await state.set_state(CompatibilityStates.WAITING_PERSON1_NAME)
 
     await callback.message.answer(
         await get_text(user_id, 'compatibility_edit_name'),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
     await callback.answer()
 
@@ -892,6 +892,7 @@ async def fill_person1(callback: CallbackQuery, state: FSMContext):
 @dp.message(CompatibilityStates.WAITING_PERSON1_NAME)
 async def process_person1_name(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     if len(message.text) < 2:
         await message.answer(await get_text(user_id, 'error_name_short'))
         return
@@ -902,19 +903,20 @@ async def process_person1_name(message: Message, state: FSMContext):
     template = await get_text(user_id, 'compatibility_person1_name')
     await message.answer(
         template.format(name=message.text),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON1_BIRTH_DATE)
 async def process_person1_birth_date(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     date_pattern = r'^\d{2}\.\d{2}\.\d{4}$'
 
     if not re.match(date_pattern, message.text):
         await message.answer(
             await get_text(user_id, 'error_invalid_date_format'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
 
@@ -934,25 +936,26 @@ async def process_person1_birth_date(message: Message, state: FSMContext):
                 emoji=get_zodiac_emoji(zodiac),
                 zodiac=zodiac
             ),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
     except ValueError:
         await message.answer(
             await get_text(user_id, 'error_invalid_date'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON1_BIRTH_TIME)
 async def process_person1_birth_time(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     time_pattern = r'^\d{2}:\d{2}$'
 
     if not re.match(time_pattern, message.text):
         await message.answer(
             await get_text(user_id, 'error_invalid_time_format'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
 
@@ -963,23 +966,24 @@ async def process_person1_birth_time(message: Message, state: FSMContext):
 
         await message.answer(
             await get_text(user_id, 'compatibility_person1_birth_time'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
     except ValueError:
         await message.answer(
             await get_text(user_id, 'error_invalid_time'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON1_BIRTH_PLACE)
 async def process_person1_birth_place(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     if len(message.text) < 3:
         await message.answer(
             await get_text(user_id, 'error_invalid_place'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
 
@@ -988,19 +992,20 @@ async def process_person1_birth_place(message: Message, state: FSMContext):
 
     await message.answer(
         await get_text(user_id, 'compatibility_person1_gender'),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON1_GENDER)
 async def process_person1_gender(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     gender = message.text.upper()
 
     if gender not in ["М", "Ж"]:
         await message.answer(
             await get_text(user_id, 'error_invalid_gender'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
 
@@ -1031,7 +1036,7 @@ async def process_person1_gender(message: Message, state: FSMContext):
             emoji=get_zodiac_emoji(person1['zodiac']),
             zodiac=person1['zodiac']
         ),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
@@ -1040,6 +1045,7 @@ async def process_person1_gender(message: Message, state: FSMContext):
 @dp.message(CompatibilityStates.WAITING_PERSON2_NAME)
 async def process_person2_name(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     if len(message.text) < 2:
         await message.answer(await get_text(user_id, 'error_name_short'))
         return
@@ -1050,19 +1056,20 @@ async def process_person2_name(message: Message, state: FSMContext):
     template = await get_text(user_id, 'compatibility_person2_name')
     await message.answer(
         template.format(name=message.text),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON2_BIRTH_DATE)
 async def process_person2_birth_date(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     date_pattern = r'^\d{2}\.\d{2}\.\d{4}$'
 
     if not re.match(date_pattern, message.text):
         await message.answer(
             await get_text(user_id, 'error_invalid_date_format'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
 
@@ -1082,25 +1089,26 @@ async def process_person2_birth_date(message: Message, state: FSMContext):
                 emoji=get_zodiac_emoji(zodiac),
                 zodiac=zodiac
             ),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
     except ValueError:
         await message.answer(
             await get_text(user_id, 'error_invalid_date'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON2_BIRTH_TIME)
 async def process_person2_birth_time(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     time_pattern = r'^\d{2}:\d{2}$'
 
     if not re.match(time_pattern, message.text):
         await message.answer(
             await get_text(user_id, 'error_invalid_time_format'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
 
@@ -1111,23 +1119,24 @@ async def process_person2_birth_time(message: Message, state: FSMContext):
 
         await message.answer(
             await get_text(user_id, 'compatibility_person2_birth_time'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
     except ValueError:
         await message.answer(
             await get_text(user_id, 'error_invalid_time'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON2_BIRTH_PLACE)
 async def process_person2_birth_place(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     if len(message.text) < 3:
         await message.answer(
             await get_text(user_id, 'error_invalid_place'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
 
@@ -1136,19 +1145,20 @@ async def process_person2_birth_place(message: Message, state: FSMContext):
 
     await message.answer(
         await get_text(user_id, 'compatibility_person2_gender'),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
 @dp.message(CompatibilityStates.WAITING_PERSON2_GENDER)
 async def process_person2_gender(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     gender = message.text.upper()
 
     if gender not in ["М", "Ж"]:
         await message.answer(
             await get_text(user_id, 'error_invalid_gender'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
 
@@ -1169,7 +1179,7 @@ async def process_person2_gender(message: Message, state: FSMContext):
     if not person1:
         await message.answer(
             await get_text(user_id, 'error_not_found'),
-            reply_markup=get_main_menu(await get_user_language(user_id))
+            reply_markup=get_main_menu(lang)
         )
         await state.clear()
         return
@@ -1206,7 +1216,6 @@ async def process_person2_gender(message: Message, state: FSMContext):
         await asyncio.sleep(1)
 
         if gemini_service:
-            lang = await get_user_language(user_id)
             result = gemini_service.generate_compatibility_from_prompt(person1, person2, lang)
 
             await mark_feature_used_db(user_id, 'compatibility')
@@ -1220,7 +1229,7 @@ async def process_person2_gender(message: Message, state: FSMContext):
             if not await check_subscription_db(user_id):
                 await message.answer(
                     await get_text(user_id, 'compatibility_promo'),
-                    reply_markup=get_subscription_promo_keyboard()
+                    reply_markup=get_subscription_promo_keyboard(lang)
                 )
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
@@ -1235,6 +1244,7 @@ async def process_person2_gender(message: Message, state: FSMContext):
 async def start_numerology(message: Message, state: FSMContext):
     """Начало оформления нумерологии"""
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
 
     if user_data and user_data.get('name'):
@@ -1253,20 +1263,20 @@ async def start_numerology(message: Message, state: FSMContext):
             )
             await message.answer(
                 profile_text,
-                reply_markup=get_numerology_confirm_keyboard()
+                reply_markup=get_numerology_confirm_keyboard(lang)
             )
             await state.set_state(NumerologyStates.CONFIRM_DATA)
         else:
             await message.answer(
                 await get_text(user_id, 'numerology_no_data'),
-                reply_markup=get_numerology_payment_keyboard()
+                reply_markup=get_numerology_payment_keyboard(lang)
             )
             await state.set_state(NumerologyStates.PAYMENT)
     else:
         await state.set_state(NumerologyStates.WAITING_NAME)
         await message.answer(
             await get_text(user_id, 'numerology_no_user_data'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
@@ -1279,12 +1289,13 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     data = await state.get_data()
 
     if not data.get('numerology_paid', False):
         await callback.message.answer(
             await get_text(user_id, 'numerology_payment_required'),
-            reply_markup=get_numerology_payment_keyboard()
+            reply_markup=get_numerology_payment_keyboard(lang)
         )
         await state.set_state(NumerologyStates.PAYMENT)
         return
@@ -1293,7 +1304,7 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
     if not user_data_from_db or not user_data_from_db.get('name'):
         await callback.message.answer(
             await get_text(user_id, 'numerology_data_not_found'),
-            reply_markup=get_main_menu(await get_user_language(user_id))
+            reply_markup=get_main_menu(lang)
         )
         await state.clear()
         return
@@ -1335,7 +1346,6 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            lang = await get_user_language(user_id)
             result = gemini_service.generate_numerology(numerology_data[user_id], lang)
             await save_message_to_archive(user_id, 'numerology', result)
             await add_numerology_count(user_id, -1)
@@ -1359,11 +1369,12 @@ async def numerology_fill_new_data(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     data = await state.get_data()
     if not data.get('numerology_paid', False):
         await callback.message.answer(
             await get_text(user_id, 'numerology_payment_required'),
-            reply_markup=get_numerology_payment_keyboard()
+            reply_markup=get_numerology_payment_keyboard(lang)
         )
         await state.set_state(NumerologyStates.PAYMENT)
         return
@@ -1371,7 +1382,7 @@ async def numerology_fill_new_data(callback: CallbackQuery, state: FSMContext):
     await state.set_state(NumerologyStates.WAITING_NAME)
     await callback.message.answer(
         await get_text(user_id, 'numerology_fill_new_data'),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
@@ -1382,6 +1393,7 @@ async def numerology_payment(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     if not yookassa.is_configured:
         await callback.message.answer(
@@ -1402,7 +1414,7 @@ async def numerology_payment(callback: CallbackQuery, state: FSMContext):
 
         await callback.message.answer(
             await get_text(user_id, 'numerology_payment_process'),
-            reply_markup=get_payment_url_keyboard(result['confirmation_url'])
+            reply_markup=get_payment_url_keyboard(result['confirmation_url'], lang)
         )
 
         await state.set_state(NumerologyStates.PAYMENT)
@@ -1420,6 +1432,7 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     manual_data = numerology_data.get(user_id)
     if manual_data and manual_data.get('is_manual') is True:
@@ -1430,7 +1443,7 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         if not user_data_from_db or not user_data_from_db.get('name'):
             await callback.message.answer(
                 await get_text(user_id, 'error_not_found'),
-                reply_markup=get_main_menu(await get_user_language(user_id))
+                reply_markup=get_main_menu(lang)
             )
             await state.clear()
             return
@@ -1448,7 +1461,6 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            lang = await get_user_language(user_id)
             result = gemini_service.generate_numerology(user_data, lang)
             await save_message_to_archive(user_id, 'numerology', result)
             await add_numerology_count(user_id, -1)
@@ -1469,6 +1481,7 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
 @dp.message(NumerologyStates.WAITING_NAME)
 async def process_numerology_name(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     if len(message.text) < 2:
         await message.answer(await get_text(user_id, 'error_name_short'))
         return
@@ -1477,18 +1490,19 @@ async def process_numerology_name(message: Message, state: FSMContext):
     template = await get_text(user_id, 'numerology_name_prompt')
     await message.answer(
         template.format(name=message.text),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
 @dp.message(NumerologyStates.WAITING_BIRTH_DATE)
 async def process_numerology_birth_date(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     date_pattern = r'^\d{2}\.\d{2}\.\d{4}$'
     if not re.match(date_pattern, message.text):
         await message.answer(
             await get_text(user_id, 'error_invalid_date_format'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
     try:
@@ -1502,23 +1516,24 @@ async def process_numerology_birth_date(message: Message, state: FSMContext):
                 emoji=get_zodiac_emoji(zodiac),
                 zodiac=zodiac
             ),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
     except ValueError:
         await message.answer(
             await get_text(user_id, 'error_invalid_date'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
 @dp.message(NumerologyStates.WAITING_BIRTH_TIME)
 async def process_numerology_birth_time(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     time_pattern = r'^\d{2}:\d{2}$'
     if not re.match(time_pattern, message.text):
         await message.answer(
             await get_text(user_id, 'error_invalid_time_format'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
     try:
@@ -1527,40 +1542,42 @@ async def process_numerology_birth_time(message: Message, state: FSMContext):
         await state.set_state(NumerologyStates.WAITING_BIRTH_PLACE)
         await message.answer(
             await get_text(user_id, 'numerology_birth_time'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
     except ValueError:
         await message.answer(
             await get_text(user_id, 'error_invalid_time'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
 @dp.message(NumerologyStates.WAITING_BIRTH_PLACE)
 async def process_numerology_birth_place(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     if len(message.text) < 3:
         await message.answer(
             await get_text(user_id, 'error_invalid_place'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
     await state.update_data(numerology_birth_place=message.text)
     await state.set_state(NumerologyStates.WAITING_GENDER)
     await message.answer(
         await get_text(user_id, 'numerology_gender'),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
 @dp.message(NumerologyStates.WAITING_GENDER)
 async def process_numerology_gender(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     gender = message.text.upper()
     if gender not in ["М", "Ж"]:
         await message.answer(
             await get_text(user_id, 'error_invalid_gender'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
 
@@ -1594,14 +1611,14 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         await state.set_state(NumerologyStates.CONFIRM_DATA)
         await message.answer(
             profile_text,
-            reply_markup=get_numerology_confirm_keyboard()
+            reply_markup=get_numerology_confirm_keyboard(lang)
         )
         return
 
     if not data.get('numerology_paid', False):
         await message.answer(
             await get_text(user_id, 'numerology_payment_not_confirmed'),
-            reply_markup=get_numerology_payment_keyboard()
+            reply_markup=get_numerology_payment_keyboard(lang)
         )
         await state.set_state(NumerologyStates.PAYMENT)
         return
@@ -1643,7 +1660,6 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            lang = await get_user_language(user_id)
             result = gemini_service.generate_numerology(numerology_data[user_id], lang)
             await save_message_to_archive(user_id, 'numerology', result)
             await add_numerology_count(user_id, -1)
@@ -1664,11 +1680,12 @@ async def edit_numerology_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.answer()
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     await state.update_data(is_numerology_edit=True)
     await state.set_state(NumerologyStates.WAITING_NAME)
     await callback.message.answer(
         await get_text(user_id, 'numerology_edit_name'),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
@@ -1678,6 +1695,7 @@ async def edit_numerology_data(callback: CallbackQuery, state: FSMContext):
 async def start_astrology(message: Message, state: FSMContext):
     """Начало оформления астрологии"""
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
 
     if user_data and user_data.get('name'):
@@ -1696,20 +1714,20 @@ async def start_astrology(message: Message, state: FSMContext):
             )
             await message.answer(
                 profile_text,
-                reply_markup=get_astrology_confirm_keyboard()
+                reply_markup=get_astrology_confirm_keyboard(lang)
             )
             await state.set_state(AstrologyStates.CONFIRM_DATA)
         else:
             await message.answer(
                 await get_text(user_id, 'astrology_no_data'),
-                reply_markup=get_astrology_payment_keyboard()
+                reply_markup=get_astrology_payment_keyboard(lang)
             )
             await state.set_state(AstrologyStates.PAYMENT)
     else:
         await state.set_state(AstrologyStates.WAITING_NAME)
         await message.answer(
             await get_text(user_id, 'astrology_no_user_data'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
@@ -1722,12 +1740,13 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     data = await state.get_data()
 
     if not data.get('astrology_paid', False):
         await callback.message.answer(
             await get_text(user_id, 'astrology_payment_required'),
-            reply_markup=get_astrology_payment_keyboard()
+            reply_markup=get_astrology_payment_keyboard(lang)
         )
         await state.set_state(AstrologyStates.PAYMENT)
         return
@@ -1736,7 +1755,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
     if not user_data_from_db or not user_data_from_db.get('name'):
         await callback.message.answer(
             await get_text(user_id, 'astrology_data_not_found'),
-            reply_markup=get_main_menu(await get_user_language(user_id))
+            reply_markup=get_main_menu(lang)
         )
         await state.clear()
         return
@@ -1778,7 +1797,6 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            lang = await get_user_language(user_id)
             calculator = AstrologyCalculator(user_data_from_db)
             parameters_text = calculator.get_display_parameters(lang)
             prompt = calculator.build_prompt()
@@ -1809,11 +1827,12 @@ async def astrology_fill_new_data(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     data = await state.get_data()
     if not data.get('astrology_paid', False):
         await callback.message.answer(
             await get_text(user_id, 'astrology_payment_required'),
-            reply_markup=get_astrology_payment_keyboard()
+            reply_markup=get_astrology_payment_keyboard(lang)
         )
         await state.set_state(AstrologyStates.PAYMENT)
         return
@@ -1821,7 +1840,7 @@ async def astrology_fill_new_data(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AstrologyStates.WAITING_NAME)
     await callback.message.answer(
         await get_text(user_id, 'astrology_fill_new_data'),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
@@ -1832,6 +1851,7 @@ async def astrology_payment(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     if not yookassa.is_configured:
         await callback.message.answer(
@@ -1852,7 +1872,7 @@ async def astrology_payment(callback: CallbackQuery, state: FSMContext):
 
         await callback.message.answer(
             await get_text(user_id, 'astrology_payment_process'),
-            reply_markup=get_payment_url_keyboard(result['confirmation_url'])
+            reply_markup=get_payment_url_keyboard(result['confirmation_url'], lang)
         )
 
         await state.set_state(AstrologyStates.PAYMENT)
@@ -1870,6 +1890,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     manual_data = astrology_data.get(user_id)
     if manual_data and manual_data.get('is_manual') is True:
@@ -1880,7 +1901,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         if not user_data_from_db or not user_data_from_db.get('name'):
             await callback.message.answer(
                 await get_text(user_id, 'error_not_found'),
-                reply_markup=get_main_menu(await get_user_language(user_id))
+                reply_markup=get_main_menu(lang)
             )
             await state.clear()
             return
@@ -1898,7 +1919,6 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            lang = await get_user_language(user_id)
             calculator = AstrologyCalculator(user_data)
             parameters_text = calculator.get_display_parameters(lang)
             prompt = calculator.build_prompt()
@@ -1926,6 +1946,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
 @dp.message(AstrologyStates.WAITING_NAME)
 async def process_astrology_name(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     if len(message.text) < 2:
         await message.answer(await get_text(user_id, 'error_name_short'))
         return
@@ -1934,18 +1955,19 @@ async def process_astrology_name(message: Message, state: FSMContext):
     template = await get_text(user_id, 'astrology_name_prompt')
     await message.answer(
         template.format(name=message.text),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
 @dp.message(AstrologyStates.WAITING_BIRTH_DATE)
 async def process_astrology_birth_date(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     date_pattern = r'^\d{2}\.\d{2}\.\d{4}$'
     if not re.match(date_pattern, message.text):
         await message.answer(
             await get_text(user_id, 'error_invalid_date_format'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
     try:
@@ -1959,23 +1981,24 @@ async def process_astrology_birth_date(message: Message, state: FSMContext):
                 emoji=get_zodiac_emoji(zodiac),
                 zodiac=zodiac
             ),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
     except ValueError:
         await message.answer(
             await get_text(user_id, 'error_invalid_date'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
 @dp.message(AstrologyStates.WAITING_BIRTH_TIME)
 async def process_astrology_birth_time(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     time_pattern = r'^\d{2}:\d{2}$'
     if not re.match(time_pattern, message.text):
         await message.answer(
             await get_text(user_id, 'error_invalid_time_format'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
     try:
@@ -1984,40 +2007,42 @@ async def process_astrology_birth_time(message: Message, state: FSMContext):
         await state.set_state(AstrologyStates.WAITING_BIRTH_PLACE)
         await message.answer(
             await get_text(user_id, 'astrology_birth_time'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
     except ValueError:
         await message.answer(
             await get_text(user_id, 'error_invalid_time'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
 @dp.message(AstrologyStates.WAITING_BIRTH_PLACE)
 async def process_astrology_birth_place(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     if len(message.text) < 3:
         await message.answer(
             await get_text(user_id, 'error_invalid_place'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
     await state.update_data(astrology_birth_place=message.text)
     await state.set_state(AstrologyStates.WAITING_GENDER)
     await message.answer(
         await get_text(user_id, 'astrology_gender'),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
 @dp.message(AstrologyStates.WAITING_GENDER)
 async def process_astrology_gender(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     gender = message.text.upper()
     if gender not in ["М", "Ж"]:
         await message.answer(
             await get_text(user_id, 'error_invalid_gender'),
-            reply_markup=get_cancel_keyboard()
+            reply_markup=get_cancel_keyboard(lang)
         )
         return
 
@@ -2051,14 +2076,14 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         await state.set_state(AstrologyStates.CONFIRM_DATA)
         await message.answer(
             profile_text,
-            reply_markup=get_astrology_confirm_keyboard()
+            reply_markup=get_astrology_confirm_keyboard(lang)
         )
         return
 
     if not data.get('astrology_paid', False):
         await message.answer(
             await get_text(user_id, 'astrology_payment_not_confirmed'),
-            reply_markup=get_astrology_payment_keyboard()
+            reply_markup=get_astrology_payment_keyboard(lang)
         )
         await state.set_state(AstrologyStates.PAYMENT)
         return
@@ -2100,7 +2125,6 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            lang = await get_user_language(user_id)
             calculator = AstrologyCalculator(user_data_for_calc)
             parameters_text = calculator.get_display_parameters(lang)
             prompt = calculator.build_prompt()
@@ -2129,11 +2153,12 @@ async def edit_astrology_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.answer()
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     await state.update_data(is_astrology_edit=True)
     await state.set_state(AstrologyStates.WAITING_NAME)
     await callback.message.answer(
         await get_text(user_id, 'astrology_edit_name'),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
@@ -2142,16 +2167,20 @@ async def edit_astrology_data(callback: CallbackQuery, state: FSMContext):
 async def profile(message: Message):
     """Показать профиль пользователя"""
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
 
     if user_data and user_data.get('name'):
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+
+        # Получаем перевод пола
         if user_data.get('gender') == 'M':
             gender_display = await get_text(user_id, 'astro_gender_male')
         elif user_data.get('gender') == 'F':
             gender_display = await get_text(user_id, 'astro_gender_female')
         else:
             gender_display = await get_text(user_id, 'astro_gender_unknown')
+
         timezone = user_data.get('timezone_offset', 3)
 
         template = await get_text(user_id, 'profile_text')
@@ -2170,7 +2199,6 @@ async def profile(message: Message):
         if is_subscribed:
             profile_text += await get_text(user_id, 'profile_subscription_active')
 
-        lang = await get_user_language(user_id)
         await message.answer(profile_text, reply_markup=get_profile_keyboard(lang))
     else:
         consent_url = os.getenv('CONSENT_URL', 'ссылка на согласие')
@@ -2183,7 +2211,6 @@ async def profile(message: Message):
         else:
             template = await get_text(user_id, 'profile_no_data_message_can_use')
             text = template.format(consent_url=consent_url, privacy_url=privacy_url)
-        lang = await get_user_language(user_id)
         await message.answer(text, reply_markup=get_fill_profile_keyboard(lang), parse_mode="Markdown")
 
 
@@ -2191,6 +2218,7 @@ async def profile(message: Message):
 async def edit_profile(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     old = await get_user_data(user_id)
     if not old or not old.get('name'):
@@ -2214,7 +2242,7 @@ async def edit_profile(callback: CallbackQuery, state: FSMContext):
     prompt = template.format(name=old.get('name', 'не указано'))
     await callback.message.edit_text(
         prompt,
-        reply_markup=get_skip_keyboard()
+        reply_markup=get_skip_keyboard(lang)
     )
 
 
@@ -2225,12 +2253,13 @@ async def fill_and_save(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     await state.update_data(fill_mode=True)
 
     await state.set_state(UserDataStates.WAITING_NAME)
     await callback.message.answer(
         await get_text(user_id, 'profile_fill_intro'),
-        reply_markup=get_cancel_keyboard()
+        reply_markup=get_cancel_keyboard(lang)
     )
 
 
@@ -2238,6 +2267,7 @@ async def fill_and_save(callback: CallbackQuery, state: FSMContext):
 async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     current_state = await state.get_state()
     state_data = await state.get_data()
     new_data = state_data.get('new_data', {})
@@ -2249,17 +2279,17 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
         await state.set_state(UserDataStates.WAITING_BIRTH_DATE)
         template = await get_text(user_id, 'skip_birth_date')
         prompt = template.format(date=old.get('birth_date', 'не указана'))
-        await callback.message.edit_text(prompt, reply_markup=get_skip_keyboard())
+        await callback.message.edit_text(prompt, reply_markup=get_skip_keyboard(lang))
     elif current_state == UserDataStates.WAITING_BIRTH_DATE:
         await state.set_state(UserDataStates.WAITING_BIRTH_TIME)
         template = await get_text(user_id, 'skip_birth_time')
         prompt = template.format(time=old.get('birth_time', 'не указано'))
-        await callback.message.edit_text(prompt, reply_markup=get_skip_keyboard())
+        await callback.message.edit_text(prompt, reply_markup=get_skip_keyboard(lang))
     elif current_state == UserDataStates.WAITING_BIRTH_TIME:
         await state.set_state(UserDataStates.WAITING_BIRTH_PLACE)
         template = await get_text(user_id, 'skip_birth_place')
         prompt = template.format(place=old.get('birth_place', 'не указано'))
-        await callback.message.edit_text(prompt, reply_markup=get_skip_keyboard())
+        await callback.message.edit_text(prompt, reply_markup=get_skip_keyboard(lang))
     elif current_state == UserDataStates.WAITING_BIRTH_PLACE:
         await state.set_state(UserDataStates.WAITING_GENDER)
         current_gender = old.get('gender')
@@ -2271,7 +2301,7 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
             gender_display = 'не указан'
         template = await get_text(user_id, 'skip_gender')
         prompt = template.format(gender=gender_display)
-        await callback.message.edit_text(prompt, reply_markup=get_skip_keyboard())
+        await callback.message.edit_text(prompt, reply_markup=get_skip_keyboard(lang))
     elif current_state == UserDataStates.WAITING_GENDER:
         user_id = callback.from_user.id
         logger.info(f"💾 Завершение редактирования через 'Пропустить' для {user_id}, данные: {new_data}")
@@ -2279,7 +2309,12 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
         await state.clear()
 
         user_obj = await sync_to_async(User.objects.get)(telegram_id=user_id)
-        gender_display = 'Мужской' if user_obj.gender == 'M' else 'Женский'
+        if user_obj.gender == 'M':
+            gender_display = await get_text(user_id, 'astro_gender_male')
+        elif user_obj.gender == 'F':
+            gender_display = await get_text(user_id, 'astro_gender_female')
+        else:
+            gender_display = await get_text(user_id, 'astro_gender_unknown')
         zodiac_emoji = get_zodiac_emoji(user_obj.zodiac_sign or 'Неизвестно')
         profile_text = (
             f"✅ Данные успешно обновлены!\n\n"
@@ -2290,7 +2325,6 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
             f"👤 Пол: {gender_display}\n"
             f"{zodiac_emoji} Знак зодиака: {user_obj.zodiac_sign or 'Неизвестно'}"
         )
-        lang = await get_user_language(user_id)
         await callback.message.edit_text(profile_text, reply_markup=get_main_menu(lang))
     else:
         user_id = callback.from_user.id
@@ -2299,7 +2333,12 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
         await state.clear()
 
         user_obj = await sync_to_async(User.objects.get)(telegram_id=user_id)
-        gender_display = 'Мужской' if user_obj.gender == 'M' else 'Женский'
+        if user_obj.gender == 'M':
+            gender_display = await get_text(user_id, 'astro_gender_male')
+        elif user_obj.gender == 'F':
+            gender_display = await get_text(user_id, 'astro_gender_female')
+        else:
+            gender_display = await get_text(user_id, 'astro_gender_unknown')
         zodiac_emoji = get_zodiac_emoji(user_obj.zodiac_sign or 'Неизвестно')
         profile_text = (
             f"✅ Данные успешно обновлены!\n\n"
@@ -2310,7 +2349,6 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
             f"👤 Пол: {gender_display}\n"
             f"{zodiac_emoji} Знак зодиака: {user_obj.zodiac_sign or 'Неизвестно'}"
         )
-        lang = await get_user_language(user_id)
         await callback.message.edit_text(profile_text, reply_markup=get_main_menu(lang))
 
     logger.info(f"⏩ После пропуска, new_data: {new_data}")
@@ -2352,6 +2390,7 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
 @dp.message(F.text == "👩‍🏫 Личный астролог")
 async def expert_request(message: Message):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     username = message.from_user.username or "Не указан"
     first_name = message.from_user.first_name or "Не указано"
 
@@ -2371,7 +2410,7 @@ async def expert_request(message: Message):
 
     await message.answer(
         expert_text,
-        reply_markup=get_expert_keyboard()
+        reply_markup=get_expert_keyboard(lang)
     )
 
 
@@ -2381,6 +2420,7 @@ async def send_expert_request(callback: CallbackQuery):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     username = callback.from_user.username or "Не указан"
     first_name = callback.from_user.first_name or "Не указано"
 
@@ -2398,7 +2438,7 @@ async def send_expert_request(callback: CallbackQuery):
 
     await callback.message.answer(
         await get_text(user_id, 'expert_sent'),
-        reply_markup=get_main_menu(await get_user_language(user_id))
+        reply_markup=get_main_menu(lang)
     )
 
     expert_chat_id = os.getenv('EXPERT_CHAT_ID')
@@ -2422,17 +2462,18 @@ async def send_expert_request(callback: CallbackQuery):
 @dp.message(F.text == "⭐ Premium")
 async def show_subscription(message: Message):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     is_subscribed = await check_subscription_db(user_id)
 
     if is_subscribed:
         await message.answer(
             await get_text(user_id, 'subscription_active'),
-            reply_markup=get_subscription_active_keyboard()
+            reply_markup=get_subscription_active_keyboard(lang)
         )
     else:
         await message.answer(
             await get_text(user_id, 'subscription_inactive'),
-            reply_markup=get_subscription_keyboard()
+            reply_markup=get_subscription_keyboard(lang)
         )
 
 
@@ -2441,6 +2482,7 @@ async def subscribe_payment(callback: CallbackQuery):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     if not yookassa.is_configured:
         await callback.message.answer(
@@ -2460,7 +2502,7 @@ async def subscribe_payment(callback: CallbackQuery):
 
         await callback.message.answer(
             await get_text(user_id, 'subscription_payment_process'),
-            reply_markup=get_subscription_payment_keyboard(result['confirmation_url'])
+            reply_markup=get_subscription_payment_keyboard(result['confirmation_url'], lang)
         )
     else:
         await callback.message.answer(
@@ -2474,9 +2516,10 @@ async def subscribe_extend(callback: CallbackQuery):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     await callback.message.answer(
         await get_text(user_id, 'subscription_extend'),
-        reply_markup=get_subscription_keyboard()
+        reply_markup=get_subscription_keyboard(lang)
     )
 
 
@@ -2484,12 +2527,13 @@ async def subscribe_extend(callback: CallbackQuery):
 
 async def show_archive(message: Message):
     user_id = message.from_user.id
+    lang = await get_user_language(user_id)
     messages = await get_user_archive(user_id, limit=10)
 
     if not messages:
         await message.answer(
             await get_text(user_id, 'archive_empty'),
-            reply_markup=get_main_menu(await get_user_language(user_id))
+            reply_markup=get_main_menu(lang)
         )
         return
 
@@ -2530,7 +2574,7 @@ async def show_archive(message: Message):
 
     await message.answer(
         archive_text,
-        reply_markup=get_archive_keyboard(messages)
+        reply_markup=get_archive_keyboard(messages, lang)
     )
 
 
@@ -2555,6 +2599,7 @@ async def show_archive_message(callback: CallbackQuery):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     try:
         message_id = int(callback.data.replace("archive_", ""))
@@ -2569,7 +2614,7 @@ async def show_archive_message(callback: CallbackQuery):
         if not msg:
             await callback.message.answer(
                 await get_text(user_id, 'error_not_found'),
-                reply_markup=get_main_menu(await get_user_language(user_id))
+                reply_markup=get_main_menu(lang)
             )
             return
 
@@ -2605,7 +2650,7 @@ async def show_archive_message(callback: CallbackQuery):
     except Exception as e:
         await callback.message.answer(
             f"❌ Ошибка: {str(e)}",
-            reply_markup=get_main_menu(await get_user_language(user_id))
+            reply_markup=get_main_menu(lang)
         )
 
 
@@ -2616,6 +2661,7 @@ async def cancel_subscription_callback(callback: CallbackQuery):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
 
     try:
         @sync_to_async
@@ -2630,14 +2676,14 @@ async def cancel_subscription_callback(callback: CallbackQuery):
         if not user:
             await callback.message.answer(
                 await get_text(user_id, 'subscription_cancel_not_found'),
-                reply_markup=get_main_menu(await get_user_language(user_id))
+                reply_markup=get_main_menu(lang)
             )
             return
 
         if not user.is_subscribed:
             await callback.message.answer(
                 await get_text(user_id, 'subscription_not_active'),
-                reply_markup=get_main_menu(await get_user_language(user_id))
+                reply_markup=get_main_menu(lang)
             )
             await callback.message.delete()
             return
@@ -2655,13 +2701,13 @@ async def cancel_subscription_callback(callback: CallbackQuery):
 
         await callback.message.answer(
             await get_text(user_id, 'subscription_canceled'),
-            reply_markup=get_main_menu(await get_user_language(user_id))
+            reply_markup=get_main_menu(lang)
         )
 
     except Exception as e:
         await callback.message.answer(
             f"❌ Ошибка при отмене подписки: {str(e)}",
-            reply_markup=get_main_menu(await get_user_language(user_id))
+            reply_markup=get_main_menu(lang)
         )
 
 
@@ -2671,11 +2717,12 @@ async def cancel_subscription_callback(callback: CallbackQuery):
 async def support(callback: CallbackQuery):
     await callback.answer()
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     support_url = os.getenv('SUPPORT_URL', 'https://t.me/ваш_username')
     text = await get_text(user_id, 'support_text')
     await callback.message.edit_text(
         text,
-        reply_markup=get_support_keyboard(support_url),
+        reply_markup=get_support_keyboard(support_url, lang),
         parse_mode="Markdown"
     )
 
@@ -2684,11 +2731,13 @@ async def support(callback: CallbackQuery):
 async def back_to_profile(callback: CallbackQuery):
     await callback.answer()
     await callback.message.delete()
+
     class FakeMessage:
         def __init__(self, callback):
             self.from_user = callback.from_user
             self.chat = callback.message.chat
             self.answer = callback.message.answer
+
     fake_msg = FakeMessage(callback)
     await profile(fake_msg)
 
@@ -2700,6 +2749,7 @@ async def check_payment(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
     data = await state.get_data()
     payment_id = data.get('payment_id')
 
@@ -2714,13 +2764,13 @@ async def check_payment(callback: CallbackQuery, state: FSMContext):
     if result['success'] and result['paid']:
         await callback.message.answer(
             await get_text(user_id, 'payment_success'),
-            reply_markup=get_main_menu(await get_user_language(user_id))
+            reply_markup=get_main_menu(lang)
         )
         await state.clear()
     else:
         await callback.message.answer(
             await get_text(user_id, 'payment_not_confirmed'),
-            reply_markup=get_payment_url_keyboard(callback.message.text)
+            reply_markup=get_payment_url_keyboard(callback.message.text, lang)
         )
 
 
