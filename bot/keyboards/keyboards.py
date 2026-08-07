@@ -8,27 +8,31 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()
 
 from core.models import UserMessage
+from bot.locales import TEXTS
 
 
-def get_main_menu():
-    builder = ReplyKeyboardBuilder()
-    builder.add(KeyboardButton(text="🔮 Гороскоп на сегодня"))
-    builder.add(KeyboardButton(text="💕 Совместимость"))
-    builder.add(KeyboardButton(text="🔢 Нумерология"))
-    builder.add(KeyboardButton(text="🌌 Натальная карта"))
-    builder.add(KeyboardButton(text="⭐ Premium"))
-    builder.add(KeyboardButton(text="👩‍🏫 Личный астролог"))
-    builder.add(KeyboardButton(text="📖 Мои прогнозы"))
-    builder.add(KeyboardButton(text="🌐 En/Ru"))  # новая кнопка
-    builder.add(KeyboardButton(text="👤 Мой профиль"))
-    builder.adjust(2, 2, 2, 3)   # последняя строка – одна кнопка
-    return builder.as_markup(resize_keyboard=True)
+def get_main_menu(lang: str = 'ru'):
+    """
+    Возвращает Inline-клавиатуру главного меню с текстами на указанном языке.
+    """
+    builder = InlineKeyboardBuilder()
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['menu_horoscope'], callback_data="menu_horoscope")
+    builder.button(text=texts['menu_compatibility'], callback_data="menu_compatibility")
+    builder.button(text=texts['menu_numerology'], callback_data="menu_numerology")
+    builder.button(text=texts['menu_astrology'], callback_data="menu_astrology")
+    builder.button(text=texts['menu_premium'], callback_data="menu_premium")
+    builder.button(text=texts['menu_expert'], callback_data="menu_expert")
+    builder.button(text=texts['menu_archive'], callback_data="menu_archive")
+    builder.button(text=texts['menu_profile'], callback_data="menu_profile")
+    builder.button(text=texts['menu_language'], callback_data="menu_language")
+    builder.adjust(2, 2, 2, 2, 1)  # 4 строки по 2 кнопки и последняя строка с одной кнопкой
+    return builder.as_markup()
 
 
 def get_zodiac_keyboard():
     """Клавиатура для выбора знака зодиака"""
     builder = InlineKeyboardBuilder()
-
     zodiacs = [
         ("♈ Овен", "Овен"),
         ("♉ Телец", "Телец"),
@@ -43,10 +47,8 @@ def get_zodiac_keyboard():
         ("♒ Водолей", "Водолей"),
         ("♓ Рыбы", "Рыбы"),
     ]
-
     for label, sign in zodiacs:
         builder.button(text=label, callback_data=f"zodiac_{sign}")
-
     builder.adjust(3, 3, 3, 3)
     return builder.as_markup()
 
@@ -54,7 +56,6 @@ def get_zodiac_keyboard():
 def get_zodiac_keyboard_person2():
     """Клавиатура для выбора знака зодиака (человек 2)"""
     builder = InlineKeyboardBuilder()
-
     zodiacs = [
         ("♈ Овен", "Овен"),
         ("♉ Телец", "Телец"),
@@ -69,10 +70,8 @@ def get_zodiac_keyboard_person2():
         ("♒ Водолей", "Водолей"),
         ("♓ Рыбы", "Рыбы"),
     ]
-
     for label, sign in zodiacs:
         builder.button(text=label, callback_data=f"comp_zodiac2_{sign}")
-
     builder.adjust(3, 3, 3, 3)
     return builder.as_markup()
 
@@ -210,7 +209,7 @@ def get_subscription_keyboard():
     """Клавиатура для подписки"""
     builder = InlineKeyboardBuilder()
     builder.button(text="⭐ Оформить подписку 333 ₽", callback_data="subscribe_pay")
-    builder.button(text="❌ Отмена", callback_data="close_subscription")  # изменено
+    builder.button(text="❌ Отмена", callback_data="close_subscription")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -272,7 +271,7 @@ def get_profile_keyboard():
     builder.button(text="✏️ Изменить данные", callback_data="edit_profile")
     builder.button(text="🕒 Сменить часовой пояс", callback_data="edit_timezone")
     builder.button(text="❌ Отменить подписку", callback_data="cancel_subscription")
-    builder.button(text="🆘 Поддержка", callback_data="support")  # <-- добавлено
+    builder.button(text="🆘 Поддержка", callback_data="support")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -306,7 +305,7 @@ def get_timezone_keyboard():
     builder = InlineKeyboardBuilder()
     for i in range(1, 13):
         builder.button(text=f"UTC+{i}", callback_data=f"tz_{i}")
-    builder.button(text="❌ Отмена", callback_data="cancel")  # <-- добавлено
+    builder.button(text="❌ Отмена", callback_data="cancel")
     builder.adjust(3, 3, 3, 3)
     return builder.as_markup()
 
@@ -341,7 +340,6 @@ def get_fill_profile_keyboard(consent_url: str = None, privacy_url: str = None):
     """Клавиатура для заполнения профиля с ссылками и кнопкой"""
     builder = InlineKeyboardBuilder()
     builder.button(text="📄 Заполнить и Сохранить", callback_data="fill_and_save")
-    # Ссылки можно добавить отдельно, но проще передать в сообщении
     return builder.as_markup()
 
 def get_horoscope_confirm_keyboard():
@@ -356,5 +354,5 @@ def get_language_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="English", callback_data="lang_en")
     builder.button(text="Русский", callback_data="lang_ru")
-    builder.adjust(2)  # две кнопки в строке
+    builder.adjust(2)
     return builder.as_markup()

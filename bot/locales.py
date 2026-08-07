@@ -25,6 +25,17 @@ TEXTS = {
         'continuation': "📄 Продолжение ({i}/{total}):\n\n{text}",
         'choose_timezone': "🕒 Выберите ваш часовой пояс:",
 
+        # ========== Кнопки главного меню ==========
+        'menu_horoscope': "🔮 Гороскоп на сегодня",
+        'menu_compatibility': "💕 Совместимость",
+        'menu_numerology': "🔢 Нумерология",
+        'menu_astrology': "🌌 Натальная карта",
+        'menu_premium': "⭐ Premium",
+        'menu_expert': "👩‍🏫 Личный астролог",
+        'menu_archive': "📖 Мои прогнозы",
+        'menu_profile': "👤 Мой профиль",
+        'menu_language': "🌐 En/Ru",
+
         # ========== Гороскоп ==========
         'horoscope_today': "🔮 Гороскоп на сегодня!",
         'horoscope_your_data': "Ваши данные:",
@@ -187,6 +198,17 @@ TEXTS = {
         'unknown_command': "❓ I didn't understand your command.\nUse the menu buttons or type /start",
         'continuation': "📄 Continuation ({i}/{total}):\n\n{text}",
         'choose_timezone': "🕒 Choose your time zone:",
+
+        # ========== Main menu buttons ==========
+        'menu_horoscope': "🔮 Horoscope for today",
+        'menu_compatibility': "💕 Compatibility",
+        'menu_numerology': "🔢 Numerology",
+        'menu_astrology': "🌌 Natal chart",
+        'menu_premium': "⭐ Premium",
+        'menu_expert': "👩‍🏫 Personal astrologer",
+        'menu_archive': "📖 My forecasts",
+        'menu_profile': "👤 My profile",
+        'menu_language': "🌐 En/Ru",
 
         # ========== Horoscope ==========
         'horoscope_today': "🔮 Today's horoscope!",
