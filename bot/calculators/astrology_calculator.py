@@ -1,14 +1,15 @@
 import os
 import requests
+import json
 import logging
+import re
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
-from kerykeion import AstrologicalSubject  # ← правильный импорт
+from kerykeion import AstrologicalSubject
 from timezonefinder import TimezoneFinder
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +24,11 @@ class AstrologyCalculator:
     DEFAULT_LNG = 37.6173
     DEFAULT_TZ = "Europe/Moscow"
 
-    # Мажорные аспекты (и их синонимы в данных)
     MAJOR_ASPECTS = {'conjunction', 'opposition', 'trine', 'square', 'sextile'}
-    MAX_ORB = 5.0  # градусов
+    MAX_ORB = 5.0
+
+    # Статическая переменная для доступа к нейросети (устанавливается из main.py)
+    gemini_service = None
 
     def __init__(self, user_data: Dict[str, Any]):
         self.user_data = user_data
@@ -41,7 +44,7 @@ class AstrologyCalculator:
         self._timezone = None
         self._tf = TimezoneFinder()
 
-    def _parse_birth_datetime(self) -> tuple:
+    def _parse_birth_datetime(self) -> Tuple[int, int, int, int, int]:
         date_str = self.birth_date_str or "01.01.2000"
         time_str = self.birth_time_str or "12:00"
         try:
@@ -51,37 +54,78 @@ class AstrologyCalculator:
             logger.warning(f"Неверный формат даты/времени: {date_str} {time_str}. Используем 01.01.2000 12:00")
             return 2000, 1, 1, 12, 0
 
-    def _parse_birth_place(self) -> tuple:
+    def _parse_birth_place(self) -> Tuple[str, str]:
         place = self.birth_place.strip()
         if not place:
-            logger.warning("Место рождения не указано. Используем 'Москва, Россия'")
             return "Москва", "RU"
         parts = [p.strip() for p in place.split(',') if p.strip()]
         city = parts[0] if parts else "Москва"
         country = parts[1] if len(parts) > 1 else "RU"
         return city, country
 
-    def _get_coordinates(self, city: str, country: str = None) -> Dict[str, float]:
+    def _get_coordinates_and_timezone(self) -> Tuple[float, float, str]:
         """
-        Получает координаты города через Nominatim (OpenStreetMap),
-        с резервом на Open-Meteo.
+        Определяет координаты и часовой пояс для места рождения.
+        Возвращает (lat, lng, tz_str).
         """
-        # 1. Пробуем Nominatim
+        city, country = self._parse_birth_place()
+        if not city:  # если место не указано вообще
+            logger.warning("Место рождения не указано. Используем Москву")
+            return self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
+
+        # 1. Пробуем геокодеры
+        coords = self._get_coordinates_geocoder(city, country)
+        if coords:
+            lat, lng = coords['lat'], coords['lng']
+            tz_str = self._get_timezone_from_coords(lat, lng)
+            if tz_str:
+                logger.info(f"✅ Найдено через геокодер: {city}, {country} ({lat}, {lng}, {tz_str})")
+                return lat, lng, tz_str
+
+        # 2. Если геокодеры не нашли – пробуем нейросеть
+        if self.__class__.gemini_service:
+            logger.info(f"🌐 Геокодер не нашёл {city}, {country}. Пробуем нейросеть...")
+            result = self._ask_gemini_for_coords(city, country)
+            if result and 'lat' in result and 'lng' in result and 'timezone' in result:
+                lat, lng, tz_str = result['lat'], result['lng'], result['timezone']
+                logger.info(f"✅ Найдено через нейросеть: {city}, {country} ({lat}, {lng}, {tz_str})")
+                return lat, lng, tz_str
+            else:
+                logger.warning(f"❌ Нейросеть не дала координат для {city}, {country}")
+        else:
+            logger.warning("⚠️ Gemini сервис не доступен для определения координат")
+
+        # 3. Если нейросеть не помогла, пробуем найти столицу страны через геокодер
+        if country and country != "RU":
+            logger.info(f"🌐 Пробуем найти столицу страны {country} через геокодер...")
+            capital_coords = self._get_capital_coords(country)
+            if capital_coords:
+                lat, lng = capital_coords['lat'], capital_coords['lng']
+                tz_str = self._get_timezone_from_coords(lat, lng)
+                if tz_str:
+                    logger.info(f"✅ Найдена столица {country}: ({lat}, {lng}, {tz_str})")
+                    return lat, lng, tz_str
+
+        # 4. Всё провалилось – Москва
+        logger.warning(f"❌ Не удалось определить координаты для {city}, {country}. Используем Москву.")
+        return self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
+
+    def _get_coordinates_geocoder(self, city: str, country: str = None) -> Optional[Dict[str, float]]:
+        """Пытается получить координаты через Nominatim и Open-Meteo."""
+        # 1. Nominatim
         try:
             geolocator = Nominatim(user_agent="my_astrolog_bot")
-            # Формируем запрос: "город, страна"
             query = f"{city}, {country}" if country else city
             location = geolocator.geocode(query, timeout=10)
             if location:
-                logger.info(
-                    f"✅ Найдено через Nominatim: {location.address} ({location.latitude}, {location.longitude})")
+                logger.info(f"✅ Найдено через Nominatim: {location.address} ({location.latitude}, {location.longitude})")
                 return {"lat": location.latitude, "lng": location.longitude}
             else:
                 logger.warning(f"❌ Nominatim не нашёл '{query}'")
         except (GeocoderTimedOut, GeocoderUnavailable) as e:
             logger.warning(f"⚠️ Ошибка Nominatim: {e}. Пробуем Open-Meteo.")
 
-        # 2. Резерв: Open-Meteo (как раньше)
+        # 2. Open-Meteo
         url = "https://geocoding-api.open-meteo.com/v1/search"
         params = {"name": city, "count": 1, "format": "json", "language": "ru"}
         if country:
@@ -93,32 +137,73 @@ class AstrologyCalculator:
             results = data.get("results")
             if results:
                 loc = results[0]
-                lat = loc["latitude"]
-                lng = loc["longitude"]
-                logger.info(
-                    f"✅ Найдено через Open-Meteo: {loc.get('name', city)}, {loc.get('country', '')} ({lat}, {lng})")
+                lat, lng = loc["latitude"], loc["longitude"]
+                logger.info(f"✅ Найдено через Open-Meteo: {loc.get('name', city)}, {loc.get('country', '')} ({lat}, {lng})")
                 return {"lat": lat, "lng": lng}
             else:
                 logger.warning(f"❌ Open-Meteo не нашёл '{city}'")
         except Exception as e:
             logger.error(f"⚠️ Ошибка Open-Meteo: {e}")
 
-        # 3. Если ничего не найдено – используем координаты по умолчанию (Москва)
-        logger.warning(f"❌ Город '{city}' не найден ни одним геокодером. Используем Москву.")
-        return {"lat": self.DEFAULT_LAT, "lng": self.DEFAULT_LNG}
+        return None
 
+    def _get_capital_coords(self, country: str) -> Optional[Dict[str, float]]:
+        """Пытается найти координаты столицы страны через Nominatim."""
+        try:
+            geolocator = Nominatim(user_agent="my_astrolog_bot")
+            query = f"capital of {country}"
+            location = geolocator.geocode(query, timeout=10)
+            if location:
+                return {"lat": location.latitude, "lng": location.longitude}
+            else:
+                logger.warning(f"❌ Не найдена столица для {country}")
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка при поиске столицы: {e}")
+        return None
 
-    def _get_timezone(self, lat: float, lng: float) -> str:
+    def _get_timezone_from_coords(self, lat: float, lng: float) -> Optional[str]:
+        """Определяет часовой пояс по координатам."""
         try:
             tz_name = self._tf.timezone_at(lat=lat, lng=lng)
             if tz_name:
                 return tz_name
             else:
-                logger.warning(f"Не удалось определить часовой пояс. Используем {self.DEFAULT_TZ}")
-                return self.DEFAULT_TZ
+                logger.warning(f"Не удалось определить часовой пояс для ({lat}, {lng})")
+                return None
         except Exception as e:
-            logger.error(f"Ошибка определения часового пояса: {e}. Используем {self.DEFAULT_TZ}")
-            return self.DEFAULT_TZ
+            logger.error(f"Ошибка определения часового пояса: {e}")
+            return None
+
+    def _ask_gemini_for_coords(self, city: str, country: str) -> Optional[Dict]:
+        """Запрашивает у Gemini координаты и часовой пояс для места."""
+        if not self.__class__.gemini_service:
+            return None
+
+        prompt = (
+            f"Определи географические координаты (широту и долготу) и часовой пояс для места: {city}, {country}. "
+            f"Если точное место не найдено, найди координаты столицы страны {country}. "
+            "Верни ответ строго в формате JSON: {\"lat\": число, \"lng\": число, \"timezone\": \"строка\"}. "
+            "Если данные не найдены, верни {\"error\": \"not found\"}."
+        )
+
+        try:
+            # Отправляем промпт в нейросеть
+            response = self.__class__.gemini_service.send_raw_prompt(prompt)
+            # Пытаемся извлечь JSON из ответа
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                data = json.loads(json_str)
+                if 'lat' in data and 'lng' in data and 'timezone' in data:
+                    return data
+                else:
+                    logger.warning(f"Ответ Gemini не содержит нужных полей: {data}")
+            else:
+                logger.warning(f"Не удалось найти JSON в ответе Gemini: {response[:200]}...")
+        except Exception as e:
+            logger.error(f"Ошибка при запросе к Gemini: {e}")
+
+        return None
 
     def _calculate_chart(self) -> Dict[str, Any]:
         if self._chart_data is not None:
@@ -126,9 +211,10 @@ class AstrologyCalculator:
 
         year, month, day, hour, minute = self._parse_birth_datetime()
         city, country = self._parse_birth_place()
-        coords = self._get_coordinates(city, country)
-        self._coords = coords
-        tz_str = self._get_timezone(coords['lat'], coords['lng'])
+
+        # Получаем координаты и таймзону через новый метод
+        lat, lng, tz_str = self._get_coordinates_and_timezone()
+        self._coords = {"lat": lat, "lng": lng}
         self._timezone = tz_str
 
         subject = AstrologicalSubject(
@@ -138,8 +224,8 @@ class AstrologyCalculator:
             day=day,
             hour=hour,
             minute=minute,
-            lat=coords['lat'],
-            lng=coords['lng'],
+            lat=lat,
+            lng=lng,
             tz_str=tz_str,
         )
 
@@ -221,7 +307,6 @@ class AstrologyCalculator:
 
         # --- Аспекты ---
         aspects = []
-        # Основной способ: через AspectsFactory (может не работать, но пробуем)
         try:
             from kerykeion import AspectsFactory
             aspects_data = AspectsFactory.single_chart_aspects(subject)
@@ -238,7 +323,6 @@ class AstrologyCalculator:
         except Exception as e:
             logger.warning(f"Ошибка при AspectsFactory: {e}")
 
-        # Резерв: NatalAspects
         if not aspects:
             try:
                 from kerykeion import NatalAspects
@@ -261,7 +345,6 @@ class AstrologyCalculator:
 
         # --- UTC время ---
         utc_datetime = None
-        # Пробуем получить из разных мест
         if hasattr(subject.model, 'iso_formatted_utc_datetime'):
             utc_datetime = subject.model.iso_formatted_utc_datetime
         elif hasattr(subject, 'iso_formatted_utc_datetime'):
@@ -271,7 +354,7 @@ class AstrologyCalculator:
             "name": subject.name,
             "datetime": f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}",
             "timezone": tz_str,
-            "location": {"lat": coords['lat'], "lng": coords['lng']},
+            "location": {"lat": lat, "lng": lng},
             "planets": planets,
             "houses": houses,
             "aspects": aspects,
@@ -349,7 +432,7 @@ class AstrologyCalculator:
 
         prompt = template
         for key, value in replacements.items():
-            prompt = prompt.replace(f"{{{key}}}", str(value))
+            prompt = prompt.replace(f'{{{key}}}', str(value))
 
         return prompt
 
@@ -374,7 +457,10 @@ class AstrologyCalculator:
 """
 
     def get_display_parameters(self, lang: str = 'ru') -> str:
-        """Возвращает отформатированные параметры карты с учётом языка."""
+        """
+        Возвращает отформатированные параметры карты с учётом языка.
+        Использует переводы из locales.py.
+        """
         chart = self._calculate_chart()
         from bot.locales import TEXTS
         texts = TEXTS.get(lang, TEXTS['ru'])
@@ -385,7 +471,6 @@ class AstrologyCalculator:
         house_names = texts.get('astro_house_names', {})
         aspect_names = texts.get('astro_aspect_names', {})
 
-        # Функция перевода
         def translate_planet(name):
             return planet_names.get(name, name)
 
@@ -417,7 +502,6 @@ class AstrologyCalculator:
             sign = translate_sign(p['sign'])
             house = translate_house(p['house'])
             degree = p['degree']
-            # Используем шаблон из локалей
             fmt = texts.get('astro_planet_format', '  • {planet} in {sign} ({degree:.2f}°) in {house} house')
             planets_lines.append(fmt.format(planet=planet_name, sign=sign, degree=degree, house=house))
         planets_str = "\n".join(planets_lines)

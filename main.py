@@ -97,6 +97,8 @@ dp = Dispatcher(storage=storage)
 try:
     gemini_service = GeminiService()
     logger.info("✅ Gemini API успешно инициализирован!")
+    # Передаём ссылку в AstrologyCalculator для использования нейросети
+    AstrologyCalculator.gemini_service = gemini_service
 except Exception as e:
     logger.error(f"❌ Ошибка инициализации Gemini: {e}")
     gemini_service = None

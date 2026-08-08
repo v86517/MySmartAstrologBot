@@ -3,6 +3,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from bot.services.gemini import GeminiService
 from bot.db import get_all_subscribed_users, get_user_data, save_message_to_archive, get_user_language
+from bot.utils.helpers import get_text
 from aiogram import Bot
 import asyncio
 import logging
@@ -26,13 +27,13 @@ async def send_daily_horoscopes(bot: Bot):
     sent = 0
     errors = 0
     skipped_not_8 = 0
-    gemini = GeminiService()  # Создаём один экземпляр для всех
+    gemini = GeminiService()
 
     for user in subscribers:
         tz_offset = user.timezone_offset  # int (1..12)
-        # Локальное время пользователя (приблизительно, без учёта минут)
+        # Локальное время пользователя
         user_now = now_utc + timedelta(hours=tz_offset)
-        # Проверяем, что сейчас 8:00 (ровно) и мы не отправляли сегодня
+        # Проверяем, что сейчас 8:00 (ровно)
         if user_now.hour == 8 and user_now.minute == 0:
             try:
                 user_id = user.telegram_id
@@ -53,14 +54,15 @@ async def send_daily_horoscopes(bot: Bot):
                 # Сохраняем в архив
                 await save_message_to_archive(user_id, 'horoscope', horoscope)
 
+                # Получаем локализованный шаблон и подставляем дату и гороскоп
+                template = await get_text(user_id, 'horoscope_result')
+                text = template.format(date=today, horoscope=horoscope)
+
                 # Отправляем
-                await bot.send_message(
-                    user_id,
-                    f"🔮 Ваш гороскоп на {today}\n\n{horoscope}"
-                )
+                await bot.send_message(user_id, text)
                 sent += 1
                 logger.info(f"✅ Отправлен гороскоп пользователю {user_id} (UTC+{tz_offset})")
-                await asyncio.sleep(0.5)  # небольшая задержка, чтобы не превысить лимиты
+                await asyncio.sleep(0.5)  # небольшая задержка
             except Exception as e:
                 errors += 1
                 logger.error(f"❌ Ошибка отправки пользователю {user.telegram_id}: {e}")
@@ -74,9 +76,8 @@ def setup_scheduler(bot: Bot):
     """
     Настройка планировщика – запуск каждый час в 0 минут.
     """
-    scheduler = AsyncIOScheduler(timezone="UTC")  # Используем UTC для триггера
+    scheduler = AsyncIOScheduler(timezone="UTC")
 
-    # Запускаем каждый час в 0 минут
     scheduler.add_job(
         send_daily_horoscopes,
         CronTrigger(minute=0),  # каждый час
@@ -88,7 +89,6 @@ def setup_scheduler(bot: Bot):
     scheduler.start()
     logger.info("⏰ Планировщик запущен! Проверка будет выполняться каждый час.")
 
-    # Логируем время следующего запуска
     job = scheduler.get_job("daily_horoscope")
     if job and job.next_run_time:
         logger.info(f"Следующий запуск (UTC): {job.next_run_time}")
