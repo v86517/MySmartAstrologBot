@@ -2190,6 +2190,7 @@ async def send_expert_request(callback: CallbackQuery):
     )
 
     expert_chat_id = os.getenv('EXPERT_CHAT_ID')
+    logger.info(f"🔍 EXPERT_CHAT_ID из .env: '{expert_chat_id}'")
     if expert_chat_id:
         try:
             expert_message = (
@@ -2201,8 +2202,11 @@ async def send_expert_request(callback: CallbackQuery):
                 f"📅 Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
             )
             await bot.send_message(expert_chat_id, expert_message)
+            logger.info(f"✅ Сообщение эксперту отправлено на {expert_chat_id}")
         except Exception as e:
-            logger.error(f"Ошибка отправки эксперту: {e}")
+            logger.error(f"❌ Ошибка отправки эксперту: {e}")
+    else:
+        logger.warning("⚠️ EXPERT_CHAT_ID не задан в .env, сообщение эксперту не отправлено")
 
 
 @dp.callback_query(F.data == "subscribe_pay")
