@@ -2653,49 +2653,56 @@ async def set_language(callback: CallbackQuery):
 async def send_long_message(message: Message, text: str, max_length: int = 4096):
     """
     Отправляет длинное сообщение, разбивая его на части, каждая не длиннее max_length.
+    Логирует процесс для отладки.
     """
     if len(text) <= max_length:
         await message.answer(text)
+        logger.info(f"📨 Сообщение отправлено целиком (длина {len(text)} символов)")
         return
 
     parts = []
-    current_part = ""
+    # Разбиваем текст на части по max_length символов с учётом переносов строк и пробелов
+    remaining = text
+    while remaining:
+        if len(remaining) <= max_length:
+            parts.append(remaining)
+            break
+        # Ищем место разрыва: последний перенос строки в пределах max_length
+        split_pos = remaining.rfind('\n', 0, max_length)
+        if split_pos == -1:
+            # Если нет переноса строки, разбиваем по пробелу (чтобы не резать слова)
+            split_pos = remaining.rfind(' ', 0, max_length)
+            if split_pos == -1:
+                # Если нет пробела, режем просто по max_length
+                split_pos = max_length
+        part = remaining[:split_pos]
+        parts.append(part)
+        # Удаляем часть и лишние переносы строк в начале следующей части
+        remaining = remaining[split_pos:].lstrip('\n')
 
-    for line in text.split('\n'):
-        # Если строка сама по себе длиннее max_length, разбиваем её по символам
-        if len(line) > max_length:
-            # Сначала сохраняем текущую часть, если есть
-            if current_part:
-                parts.append(current_part)
-                current_part = ""
-            # Разбиваем длинную строку на куски
-            for i in range(0, len(line), max_length):
-                chunk = line[i:i+max_length]
-                parts.append(chunk)
-            continue
+    total = len(parts)
+    logger.info(f"📨 Отправка длинного сообщения: {len(text)} символов, разбито на {total} частей")
 
-        # Если добавление строки превысит лимит, сохраняем текущую часть и начинаем новую
-        if len(current_part) + len(line) + 1 > max_length:
-            parts.append(current_part)
-            current_part = line
-        else:
-            if current_part:
-                current_part += '\n' + line
-            else:
-                current_part = line
-
-    if current_part:
-        parts.append(current_part)
-
-    # Отправляем части
     for i, part in enumerate(parts, 1):
-        if i == 1:
-            await message.answer(part)
-        else:
-            user_id = message.from_user.id
-            template = await get_text(user_id, 'continuation')
-            continuation_text = template.format(i=i, total=len(parts), text=part)
-            await message.answer(continuation_text)
+        try:
+            if i == 1:
+                await message.answer(part)
+                logger.info(f"   ✅ Часть 1/{total} отправлена, длина {len(part)}")
+            else:
+                user_id = message.from_user.id
+                template = await get_text(user_id, 'continuation')
+                continuation_text = template.format(i=i, total=total, text=part)
+                await message.answer(continuation_text)
+                logger.info(f"   ✅ Часть {i}/{total} отправлена, длина {len(part)}")
+            # Небольшая задержка, чтобы избежать ограничений Telegram
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            logger.error(f"❌ Ошибка при отправке части {i}/{total}: {e}")
+            # Пробуем отправить простой текст без форматирования, если шаблон не работает
+            try:
+                await message.answer(f"📄 Продолжение ({i}/{total}):\n\n{part}")
+            except:
+                logger.error(f"❌ Критическая ошибка отправки части {i}/{total}, часть пропущена")
 
 
 # ==================== ОБЩИЙ ОБРАБОТЧИК ТЕКСТОВЫХ КОМАНД (только если нет активного состояния) ====================
