@@ -244,6 +244,7 @@ def get_archive_keyboard(messages, lang: str = 'ru'):
     """Клавиатура для архива с кнопками на каждое сообщение"""
     builder = InlineKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
+
     type_emoji = {
         'horoscope': '🔮',
         'compatibility': '💕',
@@ -252,18 +253,20 @@ def get_archive_keyboard(messages, lang: str = 'ru'):
         'astrology': '🌙',
     }
     type_display = {
-        'horoscope': 'Гороскоп',
-        'compatibility': 'Совместимость',
-        'natal_chart': 'Натальная карта',
-        'numerology': 'Нумерология',
-        'astrology': 'Астрология',
+        'horoscope': texts['type_horoscope'],
+        'compatibility': texts['type_compatibility'],
+        'natal_chart': texts['type_horoscope'],  # если используется
+        'numerology': texts['type_numerology'],
+        'astrology': texts['type_astrology'],
     }
+
     for msg in messages:
         emoji = type_emoji.get(msg.message_type, '📝')
         type_name = type_display.get(msg.message_type, msg.message_type)
         date_str = msg.date.strftime("%d.%m")
         button_text = f"{emoji} {type_name} ({date_str})"
         builder.button(text=button_text, callback_data=f"archive_{msg.id}")
+
     builder.button(text=texts['kb_refresh'], callback_data="archive_refresh")
     builder.button(text=texts['kb_main_menu'], callback_data="main_menu")
     builder.adjust(1)

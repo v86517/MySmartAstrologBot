@@ -1441,10 +1441,10 @@ async def show_archive(message: Message):
         return
 
     type_display_map = {
-        'horoscope': 'Гороскоп',
-        'compatibility': 'Совместимость',
-        'numerology': 'Нумерология',
-        'astrology': 'Астрология',
+        'horoscope': await get_text(user_id, 'type_horoscope'),
+        'compatibility': await get_text(user_id, 'type_compatibility'),
+        'numerology': await get_text(user_id, 'type_numerology'),
+        'astrology': await get_text(user_id, 'type_astrology'),
     }
 
     type_emoji_map = {
@@ -2351,11 +2351,11 @@ async def show_archive_message(callback: CallbackQuery):
         }
 
         type_display = {
-            'horoscope': 'Гороскоп',
-            'compatibility': 'Совместимость',
-            'natal_chart': 'Натальная карта',
-            'numerology': 'Нумерология',
-            'astrology': 'Астрология',
+            'horoscope': await get_text(user_id, 'type_horoscope'),
+            'compatibility': await get_text(user_id, 'type_compatibility'),
+            'natal_chart': await get_text(user_id, 'type_horoscope'),  # если используется
+            'numerology': await get_text(user_id, 'type_numerology'),
+            'astrology': await get_text(user_id, 'type_astrology'),
         }
 
         emoji = type_emoji.get(msg.message_type, '📝')

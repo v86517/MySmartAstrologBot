@@ -115,7 +115,7 @@ TEXTS = {
         'astrology_status_planets': "✨ Изучаю положение планет...",
         'astrology_status_houses': "🌙 Анализирую дома и аспекты...",
         'astrology_status_final': "⭐ Формирую полный разбор...",
-        'astrology_result': "🌙 Ваш астрологический разбор\n\n{parameters}\n\n💬 Интерпретация нейросети:\n\n{interpretation}",
+        'astrology_result': "🌙 Ваш астрологический разбор\n\n{parameters}\n\n{interpretation}",
         'astrology_name_prompt': "✅ Имя: {name}\n\n📅 Введите дату рождения в формате ДД.ММ.ГГГГ",
         'astrology_birth_date': "✅ Знак зодиака: {emoji} {zodiac}\n\n🕒 Введите время рождения (ЧЧ:ММ)\nНапример: 15:30\nЕсли не знаете - напишите 00:00",
         'astrology_birth_time': "📍 Введите место рождения:\nГород, Страна",
@@ -340,6 +340,10 @@ TEXTS = {
             'Водолей': 'Водолей',
             'Рыбы': 'Рыбы',
         },
+        'type_horoscope': 'Гороскоп',
+        'type_compatibility': 'Совместимость',
+        'type_numerology': 'Нумерология',
+        'type_astrology': 'Астрология',
     },
     'en': {
         # ========== Common ==========
@@ -455,7 +459,7 @@ TEXTS = {
         'astrology_status_planets': "✨ Studying the position of the planets...",
         'astrology_status_houses': "🌙 Analyzing houses and aspects...",
         'astrology_status_final': "⭐ Compiling full analysis...",
-        'astrology_result': "🌙 Your astrological analysis\n\n{parameters}\n\n💬 Neural network interpretation:\n\n{interpretation}",
+        'astrology_result': "🌙 Your astrological analysis\n\n{parameters}\n\n{interpretation}",
         'astrology_name_prompt': "✅ Name: {name}\n\n📅 Enter your date of birth in DD.MM.YYYY format",
         'astrology_birth_date': "✅ Zodiac sign: {emoji} {zodiac}\n\n🕒 Enter the time of birth (HH:MM)\nExample: 15:30\nIf you don't know, type 00:00",
         'astrology_birth_time': "📍 Enter the place of birth:\nCity, Country",
@@ -581,5 +585,9 @@ TEXTS = {
             'Водолей': 'Aquarius',
             'Рыбы': 'Pisces',
         },
+        'type_horoscope': 'Horoscope',
+        'type_compatibility': 'Compatibility',
+        'type_numerology': 'Numerology',
+        'type_astrology': 'Astrology',
     }
 }

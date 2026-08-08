@@ -164,22 +164,22 @@ class GeminiService:
         prompt_data = calculator.get_prompt_data()
         return self.generate_from_prompt(prompt_data, 'prompt_connect.txt', lang)
 
-    def generate_natal_chart(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
-        """
-        Генерация натальной карты (устаревший метод, оставлен для совместимости)
-        """
-        from bot.calculators import NatalCalculator
-
-        calculator = NatalCalculator(
-            birth_date=user_data.get('birth_date'),
-            name=user_data.get('name'),
-            birth_time=user_data.get('birth_time'),
-            birth_place=user_data.get('birth_place'),
-            gender=user_data.get('gender')
-        )
-
-        prompt_data = calculator.get_prompt_data()
-        return self.generate_from_prompt(prompt_data, 'prompt_natal_chart.txt', lang)
+#    def generate_natal_chart(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
+#        """
+#        Генерация натальной карты (устаревший метод, оставлен для совместимости)
+#        """
+#        from bot.calculators import NatalCalculator
+#
+#        calculator = NatalCalculator(
+#            birth_date=user_data.get('birth_date'),
+#            name=user_data.get('name'),
+#            birth_time=user_data.get('birth_time'),
+#            birth_place=user_data.get('birth_place'),
+#            gender=user_data.get('gender')
+#        )
+#
+#        prompt_data = calculator.get_prompt_data()
+#        return self.generate_from_prompt(prompt_data, 'prompt_natal_chart.txt', lang)
 
     def generate_numerology(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
         """
