@@ -1148,7 +1148,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         if gemini_service:
             calculator = AstrologyCalculator(user_data_for_calc)
             parameters_text = calculator.get_display_parameters(lang)
-            prompt = calculator.build_prompt()
+            prompt = calculator.build_prompt(lang)
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
             template = await get_text(user_id, 'astrology_result')
@@ -1891,7 +1891,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             calculator = AstrologyCalculator(user_data_from_db)
             parameters_text = calculator.get_display_parameters(lang)
-            prompt = calculator.build_prompt()
+            prompt = calculator.build_prompt(lang)
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
             template = await get_text(user_id, 'astrology_result')
@@ -2013,7 +2013,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             calculator = AstrologyCalculator(user_data)
             parameters_text = calculator.get_display_parameters(lang)
-            prompt = calculator.build_prompt()
+            prompt = calculator.build_prompt(lang)
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
             template = await get_text(user_id, 'astrology_result')

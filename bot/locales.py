@@ -344,6 +344,9 @@ TEXTS = {
         'type_compatibility': 'Совместимость',
         'type_numerology': 'Нумерология',
         'type_astrology': 'Астрология',
+
+        'astro_house_cusp': "Дом {number}: {sign} {degree:.2f}°",
+        'astro_cusps_header': "🏠 Куспиды домов:",
     },
     'en': {
         # ========== Common ==========
@@ -589,5 +592,8 @@ TEXTS = {
         'type_compatibility': 'Compatibility',
         'type_numerology': 'Numerology',
         'type_astrology': 'Astrology',
+
+        'astro_house_cusp': "House {number}: {sign} {degree:.2f}°",
+        'astro_cusps_header': "🏠 House cusps:",
     }
 }
