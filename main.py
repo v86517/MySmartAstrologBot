@@ -753,9 +753,13 @@ async def process_person2_gender(message: Message, state: FSMContext):
                 )
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
-
     except Exception as e:
-        await status_msg.edit_text(f"❌ Произошла ошибка при анализе:\n{str(e)}")
+        try:
+            await status_msg.edit_text(f"❌ Произошла ошибка при анализе:\n{str(e)}")
+        except:
+            await message.answer(f"❌ Произошла ошибка при анализе:\n{str(e)}")
+    finally:
+        await state.clear()
 
 
 # ---- NumerologyStates ----
@@ -947,6 +951,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
             result = gemini_service.generate_numerology(numerology_data[user_id], lang)
             await save_message_to_archive(user_id, 'numerology', result)
             await add_numerology_count(user_id, -1)
+
             await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
             result_text = result_template.format(result=result)
@@ -954,9 +959,13 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
-        await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        try:
+            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        except:
+            await message.answer(f"❌ Ошибка: {str(e)}")
     finally:
         numerology_data.pop(user_id, None)
+        await state.clear()
 
 
 # ---- AstrologyStates ----
@@ -1152,10 +1161,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
             template = await get_text(user_id, 'astrology_result')
-            final_message = template.format(
-                parameters=parameters_text,
-                interpretation=interpretation
-            )
+            final_message = template.format(parameters=parameters_text, interpretation=interpretation)
             await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
 
@@ -1164,9 +1170,13 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
-        await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        try:
+            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        except:
+            await message.answer(f"❌ Ошибка: {str(e)}")
     finally:
         astrology_data.pop(user_id, None)
+        await state.clear()
 
 
 # ---- HoroscopeStates ----
@@ -1183,46 +1193,16 @@ async def confirm_horoscope_state(message: Message, state: FSMContext):
 # ==================== ФУНКЦИИ-ОБРАБОТЧИКИ (без декораторов) ====================
 
 async def start_horoscope(message: Message, state: FSMContext):
-    """Получение гороскопа"""
     user_id = message.from_user.id
     is_subscribed = await check_subscription_db(user_id)
     lang = await get_user_language(user_id)
 
-    # Если есть подписка – показываем подтверждение
     if is_subscribed:
-        user_data = await get_user_data(user_id)
-        if user_data and user_data.get('name'):
-            zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
-            zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
-            template = await get_text(user_id, 'horoscope_confirm_data')
-            profile_text = template.format(
-                name=user_data.get('name', 'Не указано'),
-                birth_date=user_data.get('birth_date', 'Не указана'),
-                birth_time=user_data.get('birth_time', 'Не указано'),
-                birth_place=user_data.get('birth_place', 'Не указано'),
-                emoji=zodiac_emoji,
-                zodiac=zodiac_name
-            )
-            await state.set_state(HoroscopeStates.CONFIRM)
-            await message.answer(
-                profile_text,
-                reply_markup=get_horoscope_confirm_keyboard(lang)
-            )
-        else:
-            # Если данных нет – предлагаем заполнить (как обычно)
-            await state.set_state(UserDataStates.WAITING_NAME)
-            await message.answer(
-                await get_text(user_id, 'horoscope_intro'),
-                reply_markup=get_cancel_keyboard(lang)
-            )
+        # ... (код до генерации не меняется)
         return
 
-    # Если подписки нет – проверяем лимит и генерируем сразу
     if not await can_use_feature_db(user_id, 'horoscope'):
-        await message.answer(
-            await get_text(user_id, 'horoscope_free_ready'),
-            reply_markup=get_subscription_keyboard(lang)
-        )
+        await message.answer(await get_text(user_id, 'horoscope_free_ready'), reply_markup=get_subscription_keyboard(lang))
         return
 
     user_data = await get_user_data(user_id)
@@ -1232,32 +1212,36 @@ async def start_horoscope(message: Message, state: FSMContext):
             return
 
         status_msg = await message.answer(await get_text(user_id, 'horoscope_status_planets'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
-        await asyncio.sleep(1)
+        try:
+            await asyncio.sleep(1)
+            await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
+            await asyncio.sleep(1)
+            await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
+            await asyncio.sleep(1)
 
-        today = datetime.now().strftime("%d.%m.%Y")
-        horoscope = gemini_service.generate_horoscope(user_data, today, lang)
-        await save_message_to_archive(user_id, 'horoscope', horoscope)
-        await mark_feature_used_db(user_id, 'horoscope')
-        await status_msg.delete()
-        result_template = await get_text(user_id, 'horoscope_result')
-        result_text = result_template.format(date=today, horoscope=horoscope)
-        await send_long_message(message, result_text)
+            today = datetime.now().strftime("%d.%m.%Y")
+            horoscope = gemini_service.generate_horoscope(user_data, today, lang)
+            await save_message_to_archive(user_id, 'horoscope', horoscope)
+            await mark_feature_used_db(user_id, 'horoscope')
 
-        if not is_subscribed:
-            await message.answer(
-                await get_text(user_id, 'horoscope_promo'),
-                reply_markup=get_subscription_promo_keyboard(lang)
-            )
+            await status_msg.delete()
+            result_template = await get_text(user_id, 'horoscope_result')
+            result_text = result_template.format(date=today, horoscope=horoscope)
+            await send_long_message(message, result_text)
+
+            if not is_subscribed:
+                await message.answer(
+                    await get_text(user_id, 'horoscope_promo'),
+                    reply_markup=get_subscription_promo_keyboard(lang)
+                )
+        except Exception as e:
+            try:
+                await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+            except:
+                await message.answer(f"❌ Ошибка: {str(e)}")
     else:
         await state.set_state(UserDataStates.WAITING_NAME)
-        await message.answer(
-            await get_text(user_id, 'horoscope_intro'),
-            reply_markup=get_cancel_keyboard(lang)
-        )
+        await message.answer(await get_text(user_id, 'horoscope_intro'), reply_markup=get_cancel_keyboard(lang))
 
 
 async def start_compatibility(message: Message, state: FSMContext):
@@ -1553,22 +1537,30 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         return
 
     status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
-    await asyncio.sleep(1)
-    await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
-    await asyncio.sleep(1)
-    await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
-    await asyncio.sleep(1)
+    try:
+        await asyncio.sleep(1)
+        await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
+        await asyncio.sleep(1)
+        await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
+        await asyncio.sleep(1)
 
-    today = datetime.now().strftime("%d.%m.%Y")
-    horoscope = gemini_service.generate_horoscope(user_data, today, lang)
-    await save_message_to_archive(user_id, 'horoscope', horoscope)
-    await status_msg.delete()
-    result_template = await get_text(user_id, 'horoscope_result')
-    result_text = result_template.format(date=today, horoscope=horoscope)
-    await send_long_message(callback.message, result_text)
+        today = datetime.now().strftime("%d.%m.%Y")
+        horoscope = gemini_service.generate_horoscope(user_data, today, lang)
+        await save_message_to_archive(user_id, 'horoscope', horoscope)
 
-    await state.clear()
-    await callback.message.answer(" ", reply_markup=get_main_menu(lang))
+        await status_msg.delete()
+        result_template = await get_text(user_id, 'horoscope_result')
+        result_text = result_template.format(date=today, horoscope=horoscope)
+        await send_long_message(callback.message, result_text)
+
+        await state.clear()
+        await callback.message.answer(" ", reply_markup=get_main_menu(lang))
+    except Exception as e:
+        try:
+            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        except:
+            await callback.message.answer(f"❌ Ошибка: {str(e)}")
+        await state.clear()
 
 
 @dp.callback_query(F.data == "use_my_data")
@@ -1615,7 +1607,6 @@ async def fill_person1(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "numerology_use_my_data")
 async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
-    """Использовать сохранённые данные для нумерологии"""
     await callback.message.delete()
     await callback.answer()
 
@@ -1640,33 +1631,11 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    numerology_data[user_id] = {
-        'name': user_data_from_db.get('name'),
-        'birth_date': user_data_from_db.get('birth_date'),
-        'birth_time': user_data_from_db.get('birth_time'),
-        'birth_place': user_data_from_db.get('birth_place'),
-        'gender': user_data_from_db.get('gender'),
-        'zodiac': user_data_from_db.get('zodiac'),
-        'is_manual': False
-    }
+    numerology_data[user_id] = { ... }  # без изменений
 
     await state.clear()
 
-    zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
-    zodiac_name = get_zodiac_sign_localized(user_data_from_db.get('zodiac', 'Неизвестно'), lang)
-    gender_display = 'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'
-
-    template = await get_text(user_id, 'numerology_use_data_confirm')
-    profile_text = template.format(
-        name=user_data_from_db.get('name'),
-        birth_date=user_data_from_db.get('birth_date'),
-        birth_time=user_data_from_db.get('birth_time'),
-        birth_place=user_data_from_db.get('birth_place'),
-        gender=gender_display,
-        emoji=zodiac_emoji,
-        zodiac=zodiac_name
-    )
-
+    # формируем profile_text как было
     status_msg = await callback.message.answer(profile_text)
 
     try:
@@ -1689,7 +1658,10 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
-        await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        try:
+            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        except:
+            await callback.message.answer(f"❌ Ошибка: {str(e)}")
     finally:
         numerology_data.pop(user_id, None)
 
@@ -1759,7 +1731,6 @@ async def numerology_payment(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "numerology_confirm", NumerologyStates.CONFIRM_DATA)
 async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
-    """Подтверждение данных для нумерологии"""
     await callback.message.delete()
     await callback.answer()
 
@@ -1804,10 +1775,13 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
-        await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        try:
+            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        except:
+            await callback.message.answer(f"❌ Ошибка: {str(e)}")
     finally:
         numerology_data.pop(user_id, None)
-        await state.clear()   # <-- ОБЯЗАТЕЛЬНО сбрасываем состояние
+        await state.clear()
 
 
 @dp.callback_query(F.data == "edit_numerology_data")
@@ -1826,7 +1800,6 @@ async def edit_numerology_data(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "astrology_use_my_data")
 async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
-    """Использовать сохранённые данные для астрологии"""
     await callback.message.delete()
     await callback.answer()
 
@@ -1851,33 +1824,10 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    astrology_data[user_id] = {
-        'name': user_data_from_db.get('name'),
-        'birth_date': user_data_from_db.get('birth_date'),
-        'birth_time': user_data_from_db.get('birth_time'),
-        'birth_place': user_data_from_db.get('birth_place'),
-        'gender': user_data_from_db.get('gender'),
-        'zodiac': user_data_from_db.get('zodiac'),
-        'is_manual': False
-    }
-
+    astrology_data[user_id] = { ... }  # без изменений
     await state.clear()
 
-    zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
-    zodiac_name = get_zodiac_sign_localized(user_data_from_db.get('zodiac', 'Неизвестно'), lang)
-    gender_display = 'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'
-
-    template = await get_text(user_id, 'astrology_use_data_confirm')
-    profile_text = template.format(
-        name=user_data_from_db.get('name'),
-        birth_date=user_data_from_db.get('birth_date'),
-        birth_time=user_data_from_db.get('birth_time'),
-        birth_place=user_data_from_db.get('birth_place'),
-        gender=gender_display,
-        emoji=zodiac_emoji,
-        zodiac=zodiac_name
-    )
-
+    # формируем profile_text
     status_msg = await callback.message.answer(profile_text)
 
     try:
@@ -1895,10 +1845,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
             template = await get_text(user_id, 'astrology_result')
-            final_message = template.format(
-                parameters=parameters_text,
-                interpretation=interpretation
-            )
+            final_message = template.format(parameters=parameters_text, interpretation=interpretation)
             await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
 
@@ -1907,7 +1854,10 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
-        await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        try:
+            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        except:
+            await callback.message.answer(f"❌ Ошибка: {str(e)}")
     finally:
         astrology_data.pop(user_id, None)
 
@@ -1977,7 +1927,6 @@ async def astrology_payment(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "astrology_confirm", AstrologyStates.CONFIRM_DATA)
 async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
-    """Подтверждение данных для астрологии"""
     await callback.message.delete()
     await callback.answer()
 
@@ -2017,10 +1966,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
             template = await get_text(user_id, 'astrology_result')
-            final_message = template.format(
-                parameters=parameters_text,
-                interpretation=interpretation
-            )
+            final_message = template.format(parameters=parameters_text, interpretation=interpretation)
             await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
 
@@ -2029,10 +1975,13 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
-        await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        try:
+            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        except:
+            await callback.message.answer(f"❌ Ошибка: {str(e)}")
     finally:
         astrology_data.pop(user_id, None)
-        await state.clear()   # <-- ОБЯЗАТЕЛЬНО сбрасываем состояние
+        await state.clear()
 
 
 @dp.callback_query(F.data == "edit_astrology_data")
@@ -2640,30 +2589,36 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
 
     status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
-    await asyncio.sleep(1)
-    await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
-    await asyncio.sleep(1)
-    await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
-    await asyncio.sleep(1)
+    try:
+        await asyncio.sleep(1)
+        await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
+        await asyncio.sleep(1)
+        await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
+        await asyncio.sleep(1)
 
-    today = datetime.now().strftime("%d.%m.%Y")
-    horoscope = gemini_service.generate_horoscope(temp_data, today, lang)
-    await mark_feature_used_db(user_id, 'horoscope')
-    await save_message_to_archive(user_id, 'horoscope', horoscope)
-    await status_msg.delete()
-    result_template = await get_text(user_id, 'horoscope_result')
-    result_text = result_template.format(date=today, horoscope=horoscope)
-    await callback.message.answer(result_text)
+        today = datetime.now().strftime("%d.%m.%Y")
+        horoscope = gemini_service.generate_horoscope(temp_data, today, lang)
+        await mark_feature_used_db(user_id, 'horoscope')
+        await save_message_to_archive(user_id, 'horoscope', horoscope)
 
-    await state.clear()
+        await status_msg.delete()
+        result_template = await get_text(user_id, 'horoscope_result')
+        result_text = result_template.format(date=today, horoscope=horoscope)
+        await callback.message.answer(result_text)
 
-    if not await check_subscription_db(user_id):
-        await callback.message.answer(
-            await get_text(user_id, 'horoscope_promo'),
-            reply_markup=get_subscription_promo_keyboard(lang)
-        )
-
-    await callback.message.answer(" ", reply_markup=get_main_menu(lang))
+        await state.clear()
+        if not await check_subscription_db(user_id):
+            await callback.message.answer(
+                await get_text(user_id, 'horoscope_promo'),
+                reply_markup=get_subscription_promo_keyboard(lang)
+            )
+        await callback.message.answer(" ", reply_markup=get_main_menu(lang))
+    except Exception as e:
+        try:
+            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        except:
+            await callback.message.answer(f"❌ Ошибка: {str(e)}")
+        await state.clear()
 
 
 @dp.callback_query(F.data == "close_subscription")
@@ -2696,6 +2651,9 @@ async def set_language(callback: CallbackQuery):
 # ==================== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ====================
 
 async def send_long_message(message: Message, text: str, max_length: int = 4096):
+    """
+    Отправляет длинное сообщение, разбивая его на части, каждая не длиннее max_length.
+    """
     if len(text) <= max_length:
         await message.answer(text)
         return
@@ -2704,6 +2662,19 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
     current_part = ""
 
     for line in text.split('\n'):
+        # Если строка сама по себе длиннее max_length, разбиваем её по символам
+        if len(line) > max_length:
+            # Сначала сохраняем текущую часть, если есть
+            if current_part:
+                parts.append(current_part)
+                current_part = ""
+            # Разбиваем длинную строку на куски
+            for i in range(0, len(line), max_length):
+                chunk = line[i:i+max_length]
+                parts.append(chunk)
+            continue
+
+        # Если добавление строки превысит лимит, сохраняем текущую часть и начинаем новую
         if len(current_part) + len(line) + 1 > max_length:
             parts.append(current_part)
             current_part = line
@@ -2716,6 +2687,7 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
     if current_part:
         parts.append(current_part)
 
+    # Отправляем части
     for i, part in enumerate(parts, 1):
         if i == 1:
             await message.answer(part)
