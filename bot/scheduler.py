@@ -34,7 +34,7 @@ async def send_daily_horoscopes(bot: Bot):
         # Локальное время пользователя
         user_now = now_utc + timedelta(hours=tz_offset)
         # Проверяем, что сейчас 8:00 (ровно)
-        if user_now.hour == 8 and user_now.minute == 0:
+        if user_now.hour == 23 and user_now.minute == 0:
             try:
                 user_id = user.telegram_id
                 user_data = await get_user_data(user_id)
