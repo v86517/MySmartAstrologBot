@@ -603,3 +603,149 @@ class AstrologyCalculator:
 
         lines.append("━━━━━━━━━━━━━━━━━━━━━")
         return "\n".join(lines)
+
+    def get_basic_parameters(self, lang: str = 'ru') -> str:
+        """
+        Возвращает только базовые параметры (имя, пол, время, место, координаты, Солнце, Луна, Асцендент).
+        Используется для всех пользователей.
+        """
+        chart = self._calculate_chart()
+        from bot.locales import TEXTS
+        texts = TEXTS.get(lang, TEXTS['ru'])
+
+        sign_abbr = texts.get('astro_sign_abbr', {})
+
+        def translate_sign(sign):
+            return sign_abbr.get(sign, sign)
+
+        # Определяем Солнце, Луну, Асцендент
+        sun_sign = None
+        moon_sign = None
+        ascendant = None
+        for planet in chart['planets']:
+            if planet['name'] == 'Sun':
+                sun_sign = translate_sign(planet['sign'])
+            elif planet['name'] == 'Moon':
+                moon_sign = translate_sign(planet['sign'])
+        if chart['houses']:
+            ascendant = translate_sign(chart['houses'][0]['sign'])
+
+        # Локализованные заголовки
+        name_label = texts.get('astro_name', '👤 Name')
+        gender_label = texts.get('astro_gender', '⚥ Gender')
+        local_time_label = texts.get('astro_local_time', '📅 Local time')
+        timezone_label = texts.get('astro_timezone', '🕒 Timezone')
+        utc_label = texts.get('astro_utc_time', '🕒 UTC time')
+        place_label = texts.get('astro_place', '📍 Place')
+        coords_label = texts.get('astro_coordinates', '🌐 Coordinates')
+        sun_label = texts.get('astro_sun', '☀️ Sun')
+        moon_label = texts.get('astro_moon', '🌙 Moon')
+        asc_label = texts.get('astro_ascendant', '⬆️ Ascendant')
+
+        datetime_used = chart['datetime']
+        timezone_used = chart['timezone']
+        lat = chart['location']['lat']
+        lng = chart['location']['lng']
+        utc_display = chart.get('utc_datetime', 'не известно')
+        city, country = self._parse_birth_place()
+        place_display = f"{city}, {country}" if city else "не указано (использованы координаты по умолчанию)"
+        gender_display = texts.get('astro_gender_male', 'Male') if self.gender == 'M' else texts.get('astro_gender_female', 'Female')
+
+        lines = [
+            "━━━━━━━━━━━━━━━━━━━━━",
+            f"{name_label}: {self.name}",
+            f"{gender_label}: {gender_display}",
+            f"{local_time_label}: {datetime_used}",
+            f"{timezone_label}: {timezone_used}",
+            f"{utc_label}: {utc_display}",
+            f"{place_label}: {place_display}",
+            f"{coords_label}: {lat:.4f}, {lng:.4f}",
+            "━━━━━━━━━━━━━━━━━━━━━",
+            f"{sun_label}: {sun_sign or 'не известно'}",
+            f"{moon_label}: {moon_sign or 'не известно'}",
+            f"{asc_label}: {ascendant or 'не известно'}",
+        ]
+        return "\n".join(lines)
+
+    def get_extra_parameters(self, lang: str = 'ru') -> str:
+        """
+        Возвращает дополнительные данные: планеты, куспиды, аспекты.
+        Используется только для разрешённых пользователей.
+        """
+        chart = self._calculate_chart()
+        from bot.locales import TEXTS
+        texts = TEXTS.get(lang, TEXTS['ru'])
+
+        planet_names = texts.get('astro_planet_names', {})
+        sign_abbr = texts.get('astro_sign_abbr', {})
+        house_names = texts.get('astro_house_names', {})
+        aspect_names = texts.get('astro_aspect_names', {})
+
+        def translate_planet(name):
+            return planet_names.get(name, name)
+
+        def translate_sign(sign):
+            return sign_abbr.get(sign, sign)
+
+        def translate_house(house):
+            return house_names.get(house, house)
+
+        def translate_aspect(aspect):
+            return aspect_names.get(aspect, aspect)
+
+        # Планеты
+        planets_lines = []
+        for p in chart['planets']:
+            planet_name = translate_planet(p['name'])
+            sign = translate_sign(p['sign'])
+            house = translate_house(p['house'])
+            degree = p['degree']
+            fmt = texts.get('astro_planet_format', '  • {planet} in {sign} ({degree:.2f}°) in {house} house')
+            planets_lines.append(fmt.format(planet=planet_name, sign=sign, degree=degree, house=house))
+        planets_str = "\n".join(planets_lines)
+
+        # Куспиды домов
+        cusp_fmt = texts.get('astro_house_cusp', "House {number}: {sign} {degree:.2f}°")
+        cusps_lines = []
+        for h in chart['houses']:
+            sign = translate_sign(h['sign'])
+            degree = h['degree']
+            cusps_lines.append(cusp_fmt.format(number=h['number'], sign=sign, degree=degree))
+        cusps_str = "\n".join(cusps_lines)
+
+        # Аспекты (фильтруем мажорные)
+        filtered_aspects = []
+        for a in chart['aspects']:
+            aspect_name = a['aspect'].lower()
+            if aspect_name in self.MAJOR_ASPECTS and a['orb'] <= self.MAX_ORB:
+                filtered_aspects.append(a)
+        aspects_lines = []
+        for a in filtered_aspects:
+            p1 = translate_planet(a['p1'])
+            p2 = translate_planet(a['p2'])
+            aspect = translate_aspect(a['aspect'])
+            orb = a['orb']
+            fmt = texts.get('astro_aspect_format', '  • {p1} {aspect} {p2} (orb: {orb:.2f}°)')
+            aspects_lines.append(fmt.format(p1=p1, p2=p2, aspect=aspect, orb=orb))
+        aspects_str = "\n".join(aspects_lines)
+
+        # Собираем
+        lines = []
+        planets_header = texts.get('astro_planets_header', '🪐 Planets in signs and houses:')
+        cusps_header = texts.get('astro_cusps_header', '🏠 House cusps:')
+        aspects_header = texts.get('astro_aspects_header', '🔮 Major aspects (orb ≤ 5°):')
+
+        if planets_str:
+            lines.append("")
+            lines.append(planets_header)
+            lines.append(planets_str)
+        if cusps_str:
+            lines.append("")
+            lines.append(cusps_header)
+            lines.append(cusps_str)
+        if aspects_str:
+            lines.append("")
+            lines.append(aspects_header)
+            lines.append(aspects_str)
+
+        return "\n".join(lines)

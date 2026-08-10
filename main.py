@@ -1156,7 +1156,18 @@ async def process_astrology_gender(message: Message, state: FSMContext):
 
         if gemini_service:
             calculator = AstrologyCalculator(user_data_for_calc)
-            parameters_text = calculator.get_display_parameters(lang)
+
+            # Базовые параметры для всех пользователей
+            basic = calculator.get_basic_parameters(lang)
+
+            # Дополнительные данные (планеты, куспиды, аспекты) — только для разрешённых пользователей
+            allowed_ids = [5484157606, 8790509202]
+            if user_id in allowed_ids:
+                extra = calculator.get_extra_parameters(lang)
+                parameters_text = basic + "\n" + extra
+            else:
+                parameters_text = basic
+
             prompt = calculator.build_prompt(lang)
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
@@ -1840,7 +1851,18 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
 
         if gemini_service:
             calculator = AstrologyCalculator(user_data_from_db)
-            parameters_text = calculator.get_display_parameters(lang)
+
+            # Базовые параметры для всех пользователей
+            basic = calculator.get_basic_parameters(lang)
+
+            # Дополнительные данные (планеты, куспиды, аспекты) — только для разрешённых пользователей
+            allowed_ids = [5484157606, 8790509202]
+            if user_id in allowed_ids:
+                extra = calculator.get_extra_parameters(lang)
+                parameters_text = basic + "\n" + extra
+            else:
+                parameters_text = basic
+
             prompt = calculator.build_prompt(lang)
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
@@ -1961,7 +1983,18 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
 
         if gemini_service:
             calculator = AstrologyCalculator(user_data)
-            parameters_text = calculator.get_display_parameters(lang)
+
+            # Базовые параметры для всех пользователей
+            basic = calculator.get_basic_parameters(lang)
+
+            # Дополнительные данные (планеты, куспиды, аспекты) — только для разрешённых пользователей
+            allowed_ids = [5484157606, 8790509202]
+            if user_id in allowed_ids:
+                extra = calculator.get_extra_parameters(lang)
+                parameters_text = basic + "\n" + extra
+            else:
+                parameters_text = basic
+
             prompt = calculator.build_prompt(lang)
             interpretation = gemini_service.send_raw_prompt(prompt, lang)
 
