@@ -44,11 +44,8 @@ class TransitHoroscopeCalculator(BaseCalculator):
     def _get_natal_subject(self) -> AstrologicalSubject:
         """Создаёт натальный субъект"""
         if self.natal_subject is None:
-            # Получаем координаты места рождения через AstrologyCalculator
-            coords = self.natal_calc._get_coordinates(
-                *self.natal_calc._parse_birth_place()
-            )
-            tz_str = self.natal_calc._get_timezone(coords['lat'], coords['lng'])
+            # Получаем координаты и часовой пояс через единый метод
+            lat, lng, tz_str = self.natal_calc._get_coordinates_and_timezone()
             year, month, day, hour, minute = self.natal_calc._parse_birth_datetime()
 
             self.natal_subject = AstrologicalSubject(
@@ -58,8 +55,8 @@ class TransitHoroscopeCalculator(BaseCalculator):
                 day=day,
                 hour=hour,
                 minute=minute,
-                lat=coords['lat'],
-                lng=coords['lng'],
+                lat=lat,
+                lng=lng,
                 tz_str=tz_str,
             )
         return self.natal_subject
@@ -85,7 +82,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
                 )
             else:
                 # Fallback: создаём обычный AstrologicalSubject для текущего времени
-                # и будем использовать его как транзитный
                 self.transit_subject = AstrologicalSubject(
                     name="Transit",
                     year=now.year,
@@ -238,7 +234,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
         """Извлекает из натального субъекта планеты, дома и аспекты (натальные)"""
         subject = self._get_natal_subject()
 
-        # Используем те же подходы, что и в AstrologyCalculator
         # Планеты
         planets = []
         if hasattr(subject, 'planets') and subject.planets:
@@ -249,11 +244,9 @@ class TransitHoroscopeCalculator(BaseCalculator):
                     "degree": p.position,
                     "house": p.house,
                 })
-        # Если нет атрибута planets, пробуем через модель
         elif hasattr(subject, 'model'):
             model = subject.model() if callable(subject.model) else subject.model
             data = model.dict() if hasattr(model, 'dict') else model.__dict__
-            # Извлекаем планеты из отдельных ключей (как раньше)
             planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
                            'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith',
                            'ceres', 'pallas', 'juno', 'vesta', 'eris', 'sedna', 'haumea', 'makemake',
@@ -281,7 +274,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
             for h in subject.houses:
                 houses.append({"number": h.number, "sign": h.sign, "degree": h.position})
         else:
-            # Пробуем через модель
             model = subject.model() if callable(subject.model) else subject.model
             data = model.dict() if hasattr(model, 'dict') else model.__dict__
             for i, key in enumerate(house_keys, 1):
@@ -348,10 +340,8 @@ class TransitHoroscopeCalculator(BaseCalculator):
     def _get_transit_aspects_manual(self, natal_planets: list, transit_planets: list) -> list:
         """
         Ручной расчёт аспектов между натальными и транзитными планетами.
-        Используется, если библиотечные методы не работают.
         """
         aspects = []
-        # Список мажорных аспектов с допустимыми орбисами (в градусах)
         aspect_types = {
             'conjunction': 8,
             'opposition': 8,
