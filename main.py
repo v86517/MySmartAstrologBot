@@ -3133,9 +3133,8 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
     """
     Отправляет длинное сообщение, разбивая его на части, каждая не длиннее max_length.
     """
-    # Защита от пустого сообщения
     if not text or not text.strip():
-        logger.warning("⚠️ Попытка отправить пустое сообщение пропущена")
+        await message.answer("⚠️ Сообщение пустое. Попробуйте позже.")
         return
 
     if len(text) <= max_length:
@@ -3149,22 +3148,30 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
         if len(remaining) <= max_length:
             parts.append(remaining)
             break
+        # Ищем место разрыва: последний перенос строки в пределах max_length
         split_pos = remaining.rfind('\n', 0, max_length)
         if split_pos == -1:
+            # Если нет переноса строки, разбиваем по пробелу
             split_pos = remaining.rfind(' ', 0, max_length)
             if split_pos == -1:
+                # Если нет пробела, режем просто по max_length
                 split_pos = max_length
         part = remaining[:split_pos]
-        # Пропускаем пустые части (они не должны возникать, но на всякий случай)
+        # Если часть не пустая – добавляем
         if part.strip():
             parts.append(part)
+        # Удаляем часть и лишние переносы строк в начале следующей части
         remaining = remaining[split_pos:].lstrip('\n')
+        # Если оставшаяся часть состоит только из пробелов, выходим
+        if remaining and not remaining.strip():
+            break
 
-    total = len(parts)
-    if total == 0:
-        logger.warning("⚠️ Не удалось разбить сообщение на части, сообщение не отправлено")
+    # Если в результате не получилось частей, отправляем заглушку
+    if not parts:
+        await message.answer("⚠️ Не удалось разбить сообщение. Попробуйте позже.")
         return
 
+    total = len(parts)
     logger.info(f"📨 Отправка длинного сообщения: {len(text)} символов, разбито на {total} частей")
 
     for i, part in enumerate(parts, 1):
