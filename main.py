@@ -2916,11 +2916,10 @@ async def process_zodiac_choice(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "main_menu")
 async def back_to_main_menu(callback: CallbackQuery):
     await callback.answer()
-    await callback.message.delete()
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    main_menu_text = await get_text(user_id, 'main_menu_text')
-    await callback.message.answer(main_menu_text, reply_markup=get_main_menu(lang))
+    # Отправляем Reply-клавиатуру отдельным сообщением, не удаляя предыдущее
+    await callback.message.answer("🏠", reply_markup=get_main_menu(lang))
 
 
 @dp.callback_query(F.data == "cancel")
