@@ -347,6 +347,8 @@ TEXTS = {
 
         'astro_house_cusp': "Дом {number}: {sign} {degree:.2f}°",
         'astro_cusps_header': "🏠 Куспиды домов:",
+
+        'main_menu': "🏠 Главное меню",
     },
     'en': {
         # ========== Common ==========
@@ -595,5 +597,7 @@ TEXTS = {
 
         'astro_house_cusp': "House {number}: {sign} {degree:.2f}°",
         'astro_cusps_header': "🏠 House cusps:",
+
+        'main_menu': "🏠 Main menu",
     }
 }

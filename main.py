@@ -1869,7 +1869,7 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         await send_long_message(callback.message, result_text)
 
         await state.clear()
-        await callback.message.answer(" ", reply_markup=get_main_menu(lang))
+        await callback.message.answer("\u00A0", reply_markup=get_main_menu(lang))
     except Exception as e:
         try:
             await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
@@ -2955,7 +2955,7 @@ async def cancel_horoscope(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    await callback.message.answer(" ", reply_markup=get_main_menu(lang))
+    await callback.message.answer("\u00A0", reply_markup=get_main_menu(lang))
 
 
 @dp.callback_query(F.data.startswith("tz_"), UserDataStates.WAITING_TIMEZONE)
@@ -3091,7 +3091,7 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
                 await get_text(user_id, 'horoscope_promo'),
                 reply_markup=get_subscription_promo_keyboard(lang)
             )
-        await callback.message.answer(" ", reply_markup=get_main_menu(lang))
+        await callback.message.answer("\u00A0", reply_markup=get_main_menu(lang))
     except Exception as e:
         try:
             await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
@@ -3107,7 +3107,7 @@ async def close_subscription(callback: CallbackQuery):
     await callback.message.delete()
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    await callback.message.answer(" ", reply_markup=get_main_menu(lang))
+    await callback.message.answer("\u00A0", reply_markup=get_main_menu(lang))
 
 
 @dp.callback_query(F.data.startswith("lang_"))
