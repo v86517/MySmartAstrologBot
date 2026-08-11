@@ -3119,8 +3119,7 @@ async def send_long_message(
     reply_markup=None
 ):
     """
-    Отправляет длинное сообщение, разбивая его на части.
-    Если передан reply_markup, он будет добавлен к последней части.
+    Отправляет длинное сообщение, разбивая его на части не длиннее max_length.
     """
     if not text or not text.strip():
         await message.answer("⚠️ Сообщение пустое. Попробуйте позже.")
@@ -3128,59 +3127,76 @@ async def send_long_message(
 
     if len(text) <= max_length:
         await message.answer(text, reply_markup=reply_markup)
-        logger.info(f"📨 Сообщение отправлено целиком (длина {len(text)} символов)")
+        logger.info(f"📨 Сообщение отправлено целиком (длина {len(text)})")
         return
 
+    # Разбиваем по строкам для сохранения целостности
+    lines = text.split('\n')
     parts = []
-    remaining = text
-    while remaining:
-        if len(remaining) <= max_length:
-            parts.append(remaining)
-            break
-        split_pos = remaining.rfind('\n', 0, max_length)
-        if split_pos == -1:
-            split_pos = remaining.rfind(' ', 0, max_length)
-            if split_pos == -1:
-                split_pos = max_length
-        part = remaining[:split_pos]
-        if part.strip():
-            parts.append(part)
-        remaining = remaining[split_pos:].lstrip('\n')
-        if remaining and not remaining.strip():
-            break
+    current_part = ""
 
-    if not parts:
-        await message.answer("⚠️ Не удалось разбить сообщение. Попробуйте позже.")
+    for line in lines:
+        # Если строка длиннее max_length, разбиваем её принудительно
+        if len(line) > max_length:
+            if current_part:
+                parts.append(current_part)
+                current_part = ""
+            for i in range(0, len(line), max_length):
+                chunk = line[i:i+max_length]
+                parts.append(chunk)
+            continue
+
+        # Проверяем, влезет ли строка в текущую часть
+        if len(current_part) + len(line) + 1 > max_length:
+            parts.append(current_part)
+            current_part = line
+        else:
+            if current_part:
+                current_part += '\n' + line
+            else:
+                current_part = line
+
+    if current_part:
+        parts.append(current_part)
+
+    # Финальная проверка: если какая-то часть длиннее max_length – разбиваем принудительно
+    final_parts = []
+    for p in parts:
+        if len(p) > max_length:
+            for i in range(0, len(p), max_length):
+                final_parts.append(p[i:i+max_length])
+        else:
+            final_parts.append(p)
+
+    if not final_parts:
+        await message.answer("⚠️ Не удалось разбить сообщение.")
         return
 
-    total = len(parts)
+    total = len(final_parts)
     logger.info(f"📨 Отправка длинного сообщения: {len(text)} символов, разбито на {total} частей")
 
-    for i, part in enumerate(parts, 1):
+    for i, part in enumerate(final_parts, 1):
+        # Обрезаем, если вдруг превышает лимит (страховка)
+        if len(part) > max_length:
+            part = part[:max_length]
         try:
             if i == total and reply_markup is not None:
                 await message.answer(part, reply_markup=reply_markup)
-                logger.info(f"   ✅ Часть {i}/{total} (последняя) отправлена с клавиатурой, длина {len(part)}")
-            elif i == 1:
-                await message.answer(part)
-                logger.info(f"   ✅ Часть 1/{total} отправлена, длина {len(part)}")
+                logger.info(f"   ✅ Часть {i}/{total} (последняя) отправлена, длина {len(part)}")
             else:
-                user_id = message.from_user.id
-                template = await get_text(user_id, 'continuation')
-                continuation_text = template.format(i=i, total=total, text=part)
-                await message.answer(continuation_text)
+                await message.answer(part)
                 logger.info(f"   ✅ Часть {i}/{total} отправлена, длина {len(part)}")
             await asyncio.sleep(0.3)
         except Exception as e:
             logger.error(f"❌ Ошибка при отправке части {i}/{total}: {e}")
             try:
+                short_part = part[:max_length]
                 if i == total and reply_markup is not None:
-                    await message.answer(f"📄 Продолжение ({i}/{total}):\n\n{part}", reply_markup=reply_markup)
+                    await message.answer(f"📄 Продолжение ({i}/{total}):\n\n{short_part}", reply_markup=reply_markup)
                 else:
-                    await message.answer(f"📄 Продолжение ({i}/{total}):\n\n{part}")
+                    await message.answer(f"📄 Продолжение ({i}/{total}):\n\n{short_part}")
             except:
                 logger.error(f"❌ Критическая ошибка отправки части {i}/{total}, часть пропущена")
-
 
 # ==================== ОБЩИЙ ОБРАБОТЧИК ТЕКСТОВЫХ КОМАНД ====================
 
