@@ -131,22 +131,28 @@ class CompatibilityCalculator(BaseCalculator):
         logger.warning("Не удалось получить синастрические аспекты ни одним способом.")
         return aspects
 
-    def _format_planets(self, subject: AstrologicalSubject) -> str:
-        """Форматирует список планет для промпта"""
+    def _extract_planets_from_subject(self, subject: AstrologicalSubject) -> List[Dict]:
+        """
+        Извлекает список планет с их данными из субъекта через модель.
+        Аналогично _extract_planets_from_chart в AstrologyCalculator.
+        """
         planets = []
-        if hasattr(subject, 'planets') and subject.planets:
-            for p in subject.planets:
-                planets.append({
-                    "name": p.name,
-                    "sign": p.sign,
-                    "degree": p.position,
-                    "house": p.house,
-                })
-        elif hasattr(subject, 'model'):
+        try:
             model = subject.model() if callable(subject.model) else subject.model
-            data = model.dict() if hasattr(model, 'dict') else model.__dict__
-            planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
-                           'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith']
+            if hasattr(model, 'dict'):
+                data = model.dict()
+            elif hasattr(model, 'model_dump'):
+                data = model.model_dump()
+            else:
+                data = model.__dict__
+
+            planet_keys = [
+                'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
+                'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith',
+                'ceres', 'pallas', 'juno', 'vesta', 'eris', 'sedna', 'haumea', 'makemake',
+                'mean_north_lunar_node', 'true_north_lunar_node',
+                'mean_south_lunar_node', 'true_south_lunar_node'
+            ]
             for key in planet_keys:
                 if key in data:
                     obj = data[key]
@@ -158,6 +164,14 @@ class CompatibilityCalculator(BaseCalculator):
                                 "degree": obj.get('position', 0.0),
                                 "house": obj.get('house', 0),
                             })
+            logger.info(f"Извлечено планет из субъекта {subject.name}: {len(planets)}")
+        except Exception as e:
+            logger.warning(f"Не удалось извлечь планеты из субъекта: {e}")
+        return planets
+
+    def _format_planets(self, subject: AstrologicalSubject) -> str:
+        """Форматирует список планет для промпта"""
+        planets = self._extract_planets_from_subject(subject)
         if not planets:
             return "неизвестно"
         return "\n".join(
@@ -192,6 +206,7 @@ class CompatibilityCalculator(BaseCalculator):
         quality1 = self.get_zodiac_quality(zodiac1)
         quality2 = self.get_zodiac_quality(zodiac2)
 
+        # Формируем списки планет и аспектов через исправленные методы
         planets_str1 = self._format_planets(self.subject1)
         planets_str2 = self._format_planets(self.subject2)
         aspects_str1 = self._format_aspects(self.aspects1)
@@ -199,9 +214,12 @@ class CompatibilityCalculator(BaseCalculator):
         synastry_str = self._format_aspects(self.synastry_aspects)
 
         # ---- Новые данные для каждого человека (Солнце, Луна, Асцендент, куспиды) ----
-        # Человек 1
-        sun1 = next((p for p in self.subject1.planets if p.name == "Sun"), None)
-        moon1 = next((p for p in self.subject1.planets if p.name == "Moon"), None)
+        # Получаем планеты через извлечение, чтобы получить их знаки
+        planets1 = self._extract_planets_from_subject(self.subject1)
+        planets2 = self._extract_planets_from_subject(self.subject2)
+
+        sun1 = next((p for p in planets1 if p['name'] == 'Sun'), None)
+        moon1 = next((p for p in planets1 if p['name'] == 'Moon'), None)
         asc1 = self.subject1.first_house.sign if self.subject1.first_house else "не известно"
         cusps1 = []
         for i in range(1, 13):
@@ -210,9 +228,8 @@ class CompatibilityCalculator(BaseCalculator):
                 cusps1.append(f"{i}-й дом: {house.sign} ({house.position:.2f}°)")
         cusps1_str = "\n".join(cusps1) if cusps1 else "не известно"
 
-        # Человек 2
-        sun2 = next((p for p in self.subject2.planets if p.name == "Sun"), None)
-        moon2 = next((p for p in self.subject2.planets if p.name == "Moon"), None)
+        sun2 = next((p for p in planets2 if p['name'] == 'Sun'), None)
+        moon2 = next((p for p in planets2 if p['name'] == 'Moon'), None)
         asc2 = self.subject2.first_house.sign if self.subject2.first_house else "не известно"
         cusps2 = []
         for i in range(1, 13):
@@ -233,8 +250,8 @@ class CompatibilityCalculator(BaseCalculator):
             "p1_life_path": self.life_path1,
             "p1_planets_list": planets_str1,
             "p1_aspects_list": aspects_str1,
-            "p1_sun_sign": sun1.sign if sun1 else "не известно",
-            "p1_moon_sign": moon1.sign if moon1 else "не известно",
+            "p1_sun_sign": sun1['sign'] if sun1 else "не известно",
+            "p1_moon_sign": moon1['sign'] if moon1 else "не известно",
             "p1_ascendant": asc1,
             "p1_cusps_list": cusps1_str,
 
@@ -249,8 +266,8 @@ class CompatibilityCalculator(BaseCalculator):
             "p2_life_path": self.life_path2,
             "p2_planets_list": planets_str2,
             "p2_aspects_list": aspects_str2,
-            "p2_sun_sign": sun2.sign if sun2 else "не известно",
-            "p2_moon_sign": moon2.sign if moon2 else "не известно",
+            "p2_sun_sign": sun2['sign'] if sun2 else "не известно",
+            "p2_moon_sign": moon2['sign'] if moon2 else "не известно",
             "p2_ascendant": asc2,
             "p2_cusps_list": cusps2_str,
 
@@ -264,11 +281,9 @@ class CompatibilityCalculator(BaseCalculator):
         }
 
     def _get_synastry_aspects_manual(self, subj1: AstrologicalSubject, subj2: AstrologicalSubject) -> List[Dict]:
-        """
-        Ручной расчёт синастрических аспектов между планетами двух людей.
-        """
-        planets1 = self._extract_planets(subj1)
-        planets2 = self._extract_planets(subj2)
+        """Ручной расчёт синастрических аспектов между планетами двух людей."""
+        planets1 = self._extract_planets_from_subject(subj1)
+        planets2 = self._extract_planets_from_subject(subj2)
 
         if not planets1 or not planets2:
             logger.warning("Не удалось извлечь планеты для ручного расчёта синастрии")
@@ -333,25 +348,3 @@ class CompatibilityCalculator(BaseCalculator):
 
         logger.info(f"Синастрические аспекты (ручной расчёт): {len(aspects)}")
         return aspects
-
-    def _extract_planets(self, subject: AstrologicalSubject) -> List[Dict]:
-        """Извлекает список планет с их градусами из субъекта"""
-        planets = []
-        if hasattr(subject, 'planets') and subject.planets:
-            for p in subject.planets:
-                planets.append({"name": p.name, "degree": p.position})
-        elif hasattr(subject, 'model'):
-            model = subject.model() if callable(subject.model) else subject.model
-            data = model.dict() if hasattr(model, 'dict') else model.__dict__
-            planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
-                           'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith']
-            for key in planet_keys:
-                if key in data:
-                    obj = data[key]
-                    if isinstance(obj, dict):
-                        if 'position' in obj:
-                            planets.append({"name": key.capitalize(), "degree": obj['position']})
-                    else:
-                        if hasattr(obj, 'position'):
-                            planets.append({"name": key.capitalize(), "degree": obj.position})
-        return planets
