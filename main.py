@@ -65,6 +65,11 @@ from core.models import User
 from bot.yookassa_client import yookassa
 from bot.db import save_payment_db, activate_subscription_db, add_numerology_count, add_astrology_count
 from bot.calculators.astrology_calculator import AstrologyCalculator
+from bot.calculators.base_calculator import BaseCalculator
+from bot.calculators.natal_calculator import NatalCalculator
+from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
+from bot.calculators.compatibility_calculator import CompatibilityCalculator
+from datetime import datetime
 from bot.locales import TEXTS
 
 MESSAGE_TYPES_DISPLAY = {
@@ -105,6 +110,117 @@ except Exception as e:
 
 numerology_data = {}
 astrology_data = {}
+
+
+def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') -> str:
+    """
+    Форматирует параметры для отображения пользователю.
+    service_type: 'horoscope', 'numerology', 'compatibility', 'astrology'
+    """
+    from bot.locales import TEXTS
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    lines = []
+
+    if service_type == 'horoscope':
+        lines.append("📅 Гороскоп на день")
+        lines.append("")
+        lines.append(f"👤 Имя: {prompt_data.get('name', '')}")
+        lines.append(f"⚥ Пол: {prompt_data.get('gender_display', '')}")
+        lines.append(f"📅 Дата рождения: {prompt_data.get('birth_date', '')}")
+        lines.append(f"🕒 Время рождения: {prompt_data.get('birth_time', '')}")
+        lines.append(f"📍 Место рождения: {prompt_data.get('birth_place', '')}")
+        lines.append("")
+        lines.append(f"☀️ Солнце: {prompt_data.get('sun_sign', '')}")
+        lines.append(f"🌙 Луна: {prompt_data.get('moon_sign', '')}")
+        lines.append(f"⬆️ Асцендент: {prompt_data.get('ascendant', '')}")
+        lines.append("")
+        lines.append(f"📅 Дата: {prompt_data.get('target_date', '')}")
+        lines.append(f"📆 День недели: {prompt_data.get('target_weekday', '')}")
+        lines.append(f"🌙 Лунный день: {prompt_data.get('lunar_day', '')}")
+        lines.append(f"☀️ Освещённость Луны: {prompt_data.get('moon_illumination', '')}%")
+        lines.append(f"🌙 Транзитная Луна в знаке: {prompt_data.get('transit_moon_sign', '')}")
+        lines.append(f"🏠 Транзитная Луна в доме: {prompt_data.get('transit_moon_house', '')}")
+        lines.append(f"🔮 Аспекты транзитной Луны:\n{prompt_data.get('transit_moon_aspects', '')}")
+        lines.append(f"🔄 Ретроградные планеты: {prompt_data.get('retrograde_planets', '')}")
+        if prompt_data.get('cusps_list'):
+            lines.append("")
+            lines.append("🏠 Куспиды домов:")
+            lines.append(prompt_data.get('cusps_list', ''))
+
+    elif service_type == 'numerology':
+        lines.append("🔢 Нумерологический разбор")
+        lines.append("")
+        lines.append(f"👤 Имя: {prompt_data.get('name', '')}")
+        lines.append(f"⚥ Пол: {prompt_data.get('gender_display', '')}")
+        lines.append(f"📅 Дата рождения: {prompt_data.get('birth_date', '')}")
+        lines.append(f"🕒 Время рождения: {prompt_data.get('birth_time', '')}")
+        lines.append(f"📍 Место рождения: {prompt_data.get('birth_place', '')}")
+        lines.append("")
+        lines.append(f"🔢 Число жизненного пути: {prompt_data.get('life_path', '')}")
+        lines.append(f"🔢 Число экспрессии: {prompt_data.get('expression_number', '')}")
+        lines.append(f"🔢 Число души: {prompt_data.get('soul_urge_number', '')}")
+        lines.append(f"🔢 Число личности: {prompt_data.get('personality_number', '')}")
+        lines.append(f"📅 Личный год: {prompt_data.get('personal_year', '')}")
+        lines.append(f"📅 Личный месяц: {prompt_data.get('personal_month', '')}")
+        lines.append(f"📅 Личный день: {prompt_data.get('personal_day', '')}")
+        lines.append("")
+        lines.append("🧩 Матрица судьбы (22 аркана):")
+        lines.append(f"  Аркан дня (m1): {prompt_data.get('m1', '')}")
+        lines.append(f"  Аркан месяца (m2): {prompt_data.get('m2', '')}")
+        lines.append(f"  Аркан года (m3): {prompt_data.get('m3', '')}")
+        lines.append(f"  Отношения (ОПВ): {prompt_data.get('opv', '')}")
+        lines.append(f"  Судьба (СЗ): {prompt_data.get('sz', '')}")
+        lines.append(f"  Препятствие: {prompt_data.get('obstacle', '')}")
+        lines.append(f"  Человек-предатель: {prompt_data.get('traitor', '')}")
+        lines.append(f"  Зона комфорта: {prompt_data.get('comfort', '')}")
+        lines.append(f"  Левая родовая: {prompt_data.get('v_left', '')}")
+        lines.append(f"  Правая родовая: {prompt_data.get('v_right', '')}")
+        lines.append(f"  Кармическая (нижняя левая): {prompt_data.get('v_bottom_left', '')}")
+        lines.append(f"  Кармическая (нижняя правая): {prompt_data.get('v_bottom_right', '')}")
+        lines.append(f"  Багаж опыта: {prompt_data.get('v_left_side', '')}")
+        lines.append(f"  Человек-предатель (правый бок): {prompt_data.get('v_right_side', '')}")
+        lines.append(f"  Внутренний паспорт: {prompt_data.get('v_top', '')}")
+
+    elif service_type == 'compatibility':
+        lines.append("💕 Анализ совместимости")
+        lines.append("")
+        lines.append(f"👤 Человек 1: {prompt_data.get('p1_name', '')}")
+        lines.append(f"⚥ Пол: {prompt_data.get('p1_gender_text', '')}")
+        lines.append(f"📅 Дата рождения: {prompt_data.get('p1_birth_date', '')}")
+        lines.append(f"🕒 Время рождения: {prompt_data.get('p1_birth_time', '')}")
+        lines.append(f"📍 Место рождения: {prompt_data.get('p1_birth_place', '')}")
+        lines.append(f"☀️ Солнце: {prompt_data.get('p1_sun_sign', '')}")
+        lines.append(f"🌙 Луна: {prompt_data.get('p1_moon_sign', '')}")
+        lines.append(f"⬆️ Асцендент: {prompt_data.get('p1_ascendant', '')}")
+        if prompt_data.get('p1_cusps_list'):
+            lines.append("🏠 Куспиды домов:")
+            lines.append(prompt_data.get('p1_cusps_list', ''))
+        lines.append("")
+        lines.append(f"👤 Человек 2: {prompt_data.get('p2_name', '')}")
+        lines.append(f"⚥ Пол: {prompt_data.get('p2_gender_text', '')}")
+        lines.append(f"📅 Дата рождения: {prompt_data.get('p2_birth_date', '')}")
+        lines.append(f"🕒 Время рождения: {prompt_data.get('p2_birth_time', '')}")
+        lines.append(f"📍 Место рождения: {prompt_data.get('p2_birth_place', '')}")
+        lines.append(f"☀️ Солнце: {prompt_data.get('p2_sun_sign', '')}")
+        lines.append(f"🌙 Луна: {prompt_data.get('p2_moon_sign', '')}")
+        lines.append(f"⬆️ Асцендент: {prompt_data.get('p2_ascendant', '')}")
+        if prompt_data.get('p2_cusps_list'):
+            lines.append("🏠 Куспиды домов:")
+            lines.append(prompt_data.get('p2_cusps_list', ''))
+        lines.append("")
+        lines.append(f"🔮 Синастрические аспекты:\n{prompt_data.get('aspects_synastry_list', '')}")
+        lines.append(f"📅 Дата: {prompt_data.get('target_date', '')}")
+        lines.append(f"📆 День недели: {prompt_data.get('target_weekday', '')}")
+        lines.append(f"🌙 Лунный день: {prompt_data.get('lunar_day', '')}")
+        lines.append(f"☀️ Освещённость Луны: {prompt_data.get('moon_illumination', '')}%")
+
+    elif service_type == 'astrology':
+        # Для астрологии параметры уже формируются через calculator.get_basic_parameters и get_extra_parameters
+        # Эта функция не используется для астрологии, но оставлена для полноты.
+        pass
+
+    return "\n".join(lines)
+
 
 def format_profile_data(data: dict, lang: str) -> str:
     """Форматирует данные пользователя для отображения с учётом языка"""
@@ -741,9 +857,18 @@ async def process_person2_gender(message: Message, state: FSMContext):
             await mark_feature_used_db(user_id, 'compatibility')
             await save_message_to_archive(user_id, 'compatibility', result)
 
+            allowed_ids = [5484157606, 8790509202]
+            if user_id in allowed_ids:
+                calc = CompatibilityCalculator(person1, person2)
+                prompt_data = calc.get_prompt_data()
+                parameters_text = format_parameters(prompt_data, 'compatibility', lang)
+                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{result}"
+            else:
+                final_message = result
+
             await status_msg.delete()
             result_template = await get_text(user_id, 'compatibility_result')
-            result_text = result_template.format(result=result)
+            result_text = result_template.format(result=final_message)
             await send_long_message(message, result_text)
 
             if not await check_subscription_db(user_id):
@@ -952,9 +1077,51 @@ async def process_numerology_gender(message: Message, state: FSMContext):
             await save_message_to_archive(user_id, 'numerology', result)
             await add_numerology_count(user_id, -1)
 
+            allowed_ids = [5484157606, 8790509202]
+            if user_id in allowed_ids:
+                from bot.calculators.base_calculator import BaseCalculator
+                from bot.calculators.natal_calculator import NatalCalculator
+                calc = BaseCalculator()
+                user_data = numerology_data[user_id]
+                prompt_data = {
+                    'name': user_data.get('name', ''),
+                    'gender_display': "Мужчина" if user_data.get('gender') == 'M' else "Женщина",
+                    'birth_date': user_data.get('birth_date', ''),
+                    'birth_time': user_data.get('birth_time', 'не указано'),
+                    'birth_place': user_data.get('birth_place', 'не указано'),
+                    'pronoun': "он" if user_data.get('gender') == 'M' else "она",
+                    'possessive': "его" if user_data.get('gender') == 'M' else "её",
+                }
+                natal = NatalCalculator(
+                    birth_date=user_data.get('birth_date'),
+                    name=user_data.get('name'),
+                    birth_time=user_data.get('birth_time'),
+                    birth_place=user_data.get('birth_place'),
+                    gender=user_data.get('gender')
+                )
+                matrix = natal.calculate()
+                prompt_data.update(matrix)
+                name = user_data.get('name', '')
+                prompt_data['expression_number'] = calc.calculate_expression_number(name) or "не рассчитано"
+                prompt_data['soul_urge_number'] = calc.calculate_soul_urge_number(name) or "не рассчитано"
+                prompt_data['personality_number'] = calc.calculate_personality_number(name) or "не рассчитано"
+                target_date = datetime.now().strftime('%d.%m.%Y')
+                birth_date = user_data.get('birth_date')
+                if birth_date:
+                    prompt_data['personal_year'] = calc.calculate_personal_year(birth_date, target_date)
+                    prompt_data['personal_month'] = calc.calculate_personal_month(birth_date, target_date)
+                    prompt_data['personal_day'] = calc.calculate_personal_day(birth_date, target_date)
+                else:
+                    prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
+
+                parameters_text = format_parameters(prompt_data, 'numerology', lang)
+                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{result}"
+            else:
+                final_message = result
+
             await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
-            result_text = result_template.format(result=result)
+            result_text = result_template.format(result=final_message)
             await send_long_message(message, result_text)
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
@@ -1203,13 +1370,34 @@ async def confirm_horoscope_state(message: Message, state: FSMContext):
 
 # ==================== ФУНКЦИИ-ОБРАБОТЧИКИ (без декораторов) ====================
 
+@dp.message(F.text == "🔮 Гороскоп на сегодня")
 async def start_horoscope(message: Message, state: FSMContext):
     user_id = message.from_user.id
     is_subscribed = await check_subscription_db(user_id)
     lang = await get_user_language(user_id)
 
     if is_subscribed:
-        # ... (код до генерации не меняется)
+        user_data = await get_user_data(user_id)
+        if user_data and user_data.get('name'):
+            zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+            zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
+            template = await get_text(user_id, 'horoscope_confirm_data')
+            profile_text = template.format(
+                name=user_data.get('name', 'Не указано'),
+                birth_date=user_data.get('birth_date', 'Не указана'),
+                birth_time=user_data.get('birth_time', 'Не указано'),
+                birth_place=user_data.get('birth_place', 'Не указано'),
+                emoji=zodiac_emoji,
+                zodiac=zodiac_name
+            )
+            await state.set_state(HoroscopeStates.CONFIRM)
+            await message.answer(
+                profile_text,
+                reply_markup=get_horoscope_confirm_keyboard(lang)
+            )
+        else:
+            await state.set_state(UserDataStates.WAITING_NAME)
+            await message.answer(await get_text(user_id, 'horoscope_intro'), reply_markup=get_cancel_keyboard(lang))
         return
 
     if not await can_use_feature_db(user_id, 'horoscope'):
@@ -1235,9 +1423,19 @@ async def start_horoscope(message: Message, state: FSMContext):
             await save_message_to_archive(user_id, 'horoscope', horoscope)
             await mark_feature_used_db(user_id, 'horoscope')
 
+            # Проверка на разрешённых пользователей
+            allowed_ids = [5484157606, 8790509202]
+            if user_id in allowed_ids:
+                calc = TransitHoroscopeCalculator(user_data)
+                prompt_data = calc.calculate()
+                parameters_text = format_parameters(prompt_data, 'horoscope', lang)
+                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{horoscope}"
+            else:
+                final_message = horoscope
+
             await status_msg.delete()
             result_template = await get_text(user_id, 'horoscope_result')
-            result_text = result_template.format(date=today, horoscope=horoscope)
+            result_text = result_template.format(date=today, horoscope=final_message)
             await send_long_message(message, result_text)
 
             if not is_subscribed:
@@ -1526,6 +1724,81 @@ async def profile(message: Message):
         await message.answer(text, reply_markup=get_fill_profile_keyboard(lang), parse_mode="Markdown")
 
 
+def format_numerology_parameters(data: dict) -> str:
+    """Форматирует нумерологические данные для вывода."""
+    lines = [
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"👤 Имя: {data.get('name', 'Не указано')}",
+        f"⚥ Пол: {data.get('gender_display', 'Не указан')}",
+        f"📅 Дата рождения: {data.get('birth_date', 'Не указана')}",
+        f"🕒 Время рождения: {data.get('birth_time', 'Не указано')}",
+        f"📍 Место рождения: {data.get('birth_place', 'Не указано')}",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"🔢 Число жизненного пути: {data.get('life_path', '—')}",
+        f"✨ Число экспрессии: {data.get('expression_number', '—')}",
+        f"❤️ Число души: {data.get('soul_urge_number', '—')}",
+        f"👤 Число личности: {data.get('personality_number', '—')}",
+        f"📅 Личный год: {data.get('personal_year', '—')}",
+        f"📆 Личный месяц: {data.get('personal_month', '—')}",
+        f"📆 Личный день: {data.get('personal_day', '—')}",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"🧩 Аркан дня (m1): {data.get('m1', '—')}",
+        f"🧩 Аркан месяца (m2): {data.get('m2', '—')}",
+        f"🧩 Аркан года (m3): {data.get('m3', '—')}",
+        f"💞 Отношения (ОПВ): {data.get('opv', '—')}",
+        f"🌟 Судьба (СЗ): {data.get('sz', '—')}",
+        f"⚠️ Препятствие: {data.get('obstacle', '—')}",
+        f"👥 Человек-предатель: {data.get('traitor', '—')}",
+        f"😌 Зона комфорта: {data.get('comfort', '—')}",
+        f"👨 Левая родовая: {data.get('v_left', '—')}",
+        f"👩 Правая родовая: {data.get('v_right', '—')}",
+        f"🌿 Карма левая: {data.get('v_bottom_left', '—')}",
+        f"🌿 Карма правая: {data.get('v_bottom_right', '—')}",
+        f"🧳 Багаж опыта: {data.get('v_left_side', '—')}",
+        f"🕵️ Человек-предатель (правый бок): {data.get('v_right_side', '—')}",
+        f"🪪 Внутренний паспорт: {data.get('v_top', '—')}",
+    ]
+    return "\n".join(lines)
+
+
+def prepare_numerology_prompt_data(user_data: dict) -> dict:
+    from bot.calculators.base_calculator import BaseCalculator
+    calc = BaseCalculator()
+    birth_date = user_data.get('birth_date')
+    target_date = datetime.now().strftime('%d.%m.%Y')
+    name = user_data.get('name', '')
+
+    # Получаем матричные числа через NatalCalculator
+    from bot.calculators import NatalCalculator
+    natal_calc = NatalCalculator(
+        birth_date=birth_date,
+        name=name,
+        birth_time=user_data.get('birth_time'),
+        birth_place=user_data.get('birth_place'),
+        gender=user_data.get('gender')
+    )
+    matrix = natal_calc.calculate()
+
+    prompt_data = {
+        "name": name,
+        "gender_display": "Мужчина" if user_data.get('gender') == 'M' else "Женщина",
+        "birth_date": birth_date,
+        "birth_time": user_data.get('birth_time', 'не указано'),
+        "birth_place": user_data.get('birth_place', 'не указано'),
+        "life_path": calc.calculate_life_path_number(birth_date),
+        "expression_number": calc.calculate_expression_number(name) or "не рассчитано",
+        "soul_urge_number": calc.calculate_soul_urge_number(name) or "не рассчитано",
+        "personality_number": calc.calculate_personality_number(name) or "не рассчитано",
+        "personal_year": calc.calculate_personal_year(birth_date, target_date),
+        "personal_month": calc.calculate_personal_month(birth_date, target_date),
+        "personal_day": calc.calculate_personal_day(birth_date, target_date),
+        "pronoun": "он" if user_data.get('gender') == 'M' else "она",
+        "possessive": "его" if user_data.get('gender') == 'M' else "её",
+    }
+    prompt_data.update(matrix)
+    return prompt_data
+
+
 # ==================== ВСЕ CALLBACK-ХЕНДЛЕРЫ ====================
 
 @dp.callback_query(F.data == "confirm_horoscope", HoroscopeStates.CONFIRM)
@@ -1559,9 +1832,18 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         horoscope = gemini_service.generate_horoscope(user_data, today, lang)
         await save_message_to_archive(user_id, 'horoscope', horoscope)
 
+        allowed_ids = [5484157606, 8790509202]
+        if user_id in allowed_ids:
+            calc = TransitHoroscopeCalculator(user_data)
+            prompt_data = calc.calculate()
+            parameters_text = format_parameters(prompt_data, 'horoscope', lang)
+            final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{horoscope}"
+        else:
+            final_message = horoscope
+
         await status_msg.delete()
         result_template = await get_text(user_id, 'horoscope_result')
-        result_text = result_template.format(date=today, horoscope=horoscope)
+        result_text = result_template.format(date=today, horoscope=final_message)
         await send_long_message(callback.message, result_text)
 
         await state.clear()
@@ -1642,11 +1924,33 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    numerology_data[user_id] = { ... }  # без изменений
+    numerology_data[user_id] = {
+        'name': user_data_from_db.get('name'),
+        'birth_date': user_data_from_db.get('birth_date'),
+        'birth_time': user_data_from_db.get('birth_time'),
+        'birth_place': user_data_from_db.get('birth_place'),
+        'gender': user_data_from_db.get('gender'),
+        'zodiac': user_data_from_db.get('zodiac'),
+        'is_manual': False
+    }
 
     await state.clear()
 
-    # формируем profile_text как было
+    zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
+    zodiac_name = get_zodiac_sign_localized(user_data_from_db.get('zodiac', 'Неизвестно'), lang)
+    gender_display = 'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'
+
+    template = await get_text(user_id, 'numerology_use_data_confirm')
+    profile_text = template.format(
+        name=user_data_from_db.get('name'),
+        birth_date=user_data_from_db.get('birth_date'),
+        birth_time=user_data_from_db.get('birth_time'),
+        birth_place=user_data_from_db.get('birth_place'),
+        gender=gender_display,
+        emoji=zodiac_emoji,
+        zodiac=zodiac_name
+    )
+
     status_msg = await callback.message.answer(profile_text)
 
     try:
@@ -1662,9 +1966,53 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
             await save_message_to_archive(user_id, 'numerology', result)
             await add_numerology_count(user_id, -1)
 
+            # Формируем параметры для разрешённых
+            allowed_ids = [5484157606, 8790509202]
+            if user_id in allowed_ids:
+                # Собираем параметры
+                from bot.calculators.base_calculator import BaseCalculator
+                from bot.calculators.natal_calculator import NatalCalculator
+                calc = BaseCalculator()
+                user_data = numerology_data[user_id]
+                prompt_data = {
+                    'name': user_data.get('name', ''),
+                    'gender_display': "Мужчина" if user_data.get('gender') == 'M' else "Женщина",
+                    'birth_date': user_data.get('birth_date', ''),
+                    'birth_time': user_data.get('birth_time', 'не указано'),
+                    'birth_place': user_data.get('birth_place', 'не указано'),
+                    'pronoun': "он" if user_data.get('gender') == 'M' else "она",
+                    'possessive': "его" if user_data.get('gender') == 'M' else "её",
+                }
+                natal = NatalCalculator(
+                    birth_date=user_data.get('birth_date'),
+                    name=user_data.get('name'),
+                    birth_time=user_data.get('birth_time'),
+                    birth_place=user_data.get('birth_place'),
+                    gender=user_data.get('gender')
+                )
+                matrix = natal.calculate()
+                prompt_data.update(matrix)
+                name = user_data.get('name', '')
+                prompt_data['expression_number'] = calc.calculate_expression_number(name) or "не рассчитано"
+                prompt_data['soul_urge_number'] = calc.calculate_soul_urge_number(name) or "не рассчитано"
+                prompt_data['personality_number'] = calc.calculate_personality_number(name) or "не рассчитано"
+                target_date = datetime.now().strftime('%d.%m.%Y')
+                birth_date = user_data.get('birth_date')
+                if birth_date:
+                    prompt_data['personal_year'] = calc.calculate_personal_year(birth_date, target_date)
+                    prompt_data['personal_month'] = calc.calculate_personal_month(birth_date, target_date)
+                    prompt_data['personal_day'] = calc.calculate_personal_day(birth_date, target_date)
+                else:
+                    prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
+
+                parameters_text = format_parameters(prompt_data, 'numerology', lang)
+                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{result}"
+            else:
+                final_message = result
+
             await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
-            result_text = result_template.format(result=result)
+            result_text = result_template.format(result=final_message)
             await send_long_message(callback.message, result_text)
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
@@ -1779,9 +2127,50 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
             await save_message_to_archive(user_id, 'numerology', result)
             await add_numerology_count(user_id, -1)
 
+            allowed_ids = [5484157606, 8790509202]
+            if user_id in allowed_ids:
+                from bot.calculators.base_calculator import BaseCalculator
+                from bot.calculators.natal_calculator import NatalCalculator
+                calc = BaseCalculator()
+                prompt_data = {
+                    'name': user_data.get('name', ''),
+                    'gender_display': "Мужчина" if user_data.get('gender') == 'M' else "Женщина",
+                    'birth_date': user_data.get('birth_date', ''),
+                    'birth_time': user_data.get('birth_time', 'не указано'),
+                    'birth_place': user_data.get('birth_place', 'не указано'),
+                    'pronoun': "он" if user_data.get('gender') == 'M' else "она",
+                    'possessive': "его" if user_data.get('gender') == 'M' else "её",
+                }
+                natal = NatalCalculator(
+                    birth_date=user_data.get('birth_date'),
+                    name=user_data.get('name'),
+                    birth_time=user_data.get('birth_time'),
+                    birth_place=user_data.get('birth_place'),
+                    gender=user_data.get('gender')
+                )
+                matrix = natal.calculate()
+                prompt_data.update(matrix)
+                name = user_data.get('name', '')
+                prompt_data['expression_number'] = calc.calculate_expression_number(name) or "не рассчитано"
+                prompt_data['soul_urge_number'] = calc.calculate_soul_urge_number(name) or "не рассчитано"
+                prompt_data['personality_number'] = calc.calculate_personality_number(name) or "не рассчитано"
+                target_date = datetime.now().strftime('%d.%m.%Y')
+                birth_date = user_data.get('birth_date')
+                if birth_date:
+                    prompt_data['personal_year'] = calc.calculate_personal_year(birth_date, target_date)
+                    prompt_data['personal_month'] = calc.calculate_personal_month(birth_date, target_date)
+                    prompt_data['personal_day'] = calc.calculate_personal_day(birth_date, target_date)
+                else:
+                    prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
+
+                parameters_text = format_parameters(prompt_data, 'numerology', lang)
+                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{result}"
+            else:
+                final_message = result
+
             await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
-            result_text = result_template.format(result=result)
+            result_text = result_template.format(result=final_message)
             await send_long_message(callback.message, result_text)
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
@@ -1811,6 +2200,7 @@ async def edit_numerology_data(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "astrology_use_my_data")
 async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
+    """Использовать сохранённые данные для астрологии"""
     await callback.message.delete()
     await callback.answer()
 
@@ -1835,10 +2225,33 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    astrology_data[user_id] = { ... }  # без изменений
+    astrology_data[user_id] = {
+        'name': user_data_from_db.get('name'),
+        'birth_date': user_data_from_db.get('birth_date'),
+        'birth_time': user_data_from_db.get('birth_time'),
+        'birth_place': user_data_from_db.get('birth_place'),
+        'gender': user_data_from_db.get('gender'),
+        'zodiac': user_data_from_db.get('zodiac'),
+        'is_manual': False
+    }
+
     await state.clear()
 
-    # формируем profile_text
+    zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
+    zodiac_name = get_zodiac_sign_localized(user_data_from_db.get('zodiac', 'Неизвестно'), lang)
+    gender_display = 'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'
+
+    template = await get_text(user_id, 'astrology_use_data_confirm')
+    profile_text = template.format(
+        name=user_data_from_db.get('name'),
+        birth_date=user_data_from_db.get('birth_date'),
+        birth_time=user_data_from_db.get('birth_time'),
+        birth_place=user_data_from_db.get('birth_place'),
+        gender=gender_display,
+        emoji=zodiac_emoji,
+        zodiac=zodiac_name
+    )
+
     status_msg = await callback.message.answer(profile_text)
 
     try:
@@ -1882,6 +2295,8 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
             await callback.message.answer(f"❌ Ошибка: {str(e)}")
     finally:
         astrology_data.pop(user_id, None)
+        # состояние уже сброшено ранее через await state.clear(), но на всякий случай
+        await state.clear()
 
 
 @dp.callback_query(F.data == "astrology_fill_new_data")
@@ -1983,11 +2398,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
 
         if gemini_service:
             calculator = AstrologyCalculator(user_data)
-
-            # Базовые параметры для всех пользователей
             basic = calculator.get_basic_parameters(lang)
-
-            # Дополнительные данные (планеты, куспиды, аспекты) — только для разрешённых пользователей
             allowed_ids = [5484157606, 8790509202]
             if user_id in allowed_ids:
                 extra = calculator.get_extra_parameters(lang)
@@ -2638,9 +3049,18 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         await mark_feature_used_db(user_id, 'horoscope')
         await save_message_to_archive(user_id, 'horoscope', horoscope)
 
+        allowed_ids = [5484157606, 8790509202]
+        if user_id in allowed_ids:
+            calc = TransitHoroscopeCalculator(temp_data)
+            prompt_data = calc.calculate()
+            parameters_text = format_parameters(prompt_data, 'horoscope', lang)
+            final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{horoscope}"
+        else:
+            final_message = horoscope
+
         await status_msg.delete()
         result_template = await get_text(user_id, 'horoscope_result')
-        result_text = result_template.format(date=today, horoscope=horoscope)
+        result_text = result_template.format(date=today, horoscope=final_message)
         await callback.message.answer(result_text)
 
         await state.clear()

@@ -39,6 +39,8 @@ class CompatibilityCalculator(BaseCalculator):
             person1_data['birth_date'], person2_data['birth_date']
         )
         self.lunar_day = self.get_lunar_day(self.target_date)
+        self.moon_illumination = self.moon_phase_percent(self.target_date)
+        self.target_weekday = self.week_day_name(self.target_date)
 
     def _create_subject(self, data: Dict[str, Any]) -> AstrologicalSubject:
         """Создаёт AstrologicalSubject из данных пользователя"""
@@ -46,12 +48,10 @@ class CompatibilityCalculator(BaseCalculator):
         birth_time = data.get('birth_time', '00:00')
         birth_place = data.get('birth_place', 'Москва, Россия')
 
-        # Получаем координаты и часовой пояс через AstrologyCalculator
         calc = AstrologyCalculator(data)
         year, month, day, hour, minute = calc._parse_birth_datetime()
         city, country = calc._parse_birth_place()
-        coords = calc._get_coordinates(city, country)
-        tz_str = calc._get_timezone(coords['lat'], coords['lng'])
+        lat, lng, tz_str = calc._get_coordinates_and_timezone()
 
         return AstrologicalSubject(
             name=data.get('name', 'Человек'),
@@ -60,8 +60,8 @@ class CompatibilityCalculator(BaseCalculator):
             day=day,
             hour=hour,
             minute=minute,
-            lat=coords['lat'],
-            lng=coords['lng'],
+            lat=lat,
+            lng=lng,
             tz_str=tz_str,
         )
 
@@ -198,6 +198,29 @@ class CompatibilityCalculator(BaseCalculator):
         aspects_str2 = self._format_aspects(self.aspects2)
         synastry_str = self._format_aspects(self.synastry_aspects)
 
+        # ---- Новые данные для каждого человека (Солнце, Луна, Асцендент, куспиды) ----
+        # Человек 1
+        sun1 = next((p for p in self.subject1.planets if p.name == "Sun"), None)
+        moon1 = next((p for p in self.subject1.planets if p.name == "Moon"), None)
+        asc1 = self.subject1.first_house.sign if self.subject1.first_house else "не известно"
+        cusps1 = []
+        for i in range(1, 13):
+            house = getattr(self.subject1, f"{i}_house", None)
+            if house:
+                cusps1.append(f"{i}-й дом: {house.sign} ({house.position:.2f}°)")
+        cusps1_str = "\n".join(cusps1) if cusps1 else "не известно"
+
+        # Человек 2
+        sun2 = next((p for p in self.subject2.planets if p.name == "Sun"), None)
+        moon2 = next((p for p in self.subject2.planets if p.name == "Moon"), None)
+        asc2 = self.subject2.first_house.sign if self.subject2.first_house else "не известно"
+        cusps2 = []
+        for i in range(1, 13):
+            house = getattr(self.subject2, f"{i}_house", None)
+            if house:
+                cusps2.append(f"{i}-й дом: {house.sign} ({house.position:.2f}°)")
+        cusps2_str = "\n".join(cusps2) if cusps2 else "не известно"
+
         return {
             "p1_name": p1.get('name', 'Не указано'),
             "p1_gender_text": "Мужчина" if p1.get('gender') == 'M' else "Женщина",
@@ -210,6 +233,10 @@ class CompatibilityCalculator(BaseCalculator):
             "p1_life_path": self.life_path1,
             "p1_planets_list": planets_str1,
             "p1_aspects_list": aspects_str1,
+            "p1_sun_sign": sun1.sign if sun1 else "не известно",
+            "p1_moon_sign": moon1.sign if moon1 else "не известно",
+            "p1_ascendant": asc1,
+            "p1_cusps_list": cusps1_str,
 
             "p2_name": p2.get('name', 'Не указано'),
             "p2_gender_text": "Мужчина" if p2.get('gender') == 'M' else "Женщина",
@@ -222,20 +249,24 @@ class CompatibilityCalculator(BaseCalculator):
             "p2_life_path": self.life_path2,
             "p2_planets_list": planets_str2,
             "p2_aspects_list": aspects_str2,
+            "p2_sun_sign": sun2.sign if sun2 else "не известно",
+            "p2_moon_sign": moon2.sign if moon2 else "не известно",
+            "p2_ascendant": asc2,
+            "p2_cusps_list": cusps2_str,
 
             "aspects_synastry_list": synastry_str,
             "compatibility_number": self.compatibility_number,
             "compatibility_arcan": self.compatibility_arcan,
             "target_date": self.target_date,
+            "target_weekday": self.target_weekday,
             "lunar_day": self.lunar_day,
+            "moon_illumination": self.moon_illumination,
         }
 
     def _get_synastry_aspects_manual(self, subj1: AstrologicalSubject, subj2: AstrologicalSubject) -> List[Dict]:
         """
         Ручной расчёт синастрических аспектов между планетами двух людей.
-        Используется, если библиотечные методы не работают.
         """
-        # Получаем списки планет для обоих субъектов
         planets1 = self._extract_planets(subj1)
         planets2 = self._extract_planets(subj2)
 

@@ -48,3 +48,5 @@ apscheduler>=3.10.4
 # Часовые пояса (для zoneinfo)
 pytz>=2024.1
 tzdata>=2024.1
+
+pypinyin>=0.55.0

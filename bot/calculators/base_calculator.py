@@ -1,6 +1,8 @@
 import datetime
 import math
 from typing import Optional, Dict, Any, Tuple
+import re
+from typing import Optional
 
 
 class BaseCalculator:
@@ -238,3 +240,101 @@ class BaseCalculator:
             'v_right_side': v_right_side,
             'v_top': v_top
         }
+
+    @staticmethod
+    def _pythagorean_value(char: str) -> Optional[int]:
+        """Возвращает пифагорейское число для буквы (кириллица или латиница)."""
+        pythagorean = {
+            # Кириллица
+            'а': 1, 'б': 2, 'в': 3, 'г': 4, 'д': 5, 'е': 6, 'ё': 7, 'ж': 8, 'з': 9,
+            'и': 1, 'й': 2, 'к': 3, 'л': 4, 'м': 5, 'н': 6, 'о': 7, 'п': 8, 'р': 9,
+            'с': 1, 'т': 2, 'у': 3, 'ф': 4, 'х': 5, 'ц': 6, 'ч': 7, 'ш': 8, 'щ': 9,
+            'ъ': 1, 'ы': 2, 'ь': 3, 'э': 4, 'ю': 5, 'я': 6,
+            # Латиница
+            'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5, 'f': 6, 'g': 7, 'h': 8, 'i': 9,
+            'j': 1, 'k': 2, 'l': 3, 'm': 4, 'n': 5, 'o': 6, 'p': 7, 'q': 8, 'r': 9,
+            's': 1, 't': 2, 'u': 3, 'v': 4, 'w': 5, 'x': 6, 'y': 7, 'z': 8,
+        }
+        return pythagorean.get(char.lower())
+
+    @staticmethod
+    def _reduce_to_master(num: int) -> int:
+        """Сводит к однозначному, но оставляет 11, 22, 33."""
+        if num in (11, 22, 33):
+            return num
+        while num > 9:
+            num = sum(int(d) for d in str(num))
+        return num
+
+    @staticmethod
+    def _transliterate_name(name: str) -> str:
+        """Транслитерирует китайское имя в пиньинь (если установлен pypinyin)."""
+        # Проверяем, есть ли китайские иероглифы (Unicode диапазон CJK)
+        if re.search(r'[\u4e00-\u9fff]', name):
+            try:
+                from pypinyin import pinyin, Style
+                return ''.join([p[0] for p in pinyin(name, style=Style.NORMAL)])
+            except ImportError:
+                return None
+        return name
+
+    def calculate_expression_number(self, name: str) -> Optional[int]:
+        """Число экспрессии (сумма всех букв)."""
+        name = self._transliterate_name(name)
+        if name is None:
+            return None
+        total = 0
+        for char in name:
+            val = self._pythagorean_value(char)
+            if val is not None:
+                total += val
+        return self._reduce_to_master(total)
+
+    def calculate_soul_urge_number(self, name: str) -> Optional[int]:
+        """Число души (только гласные)."""
+        name = self._transliterate_name(name)
+        if name is None:
+            return None
+        vowels = set('аеёиоуыэюяaeiouy')
+        total = 0
+        for char in name:
+            if char.lower() in vowels:
+                val = self._pythagorean_value(char)
+                if val is not None:
+                    total += val
+        return self._reduce_to_master(total)
+
+    def calculate_personality_number(self, name: str) -> Optional[int]:
+        """Число личности (только согласные)."""
+        name = self._transliterate_name(name)
+        if name is None:
+            return None
+        vowels = set('аеёиоуыэюяaeiouy')
+        total = 0
+        for char in name:
+            if char.lower() not in vowels:
+                val = self._pythagorean_value(char)
+                if val is not None:
+                    total += val
+        return self._reduce_to_master(total)
+
+    @staticmethod
+    def calculate_personal_month(birth_date_str: str, target_date_str: str) -> int:
+        """Личный месяц = личный год + номер месяца."""
+        from datetime import datetime
+        birth = datetime.strptime(birth_date_str, '%d.%m.%Y')
+        target = datetime.strptime(target_date_str, '%d.%m.%Y')
+        personal_year = BaseCalculator.calculate_personal_year(birth_date_str, target_date_str)
+        month_num = target.month
+        total = personal_year + month_num
+        return BaseCalculator.reduce_to_single(total)
+
+    @staticmethod
+    def calculate_personal_day(birth_date_str: str, target_date_str: str) -> int:
+        """Личный день = личный месяц + номер дня."""
+        from datetime import datetime
+        target = datetime.strptime(target_date_str, '%d.%m.%Y')
+        personal_month = BaseCalculator.calculate_personal_month(birth_date_str, target_date_str)
+        day_num = target.day
+        total = personal_month + day_num
+        return BaseCalculator.reduce_to_single(total)

@@ -7,7 +7,6 @@ from kerykeion import AstrologicalSubject
 try:
     from kerykeion.transit import TransitSubject
 except ImportError:
-    # Если модуль transit не существует, используем другой способ
     TransitSubject = None
 from .astrology_calculator import AstrologyCalculator
 from .timezone_coords import TIMEZONE_COORDS
@@ -27,27 +26,22 @@ class TransitHoroscopeCalculator(BaseCalculator):
         self.birth_place = user_data.get('birth_place')
         self.name = user_data.get('name', 'Человек')
         self.gender = user_data.get('gender', 'M')
-        self.timezone_offset = user_data.get('timezone_offset', 3)  # по умолчанию UTC+3
+        self.timezone_offset = user_data.get('timezone_offset', 3)
 
-        # Получаем координаты для таймзоны
         tz_info = TIMEZONE_COORDS.get(self.timezone_offset, TIMEZONE_COORDS[3])
         self.transit_lat = tz_info["lat"]
         self.transit_lng = tz_info["lng"]
         self.transit_tz_str = tz_info["tz"]
 
-        # Натальный калькулятор
         self.natal_calc = AstrologyCalculator(user_data)
         self.natal_subject = None
         self.transit_subject = None
         self.aspects = []
 
     def _get_natal_subject(self) -> AstrologicalSubject:
-        """Создаёт натальный субъект"""
         if self.natal_subject is None:
-            # Получаем координаты и часовой пояс через единый метод
             lat, lng, tz_str = self.natal_calc._get_coordinates_and_timezone()
             year, month, day, hour, minute = self.natal_calc._parse_birth_datetime()
-
             self.natal_subject = AstrologicalSubject(
                 name=self.name,
                 year=year,
@@ -62,12 +56,10 @@ class TransitHoroscopeCalculator(BaseCalculator):
         return self.natal_subject
 
     def _get_transit_subject(self):
-        """Создаёт транзитный субъект на текущий момент в таймзоне пользователя"""
         if self.transit_subject is None:
             natal = self._get_natal_subject()
             tz = pytz.timezone(self.transit_tz_str)
             now = datetime.now(tz)
-
             if TransitSubject is not None:
                 self.transit_subject = TransitSubject(
                     natal,
@@ -81,7 +73,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
                     tz_str=self.transit_tz_str,
                 )
             else:
-                # Fallback: создаём обычный AstrologicalSubject для текущего времени
                 self.transit_subject = AstrologicalSubject(
                     name="Transit",
                     year=now.year,
@@ -102,13 +93,11 @@ class TransitHoroscopeCalculator(BaseCalculator):
         natal = self._get_natal_subject()
         transit = self._get_transit_subject()
 
-        # Извлекаем планеты из натального субъекта
         natal_planets = []
         if hasattr(natal, 'planets') and natal.planets:
             for p in natal.planets:
                 natal_planets.append({"name": p.name, "degree": p.position})
         else:
-            # Если нет атрибута planets, пробуем через модель
             model = natal.model() if callable(natal.model) else natal.model
             data = model.dict() if hasattr(model, 'dict') else model.__dict__
             planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
@@ -123,7 +112,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
                         if hasattr(obj, 'position'):
                             natal_planets.append({"name": key.capitalize(), "degree": obj.position})
 
-        # Извлекаем транзитные планеты
         transit_planets = []
         if hasattr(transit, 'planets') and transit.planets:
             for p in transit.planets:
@@ -146,7 +134,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
         logger.info(f"Натальные планеты для транзитов: {len(natal_planets)}")
         logger.info(f"Транзитные планеты: {len(transit_planets)}")
 
-        # Вычисляем аспекты вручную
         aspects = self._get_transit_aspects_manual(natal_planets, transit_planets)
         logger.info(f"✅ Транзитные аспекты (ручной расчёт): {len(aspects)}")
 
@@ -154,20 +141,12 @@ class TransitHoroscopeCalculator(BaseCalculator):
         return aspects
 
     def calculate(self) -> Dict[str, Any]:
-        """
-        Выполняет все расчёты и возвращает данные для промпта.
-        """
-        # 1. Получаем натальный субъект
         natal = self._get_natal_subject()
-
-        # 2. Получаем транзитный субъект и транзитные аспекты
         transit = self._get_transit_subject()
         transit_aspects = self._get_transit_aspects()
 
-        # 3. Получаем натальные астрологические данные (планеты, дома, аспекты, Солнце, Луна, Асцендент)
         natal_chart_data = self._get_natal_chart_data()
 
-        # 4. Базовые нумерологические и астрономические расчёты
         birth_date = self.birth_date or "01.01.2000"
         target_date = datetime.now(pytz.timezone(self.transit_tz_str)).strftime("%d.%m.%Y")
 
@@ -187,19 +166,68 @@ class TransitHoroscopeCalculator(BaseCalculator):
         element = self.get_zodiac_element(zodiac)
         quality = self.get_zodiac_quality(zodiac)
 
-        # 5. Форматируем транзитные аспекты в строку
+        # ---- транзитные аспекты строкой ----
         transit_aspects_str = ""
         if transit_aspects:
             transit_aspects_str = "\n".join(
-                f"- {a['transit_planet']} {a['aspect']} {a['natal_planet']} (орбис: {a['orb']:.2f}°)" for a in
-                transit_aspects
+                f"- {a['transit_planet']} {a['aspect']} {a['natal_planet']} (орбис: {a['orb']:.2f}°)" for a in transit_aspects
             )
 
         gender_text = "Мужчина" if self.gender == 'M' else "Женщина"
+        pronoun = "он" if self.gender == 'M' else "она"
+        possessive = "его" if self.gender == 'M' else "её"
 
-        # 6. Собираем все данные в один словарь
+        # ---- Новые транзитные данные ----
+        # Транзитная Луна (знак, дом)
+        transit_moon = next((p for p in transit.planets if p.name == "Moon"), None)
+        if transit_moon:
+            transit_moon_sign = transit_moon.sign
+            transit_moon_house = transit_moon.house
+        else:
+            transit_moon_sign = "не известно"
+            transit_moon_house = "не известно"
+
+        # Аспекты транзитной Луны к натальным планетам
+        moon_aspects = []
+        try:
+            from kerykeion import AspectsFactory
+            aspects_all = AspectsFactory.dual_chart_aspects(natal, transit)
+            for a in aspects_all.aspects:
+                if a.p1_name == "Moon" or a.p2_name == "Moon":
+                    orb = getattr(a, 'orbit', getattr(a, 'orb', getattr(a, 'orbis', 0.0)))
+                    moon_aspects.append(f"{a.p1_name} {a.aspect} {a.p2_name} (орбис: {orb:.2f}°)")
+        except Exception as e:
+            logger.warning(f"Не удалось получить аспекты Луны: {e}")
+        transit_moon_aspects_str = "\n".join(moon_aspects) if moon_aspects else "Нет значимых аспектов"
+
+        # Ретроградные планеты
+        retrograde_list = []
+        for p in transit.planets:
+            if hasattr(p, 'retrograde') and p.retrograde:
+                retrograde_list.append(p.name)
+        retrograde_planets_str = ", ".join([f"{p} ℞" for p in retrograde_list]) if retrograde_list else "Нет ретроградных планет"
+
+        # Уточнённая освещённость Луны через MoonPhaseDetailsFactory
+        try:
+            from kerykeion import MoonPhaseDetailsFactory
+            moon_phase = MoonPhaseDetailsFactory(transit)
+            moon_illumination = round(moon_phase.illumination)
+        except Exception as e:
+            logger.warning(f"Не удалось получить освещённость Луны через MoonPhaseDetailsFactory: {e}")
+            # оставляем ранее вычисленное значение
+
+        # Куспиды домов (натальные)
+        cusps = []
+        for i in range(1, 13):
+            house = getattr(natal, f"{i}_house", None)
+            if house:
+                cusps.append(f"{i}-й дом: {house.sign} ({house.position:.2f}°)")
+        cusps_str = "\n".join(cusps) if cusps else "не известно"
+
+        # Собираем все данные
         data = {
             "name": self.name,
+            "gender_display": gender_text,
             "gender_text": gender_text,
             "birth_date": birth_date,
             "birth_weekday": birth_weekday,
@@ -223,18 +251,23 @@ class TransitHoroscopeCalculator(BaseCalculator):
             "birthday_note": "СЕГОДНЯ ДЕНЬ РОЖДЕНИЯ! 🎂" if days_to_birthday == 0 else f"До дня рождения: {days_to_birthday} дней",
             "birthday_congrats": "ОБЯЗАТЕЛЬНО поздравь с Днем Рождения и дай мощный энергетический заряд!" if days_to_birthday == 0 else "",
             "transit_aspects": transit_aspects_str,
+            # Новые поля
+            "transit_moon_sign": transit_moon_sign,
+            "transit_moon_house": transit_moon_house,
+            "transit_moon_aspects": transit_moon_aspects_str,
+            "retrograde_planets": retrograde_planets_str,
+            "cusps_list": cusps_str,
+            "pronoun": pronoun,
+            "possessive": possessive,
         }
 
-        # 7. Добавляем натальные астрологические данные (солнце, луна, асцендент, планеты, аспекты)
         data.update(natal_chart_data)
 
         return data
 
     def _get_natal_chart_data(self) -> Dict[str, Any]:
-        """Извлекает из натального субъекта планеты, дома и аспекты (натальные)"""
         subject = self._get_natal_subject()
 
-        # Планеты
         planets = []
         if hasattr(subject, 'planets') and subject.planets:
             for p in subject.planets:
@@ -265,7 +298,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
                             })
         logger.info(f"Натальные планеты: {len(planets)} планет")
 
-        # Дома
         houses = []
         house_keys = ['first_house', 'second_house', 'third_house', 'fourth_house',
                       'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
@@ -288,7 +320,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
                             })
         logger.info(f"Натальные дома: {len(houses)} домов")
 
-        # Аспекты натальной карты (внутренние)
         aspects = []
         try:
             from kerykeion import NatalAspects
@@ -306,7 +337,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
         except Exception as e:
             logger.warning(f"Не удалось получить натальные аспекты: {e}")
 
-        # Определяем Солнце, Луну, Асцендент
         sun_sign = None
         moon_sign = None
         ascendant = None
@@ -338,9 +368,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
         }
 
     def _get_transit_aspects_manual(self, natal_planets: list, transit_planets: list) -> list:
-        """
-        Ручной расчёт аспектов между натальными и транзитными планетами.
-        """
         aspects = []
         aspect_types = {
             'conjunction': 8,
