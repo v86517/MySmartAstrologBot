@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
@@ -41,6 +41,7 @@ from bot.keyboards.keyboards import (
     get_subscription_payment_keyboard, get_fill_profile_keyboard,
     get_support_keyboard, get_horoscope_confirm_keyboard,
     get_language_keyboard,
+    get_main_menu_button,
 )
 from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates, HoroscopeStates
 from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji, get_zodiac_sign_localized
@@ -102,7 +103,6 @@ dp = Dispatcher(storage=storage)
 try:
     gemini_service = GeminiService()
     logger.info("✅ Gemini API успешно инициализирован!")
-    # Передаём ссылку в AstrologyCalculator для использования нейросети
     AstrologyCalculator.gemini_service = gemini_service
 except Exception as e:
     logger.error(f"❌ Ошибка инициализации Gemini: {e}")
@@ -113,10 +113,7 @@ astrology_data = {}
 
 
 def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') -> str:
-    """
-    Форматирует параметры для отображения пользователю.
-    service_type: 'horoscope', 'numerology', 'compatibility', 'astrology'
-    """
+    """Форматирует параметры для отображения пользователю."""
     from bot.locales import TEXTS
     texts = TEXTS.get(lang, TEXTS['ru'])
     lines = []
@@ -215,8 +212,6 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
         lines.append(f"☀️ Освещённость Луны: {prompt_data.get('moon_illumination', '')}%")
 
     elif service_type == 'astrology':
-        # Для астрологии параметры уже формируются через calculator.get_basic_parameters и get_extra_parameters
-        # Эта функция не используется для астрологии, но оставлена для полноты.
         pass
 
     return "\n".join(lines)
@@ -238,7 +233,7 @@ def format_profile_data(data: dict, lang: str) -> str:
         f"🕒 Часовой пояс: UTC+{timezone}"
     )
 
-# ==================== КОМАНДЫ (обрабатываются до общего обработчика) ====================
+# ==================== КОМАНДЫ ====================
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
@@ -266,7 +261,6 @@ async def cmd_start(message: Message, state: FSMContext):
 
 @dp.message(Command("menu"))
 async def cmd_menu(message: Message, state: FSMContext):
-    """Показать главное меню"""
     await state.clear()
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
@@ -277,28 +271,21 @@ async def cmd_menu(message: Message, state: FSMContext):
 @dp.message(Command("test_send"))
 async def test_send(message: Message):
     ADMIN_ID = 5484157606
-
     if message.from_user.id != ADMIN_ID:
         await message.answer("❌ У вас нет доступа к этой команде.")
         return
-
     await message.answer("⏳ Начинаю тестовую рассылку...")
     await send_daily_horoscopes(bot)
 
 
 @dp.message(F.text == "🌐 En/Ru")
 async def change_language(message: Message):
-    """Показать выбор языка"""
     user_id = message.from_user.id
     text = await get_text(user_id, 'choose_language')
-    await message.answer(
-        text,
-        reply_markup=get_language_keyboard()
-    )
+    await message.answer(text, reply_markup=get_language_keyboard())
 
 
 # ==================== ВСЕ ХЕНДЛЕРЫ СОСТОЯНИЙ (FSM) ====================
-# Они должны быть зарегистрированы до общего обработчика, чтобы не перехватывались
 
 # ---- UserDataStates ----
 @dp.message(UserDataStates.WAITING_NAME)
@@ -502,7 +489,6 @@ async def process_gender(message: Message, state: FSMContext):
         await message.answer(await get_text(user_id, 'choose_timezone'), reply_markup=get_timezone_keyboard(lang))
         return
 
-    # ----- Обычный режим (первое заполнение) -----
     if gender not in ["М", "Ж"]:
         await message.answer(await get_text(user_id, 'error_gender_only'), reply_markup=get_cancel_keyboard(lang))
         return
@@ -839,6 +825,9 @@ async def process_person2_gender(message: Message, state: FSMContext):
         zodiac2=zodiac2_name
     )
 
+    # Скрываем клавиатуру перед статусными сообщениями
+    await message.answer("⏳ Анализируем совместимость...", reply_markup=ReplyKeyboardRemove())
+
     status_msg = await message.answer(summary_text)
 
     try:
@@ -867,7 +856,7 @@ async def process_person2_gender(message: Message, state: FSMContext):
             await status_msg.delete()
             result_template = await get_text(user_id, 'compatibility_result')
             result_text = result_template.format(result=final_message)
-            await send_long_message(message, result_text)
+            await send_long_message(message, result_text, reply_markup=get_main_menu_button(lang))
 
             if not await check_subscription_db(user_id):
                 await message.answer(
@@ -1060,6 +1049,9 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         zodiac=zodiac_name
     )
 
+    # Скрываем клавиатуру
+    await message.answer("⏳ Рассчитываем нумерологию...", reply_markup=ReplyKeyboardRemove())
+
     status_msg = await message.answer(profile_text)
 
     try:
@@ -1077,6 +1069,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
 
             allowed_ids = [5484157606, 8790509202]
             if user_id in allowed_ids:
+                # сбор параметров (код не меняется)
                 from bot.calculators.base_calculator import BaseCalculator
                 from bot.calculators.natal_calculator import NatalCalculator
                 calc = BaseCalculator()
@@ -1120,7 +1113,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
             await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
             result_text = result_template.format(result=final_message)
-            await send_long_message(message, result_text)
+            await send_long_message(message, result_text, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -1309,6 +1302,9 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         zodiac=zodiac_name
     )
 
+    # Скрываем клавиатуру
+    await message.answer("⏳ Строим натальную карту...", reply_markup=ReplyKeyboardRemove())
+
     status_msg = await message.answer(profile_text)
 
     try:
@@ -1342,7 +1338,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
             await add_astrology_count(user_id, -1)
 
             await status_msg.delete()
-            await send_long_message(message, final_message)
+            await send_long_message(message, final_message, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -1360,10 +1356,6 @@ async def process_astrology_gender(message: Message, state: FSMContext):
 async def confirm_horoscope_state(message: Message, state: FSMContext):
     # Этот хендлер не используется, т.к. подтверждение гороскопа идёт через callback
     pass
-
-
-# ==================== ОБРАБОТЧИК main_menu (возврат в главное меню) — для callback ====================
-# Он остаётся здесь, но callback обрабатывается позже
 
 
 # ==================== ФУНКЦИИ-ОБРАБОТЧИКИ (без декораторов) ====================
@@ -1409,6 +1401,9 @@ async def start_horoscope(message: Message, state: FSMContext):
             await message.answer(await get_text(user_id, 'error_service_unavailable'))
             return
 
+        # Скрываем клавиатуру
+        await message.answer("⏳ Генерация гороскопа...", reply_markup=ReplyKeyboardRemove())
+
         status_msg = await message.answer(await get_text(user_id, 'horoscope_status_planets'))
         try:
             await asyncio.sleep(1)
@@ -1433,7 +1428,6 @@ async def start_horoscope(message: Message, state: FSMContext):
 
             await status_msg.delete()
 
-            # Формируем и логируем финальное сообщение
             result_template = await get_text(user_id, 'horoscope_result')
             result_text = result_template.format(date=today, horoscope=final_message)
 
@@ -1444,7 +1438,7 @@ async def start_horoscope(message: Message, state: FSMContext):
                 logger.error("❌ result_text пустой!")
                 result_text = "⚠️ Сообщение пустое. Попробуйте позже."
 
-            await send_long_message(message, result_text)
+            await send_long_message(message, result_text, reply_markup=get_main_menu_button(lang))
 
             if not is_subscribed:
                 await message.answer(
@@ -1733,7 +1727,6 @@ async def profile(message: Message):
 
 
 def format_numerology_parameters(data: dict) -> str:
-    """Форматирует нумерологические данные для вывода."""
     lines = [
         "━━━━━━━━━━━━━━━━━━━━━",
         f"👤 Имя: {data.get('name', 'Не указано')}",
@@ -1776,7 +1769,6 @@ def prepare_numerology_prompt_data(user_data: dict) -> dict:
     target_date = datetime.now().strftime('%d.%m.%Y')
     name = user_data.get('name', '')
 
-    # Получаем матричные числа через NatalCalculator
     from bot.calculators import NatalCalculator
     natal_calc = NatalCalculator(
         birth_date=birth_date,
@@ -1828,6 +1820,9 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
+    # Скрываем клавиатуру
+    await callback.message.answer("⏳ Генерация гороскопа...", reply_markup=ReplyKeyboardRemove())
+
     status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
     try:
         await asyncio.sleep(1)
@@ -1840,7 +1835,6 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         horoscope = gemini_service.generate_horoscope(user_data, today, lang)
         await save_message_to_archive(user_id, 'horoscope', horoscope)
 
-        # Проверка на разрешённых пользователей
         allowed_ids = [5484157606, 8790509202]
         if user_id in allowed_ids:
             calc = TransitHoroscopeCalculator(user_data)
@@ -1852,11 +1846,9 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
 
         await status_msg.delete()
 
-        # Формируем финальное сообщение с шаблоном
         result_template = await get_text(user_id, 'horoscope_result')
         result_text = result_template.format(date=today, horoscope=final_message)
 
-        # Логируем для отладки
         logger.info(f"📤 Отправка гороскопа (confirm), длина result_text: {len(result_text)}")
         if len(result_text) > 0:
             logger.info(f"📤 Первые 200 символов: {result_text[:200]}...")
@@ -1864,11 +1856,9 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
             logger.error("❌ result_text пустой!")
             result_text = "⚠️ Сообщение пустое. Попробуйте позже."
 
-        await send_long_message(callback.message, result_text)
+        await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
 
         await state.clear()
-        main_menu_text = await get_text(user_id, 'main_menu_text')
-        await callback.message.answer(main_menu_text, reply_markup=get_main_menu(lang))
     except Exception as e:
         try:
             await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
@@ -1972,6 +1962,9 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         zodiac=zodiac_name
     )
 
+    # Скрываем клавиатуру
+    await callback.message.answer("⏳ Рассчитываем нумерологию...", reply_markup=ReplyKeyboardRemove())
+
     status_msg = await callback.message.answer(profile_text)
 
     try:
@@ -1987,10 +1980,8 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
             await save_message_to_archive(user_id, 'numerology', result)
             await add_numerology_count(user_id, -1)
 
-            # Формируем параметры для разрешённых
             allowed_ids = [5484157606, 8790509202]
             if user_id in allowed_ids:
-                # Собираем параметры
                 from bot.calculators.base_calculator import BaseCalculator
                 from bot.calculators.natal_calculator import NatalCalculator
                 calc = BaseCalculator()
@@ -2034,7 +2025,7 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
             await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
             result_text = result_template.format(result=final_message)
-            await send_long_message(callback.message, result_text)
+            await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -2048,7 +2039,6 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "numerology_fill_new_data")
 async def numerology_fill_new_data(callback: CallbackQuery, state: FSMContext):
-    """Заполнить новые данные для нумерологии"""
     await callback.message.delete()
     await callback.answer()
 
@@ -2072,7 +2062,6 @@ async def numerology_fill_new_data(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "numerology_pay", NumerologyStates.PAYMENT)
 async def numerology_payment(callback: CallbackQuery, state: FSMContext):
-    """Обработка оплаты нумерологии"""
     await callback.message.delete()
     await callback.answer()
 
@@ -2133,6 +2122,9 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         user_data = user_data_from_db
         numerology_data.pop(user_id, None)
 
+    # Скрываем клавиатуру
+    await callback.message.answer("⏳ Рассчитываем нумерологию...", reply_markup=ReplyKeyboardRemove())
+
     status_msg = await callback.message.answer(await get_text(user_id, 'numerology_confirm_start'))
 
     try:
@@ -2192,7 +2184,7 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
             await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
             result_text = result_template.format(result=final_message)
-            await send_long_message(callback.message, result_text)
+            await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -2221,7 +2213,6 @@ async def edit_numerology_data(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "astrology_use_my_data")
 async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
-    """Использовать сохранённые данные для астрологии"""
     await callback.message.delete()
     await callback.answer()
 
@@ -2273,6 +2264,9 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         zodiac=zodiac_name
     )
 
+    # Скрываем клавиатуру
+    await callback.message.answer("⏳ Строим натальную карту...", reply_markup=ReplyKeyboardRemove())
+
     status_msg = await callback.message.answer(profile_text)
 
     try:
@@ -2286,10 +2280,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             calculator = AstrologyCalculator(user_data_from_db)
 
-            # Базовые параметры для всех пользователей
             basic = calculator.get_basic_parameters(lang)
-
-            # Дополнительные данные (планеты, куспиды, аспекты) — только для разрешённых пользователей
             allowed_ids = [5484157606, 8790509202]
             if user_id in allowed_ids:
                 extra = calculator.get_extra_parameters(lang)
@@ -2306,7 +2297,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
             await add_astrology_count(user_id, -1)
 
             await status_msg.delete()
-            await send_long_message(callback.message, final_message)
+            await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -2316,13 +2307,11 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
             await callback.message.answer(f"❌ Ошибка: {str(e)}")
     finally:
         astrology_data.pop(user_id, None)
-        # состояние уже сброшено ранее через await state.clear(), но на всякий случай
         await state.clear()
 
 
 @dp.callback_query(F.data == "astrology_fill_new_data")
 async def astrology_fill_new_data(callback: CallbackQuery, state: FSMContext):
-    """Заполнить новые данные для астрологии"""
     await callback.message.delete()
     await callback.answer()
 
@@ -2346,7 +2335,6 @@ async def astrology_fill_new_data(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "astrology_pay", AstrologyStates.PAYMENT)
 async def astrology_payment(callback: CallbackQuery, state: FSMContext):
-    """Обработка оплаты астрологии"""
     await callback.message.delete()
     await callback.answer()
 
@@ -2407,6 +2395,9 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         user_data = user_data_from_db
         astrology_data.pop(user_id, None)
 
+    # Скрываем клавиатуру
+    await callback.message.answer("⏳ Строим натальную карту...", reply_markup=ReplyKeyboardRemove())
+
     status_msg = await callback.message.answer(await get_text(user_id, 'astrology_confirm_start'))
 
     try:
@@ -2436,7 +2427,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
             await add_astrology_count(user_id, -1)
 
             await status_msg.delete()
-            await send_long_message(callback.message, final_message)
+            await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -2498,7 +2489,6 @@ async def edit_profile(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "fill_and_save")
 async def fill_and_save(callback: CallbackQuery, state: FSMContext):
-    """Начать заполнение профиля"""
     await callback.answer()
     await callback.message.delete()
 
@@ -2608,7 +2598,6 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "edit_timezone")
 async def edit_timezone(callback: CallbackQuery, state: FSMContext):
-    """Начать смену часового пояса"""
     await callback.answer()
     await callback.message.delete()
 
@@ -2651,7 +2640,7 @@ async def send_expert_request(callback: CallbackQuery):
 
     await callback.message.answer(
         await get_text(user_id, 'expert_sent'),
-        reply_markup=get_main_menu(lang)
+        reply_markup=get_main_menu_button(lang)
     )
 
     expert_chat_id = os.getenv('EXPERT_CHAT_ID')
@@ -2737,7 +2726,6 @@ async def refresh_archive(callback: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("archive_"))
 async def show_archive_message(callback: CallbackQuery):
-    """Показать полное сообщение из архива"""
     await callback.answer()
 
     user_id = callback.from_user.id
@@ -2771,7 +2759,7 @@ async def show_archive_message(callback: CallbackQuery):
         type_display = {
             'horoscope': await get_text(user_id, 'type_horoscope'),
             'compatibility': await get_text(user_id, 'type_compatibility'),
-            'natal_chart': await get_text(user_id, 'type_horoscope'),  # если используется
+            'natal_chart': await get_text(user_id, 'type_horoscope'),
             'numerology': await get_text(user_id, 'type_numerology'),
             'astrology': await get_text(user_id, 'type_astrology'),
         }
@@ -2968,7 +2956,6 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
 
-    # ---- Режим редактирования профиля (изменение всех данных) ----
     if is_edit:
         new_data = state_data.get('new_data', {})
         new_data['timezone_offset'] = tz_offset
@@ -2981,7 +2968,6 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(msg, reply_markup=get_profile_keyboard(lang))
         return
 
-    # ---- Режим заполнения профиля через кнопку "Заполнить и Сохранить" ----
     if fill_mode:
         temp_data = state_data.get('temp_data', {})
         temp_data['timezone_offset'] = tz_offset
@@ -2994,7 +2980,6 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(msg, reply_markup=get_profile_keyboard(lang))
         return
 
-    # ---- Режим смены часового пояса (отдельная кнопка) ----
     if is_timezone_edit:
         user = await sync_to_async(User.objects.get)(telegram_id=user_id)
         user.timezone_offset = tz_offset
@@ -3008,7 +2993,6 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(msg, reply_markup=get_profile_keyboard(lang))
         return
 
-    # ---- Обычный режим (первое заполнение) ----
     temp_data = state_data.get('temp_data', {})
     temp_data['timezone_offset'] = tz_offset
     await state.update_data(temp_data=temp_data)
@@ -3056,6 +3040,9 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.delete()
 
+    # Скрываем клавиатуру
+    await callback.message.answer("⏳ Генерация гороскопа...", reply_markup=ReplyKeyboardRemove())
+
     status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
     try:
         await asyncio.sleep(1)
@@ -3081,7 +3068,7 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         await status_msg.delete()
         result_template = await get_text(user_id, 'horoscope_result')
         result_text = result_template.format(date=today, horoscope=final_message)
-        await callback.message.answer(result_text)
+        await callback.message.answer(result_text, reply_markup=get_main_menu_button(lang))
 
         await state.clear()
         if not await check_subscription_db(user_id):
@@ -3089,8 +3076,6 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
                 await get_text(user_id, 'horoscope_promo'),
                 reply_markup=get_subscription_promo_keyboard(lang)
             )
-        main_menu_text = await get_text(user_id, 'main_menu_text')
-        await callback.message.answer(main_menu_text, reply_markup=get_main_menu(lang))
     except Exception as e:
         try:
             await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
@@ -3101,7 +3086,6 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "close_subscription")
 async def close_subscription(callback: CallbackQuery):
-    """Закрывает сообщение с подпиской без лишних сообщений"""
     await callback.answer()
     await callback.message.delete()
     user_id = callback.from_user.id
@@ -3129,16 +3113,22 @@ async def set_language(callback: CallbackQuery):
 
 # ==================== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ====================
 
-async def send_long_message(message: Message, text: str, max_length: int = 4096):
+async def send_long_message(
+    message: Message,
+    text: str,
+    max_length: int = 4096,
+    reply_markup=None
+):
     """
-    Отправляет длинное сообщение, разбивая его на части, каждая не длиннее max_length.
+    Отправляет длинное сообщение, разбивая его на части.
+    Если передан reply_markup, он будет добавлен к последней части.
     """
     if not text or not text.strip():
         await message.answer("⚠️ Сообщение пустое. Попробуйте позже.")
         return
 
     if len(text) <= max_length:
-        await message.answer(text)
+        await message.answer(text, reply_markup=reply_markup)
         logger.info(f"📨 Сообщение отправлено целиком (длина {len(text)} символов)")
         return
 
@@ -3148,25 +3138,18 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
         if len(remaining) <= max_length:
             parts.append(remaining)
             break
-        # Ищем место разрыва: последний перенос строки в пределах max_length
         split_pos = remaining.rfind('\n', 0, max_length)
         if split_pos == -1:
-            # Если нет переноса строки, разбиваем по пробелу
             split_pos = remaining.rfind(' ', 0, max_length)
             if split_pos == -1:
-                # Если нет пробела, режем просто по max_length
                 split_pos = max_length
         part = remaining[:split_pos]
-        # Если часть не пустая – добавляем
         if part.strip():
             parts.append(part)
-        # Удаляем часть и лишние переносы строк в начале следующей части
         remaining = remaining[split_pos:].lstrip('\n')
-        # Если оставшаяся часть состоит только из пробелов, выходим
         if remaining and not remaining.strip():
             break
 
-    # Если в результате не получилось частей, отправляем заглушку
     if not parts:
         await message.answer("⚠️ Не удалось разбить сообщение. Попробуйте позже.")
         return
@@ -3176,7 +3159,10 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
 
     for i, part in enumerate(parts, 1):
         try:
-            if i == 1:
+            if i == total and reply_markup is not None:
+                await message.answer(part, reply_markup=reply_markup)
+                logger.info(f"   ✅ Часть {i}/{total} (последняя) отправлена с клавиатурой, длина {len(part)}")
+            elif i == 1:
                 await message.answer(part)
                 logger.info(f"   ✅ Часть 1/{total} отправлена, длина {len(part)}")
             else:
@@ -3189,22 +3175,20 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
         except Exception as e:
             logger.error(f"❌ Ошибка при отправке части {i}/{total}: {e}")
             try:
-                await message.answer(f"📄 Продолжение ({i}/{total}):\n\n{part}")
+                if i == total and reply_markup is not None:
+                    await message.answer(f"📄 Продолжение ({i}/{total}):\n\n{part}", reply_markup=reply_markup)
+                else:
+                    await message.answer(f"📄 Продолжение ({i}/{total}):\n\n{part}")
             except:
                 logger.error(f"❌ Критическая ошибка отправки части {i}/{total}, часть пропущена")
 
 
-# ==================== ОБЩИЙ ОБРАБОТЧИК ТЕКСТОВЫХ КОМАНД (только если нет активного состояния) ====================
+# ==================== ОБЩИЙ ОБРАБОТЧИК ТЕКСТОВЫХ КОМАНД ====================
 
 @dp.message(F.text)
 async def handle_menu_commands(message: Message, state: FSMContext):
-    """
-    Обрабатывает текстовые команды главного меню.
-    Срабатывает ТОЛЬКО если нет активного FSM-состояния.
-    """
     current_state = await state.get_state()
     if current_state is not None:
-        # Если состояние активно, пропускаем сообщение (оно должно быть обработано хендлером состояния)
         return
 
     user_id = message.from_user.id
@@ -3231,14 +3215,10 @@ async def handle_menu_commands(message: Message, state: FSMContext):
     elif text == texts['menu_profile']:
         await profile(message)
     elif text == texts['menu_language']:
-        # Обработка кнопки переключения языка уже есть отдельно, но продублируем на всякий случай
         await change_language(message)
     else:
-        # Если текст не совпал ни с одной командой, передаём в обработчик неизвестных
         await handle_unknown(message)
 
-
-# ==================== ОБРАБОТЧИК НЕИЗВЕСТНЫХ СООБЩЕНИЙ ====================
 
 @dp.message()
 async def handle_unknown(message: Message):

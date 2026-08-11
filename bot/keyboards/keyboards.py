@@ -375,3 +375,11 @@ def get_language_keyboard():
     builder.button(text="Русский", callback_data="lang_ru")
     builder.adjust(2)
     return builder.as_markup()
+
+
+def get_main_menu_button(lang: str = 'ru'):
+    """Инлайн-кнопка для возврата в главное меню."""
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder = InlineKeyboardBuilder()
+    builder.button(text=texts.get('main_menu_button', '🏠 Главное меню'), callback_data="main_menu")
+    return builder.as_markup()

@@ -349,6 +349,7 @@ TEXTS = {
         'astro_cusps_header': "🏠 Куспиды домов:",
 
         'main_menu': "🏠 Главное меню",
+        'main_menu_button': "🏠 Главное меню",
     },
     'en': {
         # ========== Common ==========
@@ -599,5 +600,7 @@ TEXTS = {
         'astro_cusps_header': "🏠 House cusps:",
 
         'main_menu': "🏠 Main menu",
+
+        'main_menu_button': "🏠 Main menu",
     }
 }
