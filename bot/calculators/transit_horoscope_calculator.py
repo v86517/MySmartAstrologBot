@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import List, Dict, Any, Optional
 import pytz
 
 from kerykeion import AstrologicalSubject
