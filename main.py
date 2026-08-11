@@ -1401,7 +1401,8 @@ async def start_horoscope(message: Message, state: FSMContext):
         return
 
     if not await can_use_feature_db(user_id, 'horoscope'):
-        await message.answer(await get_text(user_id, 'horoscope_free_ready'), reply_markup=get_subscription_keyboard(lang))
+        await message.answer(await get_text(user_id, 'horoscope_free_ready'),
+                             reply_markup=get_subscription_keyboard(lang))
         return
 
     user_data = await get_user_data(user_id)
@@ -1423,7 +1424,6 @@ async def start_horoscope(message: Message, state: FSMContext):
             await save_message_to_archive(user_id, 'horoscope', horoscope)
             await mark_feature_used_db(user_id, 'horoscope')
 
-            # Проверка на разрешённых пользователей
             allowed_ids = [5484157606, 8790509202]
             if user_id in allowed_ids:
                 calc = TransitHoroscopeCalculator(user_data)
@@ -1434,8 +1434,18 @@ async def start_horoscope(message: Message, state: FSMContext):
                 final_message = horoscope
 
             await status_msg.delete()
+
+            # Формируем и логируем финальное сообщение
             result_template = await get_text(user_id, 'horoscope_result')
             result_text = result_template.format(date=today, horoscope=final_message)
+
+            logger.info(f"📤 Отправка гороскопа, длина result_text: {len(result_text)}")
+            if len(result_text) > 0:
+                logger.info(f"📤 Первые 200 символов: {result_text[:200]}...")
+            else:
+                logger.error("❌ result_text пустой!")
+                result_text = "⚠️ Сообщение пустое. Попробуйте позже."
+
             await send_long_message(message, result_text)
 
             if not is_subscribed:
@@ -1832,6 +1842,7 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         horoscope = gemini_service.generate_horoscope(user_data, today, lang)
         await save_message_to_archive(user_id, 'horoscope', horoscope)
 
+        # Проверка на разрешённых пользователей
         allowed_ids = [5484157606, 8790509202]
         if user_id in allowed_ids:
             calc = TransitHoroscopeCalculator(user_data)
@@ -1842,8 +1853,19 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
             final_message = horoscope
 
         await status_msg.delete()
+
+        # Формируем финальное сообщение с шаблоном
         result_template = await get_text(user_id, 'horoscope_result')
         result_text = result_template.format(date=today, horoscope=final_message)
+
+        # Логируем для отладки
+        logger.info(f"📤 Отправка гороскопа (confirm), длина result_text: {len(result_text)}")
+        if len(result_text) > 0:
+            logger.info(f"📤 Первые 200 символов: {result_text[:200]}...")
+        else:
+            logger.error("❌ result_text пустой!")
+            result_text = "⚠️ Сообщение пустое. Попробуйте позже."
+
         await send_long_message(callback.message, result_text)
 
         await state.clear()
@@ -3110,34 +3132,39 @@ async def set_language(callback: CallbackQuery):
 async def send_long_message(message: Message, text: str, max_length: int = 4096):
     """
     Отправляет длинное сообщение, разбивая его на части, каждая не длиннее max_length.
-    Логирует процесс для отладки.
     """
+    # Защита от пустого сообщения
+    if not text or not text.strip():
+        logger.warning("⚠️ Попытка отправить пустое сообщение пропущена")
+        return
+
     if len(text) <= max_length:
         await message.answer(text)
         logger.info(f"📨 Сообщение отправлено целиком (длина {len(text)} символов)")
         return
 
     parts = []
-    # Разбиваем текст на части по max_length символов с учётом переносов строк и пробелов
     remaining = text
     while remaining:
         if len(remaining) <= max_length:
             parts.append(remaining)
             break
-        # Ищем место разрыва: последний перенос строки в пределах max_length
         split_pos = remaining.rfind('\n', 0, max_length)
         if split_pos == -1:
-            # Если нет переноса строки, разбиваем по пробелу (чтобы не резать слова)
             split_pos = remaining.rfind(' ', 0, max_length)
             if split_pos == -1:
-                # Если нет пробела, режем просто по max_length
                 split_pos = max_length
         part = remaining[:split_pos]
-        parts.append(part)
-        # Удаляем часть и лишние переносы строк в начале следующей части
+        # Пропускаем пустые части (они не должны возникать, но на всякий случай)
+        if part.strip():
+            parts.append(part)
         remaining = remaining[split_pos:].lstrip('\n')
 
     total = len(parts)
+    if total == 0:
+        logger.warning("⚠️ Не удалось разбить сообщение на части, сообщение не отправлено")
+        return
+
     logger.info(f"📨 Отправка длинного сообщения: {len(text)} символов, разбито на {total} частей")
 
     for i, part in enumerate(parts, 1):
@@ -3151,11 +3178,9 @@ async def send_long_message(message: Message, text: str, max_length: int = 4096)
                 continuation_text = template.format(i=i, total=total, text=part)
                 await message.answer(continuation_text)
                 logger.info(f"   ✅ Часть {i}/{total} отправлена, длина {len(part)}")
-            # Небольшая задержка, чтобы избежать ограничений Telegram
             await asyncio.sleep(0.3)
         except Exception as e:
             logger.error(f"❌ Ошибка при отправке части {i}/{total}: {e}")
-            # Пробуем отправить простой текст без форматирования, если шаблон не работает
             try:
                 await message.answer(f"📄 Продолжение ({i}/{total}):\n\n{part}")
             except:
