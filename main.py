@@ -3082,7 +3082,8 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         await status_msg.delete()
         result_template = await get_text(user_id, 'horoscope_result')
         result_text = result_template.format(date=today, horoscope=final_message)
-        await callback.message.answer(result_text, reply_markup=get_main_menu_button(lang))
+        # ✅ Используем send_long_message для разбиения длинного сообщения
+        await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
 
         await state.clear()
         if not await check_subscription_db(user_id):
