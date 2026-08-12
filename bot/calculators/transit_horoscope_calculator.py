@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, List
 import pytz
 
 from kerykeion import AstrologicalSubject
+
 try:
     from kerykeion.transit import TransitSubject
 except ImportError:
@@ -91,6 +92,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
         return self.transit_chart
 
     def _extract_planets_from_chart(self, chart_data: Dict[str, Any]) -> List[Dict]:
+        """Извлекает планеты из словаря карты (для транзитной карты)."""
         planet_keys = [
             'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
             'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith',
@@ -186,28 +188,34 @@ class TransitHoroscopeCalculator(BaseCalculator):
 
     def calculate(self) -> Dict[str, Any]:
         natal_chart = self._get_natal_chart()
-        natal_planets = self._extract_planets_from_chart(natal_chart)
-        natal_houses = natal_chart.get('houses', [])
 
+        # Используем готовый список планет из натальной карты (уже извлечены в AstrologyCalculator)
+        natal_planets = natal_chart.get('planets', [])
+        natal_houses = natal_chart.get('houses', [])
+        natal_aspects = natal_chart.get('aspects', [])
+
+        # Для транзитной карты извлекаем планеты из модели
         transit_chart = self._get_transit_chart()
         transit_planets = self._extract_planets_from_chart(transit_chart)
 
+        # Рассчитываем транзитные аспекты
         transit_aspects = self._get_transit_aspects_manual(natal_planets, transit_planets)
 
-        # Находим Солнце и Луну с логированием
-        logger.info(f"Доступные планеты: {[p['name'] for p in natal_planets]}")
+        # Логирование для отладки
+        logger.info(f"Доступные натальные планеты: {[p['name'] for p in natal_planets]}")
         sun = next((p for p in natal_planets if p['name'].lower() == 'sun'), None)
         moon = next((p for p in natal_planets if p['name'].lower() == 'moon'), None)
-        logger.info(f"Найден Sun: {sun}")
-        logger.info(f"Найден Moon: {moon}")
+        logger.info(f"Найден Sun: {sun['sign'] if sun else None}")
+        logger.info(f"Найден Moon: {moon['sign'] if moon else None}")
 
         ascendant = natal_houses[0]['sign'] if natal_houses else 'не известно'
 
+        # Формируем строки для подстановки в промпт
         planets_str = "\n".join(
             f"- {p['name']} в {p['sign']} ({p['degree']:.2f}°) в {p['house']} доме"
             for p in natal_planets
-        )
-        natal_aspects = natal_chart.get('aspects', [])
+        ) if natal_planets else "не известно"
+
         aspects_str = "\n".join(
             f"- {a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)" for a in natal_aspects
         ) if natal_aspects else "не известно"
@@ -230,7 +238,8 @@ class TransitHoroscopeCalculator(BaseCalculator):
         transit_moon_aspects = "\n".join(moon_aspects) if moon_aspects else "Нет значимых аспектов"
 
         retrograde_list = [p['name'] for p in transit_planets if p.get('retrograde', False)]
-        retrograde_planets = ", ".join([f"{p} ℞" for p in retrograde_list]) if retrograde_list else "Нет ретроградных планет"
+        retrograde_planets = ", ".join(
+            [f"{p} ℞" for p in retrograde_list]) if retrograde_list else "Нет ретроградных планет"
 
         target_date = datetime.now(pytz.timezone(self.transit_tz_str)).strftime("%d.%m.%Y")
         birth_date = self.birth_date or "01.01.2000"
@@ -289,7 +298,8 @@ class TransitHoroscopeCalculator(BaseCalculator):
             "transit_moon_aspects": transit_moon_aspects,
             "retrograde_planets": retrograde_planets,
             "transit_aspects": "\n".join(
-                f"- {a['transit_planet']} {a['aspect']} {a['natal_planet']} (орбис: {a['orb']:.2f}°)" for a in transit_aspects
+                f"- {a['transit_planet']} {a['aspect']} {a['natal_planet']} (орбис: {a['orb']:.2f}°)" for a in
+                transit_aspects
             ) if transit_aspects else "Нет значимых транзитных аспектов",
             "pronoun": "он" if self.gender == 'M' else "она",
             "possessive": "его" if self.gender == 'M' else "её",
