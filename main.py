@@ -2076,7 +2076,7 @@ async def numerology_payment(callback: CallbackQuery, state: FSMContext):
 
     result = yookassa.create_payment(
         user_id=user_id,
-        amount=888.00,
+        amount=12.00, #amount=888.00,
         description=f"Нумерология (ID: {user_id})",
         payment_type='numerology'
     )
@@ -2349,7 +2349,7 @@ async def astrology_payment(callback: CallbackQuery, state: FSMContext):
 
     result = yookassa.create_payment(
         user_id=user_id,
-        amount=999.00,
+        amount=13.00, #amount=999.00,
         description=f"Астрология (ID: {user_id})",
         payment_type='astrology'
     )
@@ -2678,7 +2678,7 @@ async def subscribe_payment(callback: CallbackQuery):
 
     result = yookassa.create_payment(
         user_id=user_id,
-        amount=333.00,
+        amount=11.00, #amount=333.00,
         description=f"Подписка на астробота (ID: {user_id})",
         payment_type='subscription'
     )

@@ -7,9 +7,82 @@ from bot.utils.helpers import get_text
 from aiogram import Bot
 import asyncio
 import logging
-import pytz
 
 logger = logging.getLogger(__name__)
+
+
+async def send_long_message_direct(bot: Bot, chat_id: int, text: str, max_length: int = 4096, reply_markup=None):
+    """
+    Отправляет длинное сообщение напрямую (без объекта Message), разбивая на части.
+    """
+    if not text or not text.strip():
+        logger.warning("⚠️ Попытка отправить пустое сообщение")
+        return
+
+    if len(text) <= max_length:
+        await bot.send_message(chat_id, text, reply_markup=reply_markup)
+        return
+
+    # Разбиваем по строкам
+    lines = text.split('\n')
+    parts = []
+    current_part = ""
+
+    for line in lines:
+        if len(line) > max_length:
+            if current_part:
+                parts.append(current_part)
+                current_part = ""
+            for i in range(0, len(line), max_length):
+                chunk = line[i:i+max_length]
+                parts.append(chunk)
+            continue
+
+        if len(current_part) + len(line) + 1 > max_length:
+            parts.append(current_part)
+            current_part = line
+        else:
+            if current_part:
+                current_part += '\n' + line
+            else:
+                current_part = line
+
+    if current_part:
+        parts.append(current_part)
+
+    # Финальная проверка (если какая-то часть всё ещё длиннее)
+    final_parts = []
+    for p in parts:
+        if len(p) > max_length:
+            for i in range(0, len(p), max_length):
+                final_parts.append(p[i:i+max_length])
+        else:
+            final_parts.append(p)
+
+    if not final_parts:
+        logger.error("❌ Не удалось разбить сообщение")
+        return
+
+    total = len(final_parts)
+    logger.info(f"📨 Отправка длинного сообщения: {len(text)} символов, разбито на {total} частей")
+
+    for i, part in enumerate(final_parts, 1):
+        try:
+            if i == total and reply_markup is not None:
+                await bot.send_message(chat_id, part, reply_markup=reply_markup)
+            else:
+                await bot.send_message(chat_id, part)
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            logger.error(f"❌ Ошибка при отправке части {i}/{total}: {e}")
+            try:
+                short_part = part[:max_length]
+                if i == total and reply_markup is not None:
+                    await bot.send_message(chat_id, f"📄 Продолжение ({i}/{total}):\n\n{short_part}", reply_markup=reply_markup)
+                else:
+                    await bot.send_message(chat_id, f"📄 Продолжение ({i}/{total}):\n\n{short_part}")
+            except:
+                logger.error(f"❌ Критическая ошибка отправки части {i}/{total}, часть пропущена")
 
 
 async def send_daily_horoscopes(bot: Bot):
@@ -31,9 +104,7 @@ async def send_daily_horoscopes(bot: Bot):
 
     for user in subscribers:
         tz_offset = user.timezone_offset  # int (1..12)
-        # Локальное время пользователя
         user_now = now_utc + timedelta(hours=tz_offset)
-        # Проверяем, что сейчас 8:00 (ровно)
         if user_now.hour == 8 and user_now.minute == 0:
             try:
                 user_id = user.telegram_id
@@ -42,27 +113,20 @@ async def send_daily_horoscopes(bot: Bot):
                     logger.warning(f"⚠️ Нет данных для пользователя {user_id}")
                     continue
 
-                # Определяем язык пользователя
                 lang = await get_user_language(user_id)
-
-                # Определяем правильную дату для пользователя (сегодня по его времени)
                 today = user_now.strftime("%d.%m.%Y")
-
-                # Генерируем гороскоп
                 horoscope = gemini.generate_horoscope(user_data, today, lang)
-
-                # Сохраняем в архив
                 await save_message_to_archive(user_id, 'horoscope', horoscope)
 
-                # Получаем локализованный шаблон и подставляем дату и гороскоп
                 template = await get_text(user_id, 'horoscope_result')
                 text = template.format(date=today, horoscope=horoscope)
 
-                # Отправляем
-                await bot.send_message(user_id, text)
+                # Используем функцию с разбиением
+                await send_long_message_direct(bot, user_id, text)
+
                 sent += 1
                 logger.info(f"✅ Отправлен гороскоп пользователю {user_id} (UTC+{tz_offset})")
-                await asyncio.sleep(0.5)  # небольшая задержка
+                await asyncio.sleep(0.5)
             except Exception as e:
                 errors += 1
                 logger.error(f"❌ Ошибка отправки пользователю {user.telegram_id}: {e}")
@@ -73,24 +137,17 @@ async def send_daily_horoscopes(bot: Bot):
 
 
 def setup_scheduler(bot: Bot):
-    """
-    Настройка планировщика – запуск каждый час в 0 минут.
-    """
     scheduler = AsyncIOScheduler(timezone="UTC")
-
     scheduler.add_job(
         send_daily_horoscopes,
-        CronTrigger(minute=0),  # каждый час
+        CronTrigger(minute=0),
         args=[bot],
         id="daily_horoscope",
         replace_existing=True
     )
-
     scheduler.start()
     logger.info("⏰ Планировщик запущен! Проверка будет выполняться каждый час.")
-
     job = scheduler.get_job("daily_horoscope")
     if job and job.next_run_time:
         logger.info(f"Следующий запуск (UTC): {job.next_run_time}")
-
     return scheduler
