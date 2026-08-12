@@ -213,8 +213,8 @@ class TransitHoroscopeCalculator(BaseCalculator):
         transit_aspects = self._get_transit_aspects_manual(natal_planets, transit_planets)
 
         # 4. Определяем Солнце, Луну, Асцендент из натальной карты
-        sun = next((p for p in natal_planets if p['name'] == 'Sun'), None)
-        moon = next((p for p in natal_planets if p['name'] == 'Moon'), None)
+        sun = next((p for p in natal_planets if p['name'].lower() == 'sun'), None)
+        moon = next((p for p in natal_planets if p['name'].lower() == 'moon'), None)
         ascendant = natal_houses[0]['sign'] if natal_houses else 'не известно'
 
         # 5. Формируем строки для планет и аспектов

@@ -104,8 +104,8 @@ class GeminiService:
         from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
         calculator = TransitHoroscopeCalculator(user_data)
         prompt_data = calculator.calculate()
-        if date:
-            prompt_data['target_date'] = date
+        #if date:
+        #    prompt_data['target_date'] = date
         # Дополнительные поля (gender_display, pronoun, possessive уже есть в prompt_data)
         # Убедимся, что они есть
         return self.generate_from_prompt(prompt_data, 'prompt_horoscope.txt', lang)

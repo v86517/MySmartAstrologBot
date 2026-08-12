@@ -139,6 +139,21 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
         lines.append(f"🏠 Транзитная Луна в доме: {prompt_data.get('transit_moon_house', '')}")
         lines.append(f"🔮 Аспекты транзитной Луны:\n{prompt_data.get('transit_moon_aspects', '')}")
         lines.append(f"🔄 Ретроградные планеты: {prompt_data.get('retrograde_planets', '')}")
+        # Натальные планеты, аспекты и транзитные аспекты (только для разрешённых пользователей)
+        if prompt_data.get('planets_list'):
+            lines.append("")
+            lines.append("🪐 Натальные планеты в знаках и домах:")
+            lines.append(prompt_data.get('planets_list', ''))
+
+        if prompt_data.get('aspects_list'):
+            lines.append("")
+            lines.append("🔮 Натальные аспекты:")
+            lines.append(prompt_data.get('aspects_list', ''))
+
+        if prompt_data.get('transit_aspects'):
+            lines.append("")
+            lines.append("🌟 Транзитные аспекты на сегодня:")
+            lines.append(prompt_data.get('transit_aspects', ''))
         if prompt_data.get('cusps_list'):
             lines.append("")
             lines.append("🏠 Куспиды домов:")
