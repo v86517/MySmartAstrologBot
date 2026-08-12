@@ -139,6 +139,10 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
         lines.append(f"🏠 Транзитная Луна в доме: {prompt_data.get('transit_moon_house', '')}")
         lines.append(f"🔮 Аспекты транзитной Луны:\n{prompt_data.get('transit_moon_aspects', '')}")
         lines.append(f"🔄 Ретроградные планеты: {prompt_data.get('retrograde_planets', '')}")
+        # Логирование для отладки
+        logger.info(f"planets_list в format_parameters: {prompt_data.get('planets_list')}")
+        logger.info(f"aspects_list в format_parameters: {prompt_data.get('aspects_list')}")
+        logger.info(f"transit_aspects в format_parameters: {prompt_data.get('transit_aspects')}")
         # Натальные планеты, аспекты и транзитные аспекты (только для разрешённых пользователей)
         if prompt_data.get('planets_list'):
             lines.append("")
@@ -1437,7 +1441,7 @@ async def start_horoscope(message: Message, state: FSMContext):
                 calc = TransitHoroscopeCalculator(user_data)
                 prompt_data = calc.calculate()
                 parameters_text = format_parameters(prompt_data, 'horoscope', lang)
-                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{horoscope}"
+                final_message = f"{parameters_text}\n\n{horoscope}"
             else:
                 final_message = horoscope
 
@@ -1855,7 +1859,7 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
             calc = TransitHoroscopeCalculator(user_data)
             prompt_data = calc.calculate()
             parameters_text = format_parameters(prompt_data, 'horoscope', lang)
-            final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{horoscope}"
+            final_message = f"{parameters_text}\n\n{horoscope}"
         else:
             final_message = horoscope
 
@@ -3075,7 +3079,7 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
             calc = TransitHoroscopeCalculator(temp_data)
             prompt_data = calc.calculate()
             parameters_text = format_parameters(prompt_data, 'horoscope', lang)
-            final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{horoscope}"
+            final_message = f"{parameters_text}\n\n{horoscope}"
         else:
             final_message = horoscope
 
