@@ -333,8 +333,7 @@ async def cmd_menu(message: Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
-    main_menu_text = await get_text(user_id, 'main_menu_text')
-    await message.answer(main_menu_text, reply_markup=get_main_menu(lang))
+    await message.answer("🏠", reply_markup=get_main_menu(lang))
 
 
 @dp.message(Command("test_send"))
@@ -3072,9 +3071,9 @@ async def process_zodiac_choice(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "main_menu")
 async def back_to_main_menu(callback: CallbackQuery):
     await callback.answer()
+    await callback.message.delete()
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    # Отправляем Reply-клавиатуру отдельным сообщением, не удаляя предыдущее
     await callback.message.answer("🏠", reply_markup=get_main_menu(lang))
 
 
@@ -3095,8 +3094,7 @@ async def cancel_horoscope(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    main_menu_text = await get_text(user_id, 'main_menu_text')
-    await callback.message.answer(main_menu_text, reply_markup=get_main_menu(lang))
+    await callback.message.answer("🏠", reply_markup=get_main_menu(lang))
 
 
 @dp.callback_query(F.data.startswith("tz_"), UserDataStates.WAITING_TIMEZONE)
@@ -3249,8 +3247,7 @@ async def close_subscription(callback: CallbackQuery):
     await callback.message.delete()
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    main_menu_text = await get_text(user_id, 'main_menu_text')
-    await callback.message.answer(main_menu_text, reply_markup=get_main_menu(lang))
+    await callback.message.answer("🏠", reply_markup=get_main_menu(lang))
 
 
 @dp.callback_query(F.data.startswith("lang_"))
