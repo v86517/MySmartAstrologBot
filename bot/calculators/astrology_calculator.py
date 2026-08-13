@@ -494,33 +494,26 @@ class AstrologyCalculator:
             # 2. Получаем координаты места рождения
             lat, lng, tz_str = self._get_coordinates_and_timezone()
 
-            # 3. Создаём наблюдателя для расчёта звёздного времени
+            # 3. Создаём наблюдателя для расчёта звёздного времени (на месте рождения)
             obs = ephem.Observer()
             obs.lat = str(lat)
             obs.lon = str(lng)
             obs.date = date_str
 
-            # 4. Получаем Гринвичское звёздное время (GST) на момент рождения
-            gst_rad = obs.sidereal_time()  # в радианах
-            gst_hours = gst_rad * 12 / pi  # переводим в часы (0–24)
+            # 4. Гринвичское звёздное время (GST) в радианах и часах
+            gst_rad = obs.sidereal_time()  # радианы
+            gst_hours = gst_rad * 12 / pi  # часы (0–24)
 
-            # 5. Наклон эклиптики на дату рождения
-            obliquity_rad = ephem.obliquity(ephem.Date(date_str))
-
-            # 6. Список планет для анализа
+            # 5. Список планет
             planet_names = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn']
 
-            # 7. Для каждой планеты вычисляем линии
             lines_by_planet = {}
 
             for name in planet_names:
                 body = getattr(ephem, name)()
                 body.compute(ephem.Date(date_str))
 
-                # Эклиптическая долгота (в градусах) – для справки
-                lon_deg = degrees(body.hlon)
-
-                # Прямое восхождение (в часах)
+                # Прямое восхождение (RA) в часах
                 ra_hours = body.ra * 12 / pi
 
                 # Списки долгот для каждой линии
@@ -534,23 +527,23 @@ class AstrologyCalculator:
                     # Местное звёздное время = GST + долгота (1 час = 15°)
                     lst = (gst_hours + lon_deg / 15) % 24
 
-                    # Проверяем совпадение с RA планеты с небольшим допуском (0.4 часа ≈ 6°)
-                    threshold = 0.4
+                    # Порог совпадения (0.3 часа ≈ 4.5°)
+                    threshold = 0.3
 
                     # MC – планета в верхней кульминации (RA == LST)
-                    if abs(lst - ra_hours) < threshold:
+                    if abs(lst - ra_hours) % 24 < threshold:
                         mc.append(lon_deg)
 
                     # IC – планета в нижней кульминации (RA == LST + 12h)
-                    if abs((lst - (ra_hours + 12) % 24)) < threshold:
+                    if abs((lst - (ra_hours + 12) % 24)) % 24 < threshold:
                         ic.append(lon_deg)
 
                     # ASC – планета восходит (RA == LST + 6h)
-                    if abs((lst - (ra_hours + 6) % 24)) < threshold:
+                    if abs((lst - (ra_hours + 6) % 24)) % 24 < threshold:
                         asc.append(lon_deg)
 
                     # DSC – планета заходит (RA == LST + 18h)
-                    if abs((lst - (ra_hours + 18) % 24)) < threshold:
+                    if abs((lst - (ra_hours + 18) % 24)) % 24 < threshold:
                         dsc.append(lon_deg)
 
                 # Сохраняем результаты, если есть хотя бы одна линия
@@ -588,7 +581,6 @@ class AstrologyCalculator:
             }
 
             for planet, lines in lines_by_planet.items():
-                # Если выводим на русском, переводим названия
                 if lang == 'ru':
                     planet_display = planet_names_ru.get(planet, planet)
                     line_desc = []
@@ -602,7 +594,6 @@ class AstrologyCalculator:
                         line_desc.append(f"DSC: {', '.join(map(str, lines['DSC']))}°")
                     result_lines.append(f"• {planet_display}: " + "; ".join(line_desc))
                 else:
-                    # Английский вариант – оставляем названия планет и линий на английском
                     line_desc = []
                     if lines['MC']:
                         line_desc.append(f"MC: {', '.join(map(str, lines['MC']))}°")
@@ -615,10 +606,9 @@ class AstrologyCalculator:
                     result_lines.append(f"• {planet}: " + "; ".join(line_desc))
 
             # Добавляем краткое пояснение
-            if lang == 'ru':
-                note = "\n\n*Примечание: линии рассчитаны приблизительно (погрешность ~6°). Для точного анализа используйте специализированные сервисы.*"
-            else:
-                note = "\n\n*Note: lines are approximate (error ~6°). For precise analysis, use specialized services.*"
+            note = ("\n\n*Примечание: линии рассчитаны приблизительно (погрешность ~4.5°). "
+                    "Для точного анализа используйте специализированные сервисы.*" if lang == 'ru'
+                    else "\n\n*Note: lines are approximate (error ~4.5°). For precise analysis, use specialized services.*")
 
             return "\n".join(result_lines) + note
 
