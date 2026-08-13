@@ -1472,6 +1472,51 @@ async def start_horoscope(message: Message, state: FSMContext):
         await message.answer(await get_text(user_id, 'horoscope_intro'), reply_markup=get_cancel_keyboard(lang))
 
 
+async def start_compatibility(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    lang = await get_user_language(user_id)
+
+    if not await can_use_feature_db(user_id, 'compatibility'):
+        await message.answer(
+            await get_text(user_id, 'compatibility_limit'),
+            reply_markup=get_subscription_keyboard(lang)
+        )
+        return
+
+    user_data = await get_user_data(user_id)
+
+    if user_data and user_data.get('name'):
+        zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+        zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
+        gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'
+
+        template = await get_text(user_id, 'compatibility_use_data')
+        profile_text = template.format(
+            name=user_data.get('name', 'Не указано'),
+            birth_date=user_data.get('birth_date', 'Не указана'),
+            birth_time=user_data.get('birth_time', 'Не указано'),
+            birth_place=user_data.get('birth_place', 'Не указано'),
+            gender=gender_display,
+            emoji=zodiac_emoji,
+            zodiac=zodiac_name
+        )
+
+        await message.answer(
+            profile_text,
+            reply_markup=get_compatibility_keyboard(lang)
+        )
+
+        await state.update_data(person1_data=user_data)
+        await state.set_state(CompatibilityStates.CONFIRM_DATA)
+
+    else:
+        await state.set_state(CompatibilityStates.WAITING_PERSON1_NAME)
+        await message.answer(
+            await get_text(user_id, 'compatibility_intro'),
+            reply_markup=get_cancel_keyboard(lang)
+        )
+
+
 async def start_numerology(message: Message, state: FSMContext):
     """Начало оформления нумерологии"""
     user_id = message.from_user.id
