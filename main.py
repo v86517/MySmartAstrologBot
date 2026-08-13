@@ -575,7 +575,9 @@ async def process_gender(message: Message, state: FSMContext):
     profile_text = format_profile_data(data, lang)
     privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
 
-    save_text = await get_text(user_id, 'profile_save_confirm').format(
+    # ПОЛУЧАЕМ ТЕКСТ, А ПОТОМ ПРИМЕНЯЕМ .format()
+    save_template = await get_text(user_id, 'profile_save_confirm')
+    save_text = save_template.format(
         profile=profile_text,
         privacy_url=privacy_url
     )
