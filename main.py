@@ -198,7 +198,7 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
         lines.append(f"  Внутренний паспорт: {prompt_data.get('v_top', '')}")
 
     elif service_type == 'compatibility':
-        #lines.append("💕 Анализ совместимости")
+        lines.append("💕 Анализ совместимости")
         lines.append("")
         lines.append(f"👤 Человек 1: {prompt_data.get('p1_name', '')}")
         lines.append(f"⚥ Пол: {prompt_data.get('p1_gender_text', '')}")
@@ -208,9 +208,17 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
         lines.append(f"☀️ Солнце: {prompt_data.get('p1_sun_sign', '')}")
         lines.append(f"🌙 Луна: {prompt_data.get('p1_moon_sign', '')}")
         lines.append(f"⬆️ Асцендент: {prompt_data.get('p1_ascendant', '')}")
-        if prompt_data.get('p1_cusps_list'):
+        if prompt_data.get('p1_cusps_list') and prompt_data.get('p1_cusps_list') != "не известно":
             lines.append("🏠 Куспиды домов:")
             lines.append(prompt_data.get('p1_cusps_list', ''))
+        if prompt_data.get('p1_planets_list') and prompt_data.get('p1_planets_list') != "не известно":
+            lines.append("")
+            lines.append("🪐 Натальные планеты в знаках и домах (Человек 1):")
+            lines.append(prompt_data.get('p1_planets_list', ''))
+        if prompt_data.get('p1_aspects_list') and prompt_data.get('p1_aspects_list') != "не известно":
+            lines.append("")
+            lines.append("🔮 Натальные аспекты (Человек 1):")
+            lines.append(prompt_data.get('p1_aspects_list', ''))
         lines.append("")
         lines.append(f"👤 Человек 2: {prompt_data.get('p2_name', '')}")
         lines.append(f"⚥ Пол: {prompt_data.get('p2_gender_text', '')}")
@@ -220,9 +228,17 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
         lines.append(f"☀️ Солнце: {prompt_data.get('p2_sun_sign', '')}")
         lines.append(f"🌙 Луна: {prompt_data.get('p2_moon_sign', '')}")
         lines.append(f"⬆️ Асцендент: {prompt_data.get('p2_ascendant', '')}")
-        if prompt_data.get('p2_cusps_list'):
+        if prompt_data.get('p2_cusps_list') and prompt_data.get('p2_cusps_list') != "не известно":
             lines.append("🏠 Куспиды домов:")
             lines.append(prompt_data.get('p2_cusps_list', ''))
+        if prompt_data.get('p2_planets_list') and prompt_data.get('p2_planets_list') != "не известно":
+            lines.append("")
+            lines.append("🪐 Натальные планеты в знаках и домах (Человек 2):")
+            lines.append(prompt_data.get('p2_planets_list', ''))
+        if prompt_data.get('p2_aspects_list') and prompt_data.get('p2_aspects_list') != "не известно":
+            lines.append("")
+            lines.append("🔮 Натальные аспекты (Человек 2):")
+            lines.append(prompt_data.get('p2_aspects_list', ''))
         lines.append("")
         lines.append(f"🔮 Синастрические аспекты:\n{prompt_data.get('aspects_synastry_list', '')}")
         lines.append(f"📅 Дата: {prompt_data.get('target_date', '')}")
