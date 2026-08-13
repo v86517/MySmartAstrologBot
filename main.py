@@ -3195,13 +3195,13 @@ async def save_data(callback: CallbackQuery, state: FSMContext):
     await save_user_data(user_id, temp_data)
     await state.clear()
 
-    # Убираем часовой пояс из отображаемого профиля
+    # Формируем профиль без часового пояса
     profile_text = format_profile_data(temp_data, lang, show_timezone=False)
     template = await get_text(user_id, 'profile_data_saved')
     msg = template.format(profile=profile_text)
     await callback.message.edit_text(
         f"{msg}\n\n{await get_text(user_id, 'profile_continue_prompt')}",
-        reply_markup=get_after_save_keyboard(lang)
+        reply_markup=get_main_menu_button(lang)  # ← вместо get_after_save_keyboard
     )
 
 
