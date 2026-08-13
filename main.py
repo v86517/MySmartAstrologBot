@@ -547,6 +547,7 @@ async def process_gender(message: Message, state: FSMContext):
     logger.info(f"📝 Шаг ПОЛ, is_edit={is_edit}, new_data до: {new_data}")
 
     if is_edit:
+        # Режим редактирования профиля — оставляем как было
         if gender in ["М", "Ж"]:
             new_data['gender'] = 'M' if gender == 'М' else 'F'
             logger.info(f"📝 Шаг ПОЛ, обновлён пол: {new_data['gender']}")
@@ -558,6 +559,7 @@ async def process_gender(message: Message, state: FSMContext):
         await message.answer(await get_text(user_id, 'choose_timezone'), reply_markup=get_timezone_keyboard(lang))
         return
 
+    # ----- Обычный режим (первое заполнение) -----
     if gender not in ["М", "Ж"]:
         await message.answer(await get_text(user_id, 'error_gender_only'), reply_markup=get_cancel_keyboard(lang))
         return
@@ -565,12 +567,24 @@ async def process_gender(message: Message, state: FSMContext):
     db_gender = 'M' if gender == 'М' else 'F'
     data = await state.get_data()
     data['gender'] = db_gender
+    # Устанавливаем часовой пояс по умолчанию (UTC+3)
+    data['timezone_offset'] = 3
     await state.update_data(temp_data=data)
 
-    await state.set_state(UserDataStates.WAITING_TIMEZONE)
+    # Формируем профиль для отображения
+    profile_text = format_profile_data(data, lang)
+    privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
+
+    save_text = await get_text(user_id, 'profile_save_confirm').format(
+        profile=profile_text,
+        privacy_url=privacy_url
+    )
+
+    await state.set_state(UserDataStates.ASKING_SAVE)
     await message.answer(
-        "🕒 Выберите ваш часовой пояс:\nЭто нужно для точного расчёта гороскопа и отправки прогнозов.",
-        reply_markup=get_timezone_keyboard(lang)
+        save_text,
+        reply_markup=get_save_data_keyboard(lang),
+        parse_mode="Markdown"
     )
 
 
