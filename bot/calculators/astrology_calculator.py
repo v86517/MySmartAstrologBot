@@ -27,7 +27,6 @@ class AstrologyCalculator:
     MAJOR_ASPECTS = {'conjunction', 'opposition', 'trine', 'square', 'sextile'}
     MAX_ORB = 5.0
 
-    # Статическая переменная для доступа к нейросети (устанавливается из main.py)
     gemini_service = None
 
     def __init__(self, user_data: Dict[str, Any]):
@@ -64,16 +63,11 @@ class AstrologyCalculator:
         return city, country
 
     def _get_coordinates_and_timezone(self) -> Tuple[float, float, str]:
-        """
-        Определяет координаты и часовой пояс для места рождения.
-        Возвращает (lat, lng, tz_str).
-        """
         city, country = self._parse_birth_place()
-        if not city:  # если место не указано вообще
+        if not city:
             logger.warning("Место рождения не указано. Используем Москву")
             return self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
 
-        # 1. Пробуем геокодеры
         coords = self._get_coordinates_geocoder(city, country)
         if coords:
             lat, lng = coords['lat'], coords['lng']
@@ -82,7 +76,6 @@ class AstrologyCalculator:
                 logger.info(f"✅ Найдено через геокодер: {city}, {country} ({lat}, {lng}, {tz_str})")
                 return lat, lng, tz_str
 
-        # 2. Если геокодеры не нашли – пробуем нейросеть
         if self.__class__.gemini_service:
             logger.info(f"🌐 Геокодер не нашёл {city}, {country}. Пробуем нейросеть...")
             result = self._ask_gemini_for_coords(city, country)
@@ -95,7 +88,6 @@ class AstrologyCalculator:
         else:
             logger.warning("⚠️ Gemini сервис не доступен для определения координат")
 
-        # 3. Если нейросеть не помогла, пробуем найти столицу страны через геокодер
         if country and country != "RU":
             logger.info(f"🌐 Пробуем найти столицу страны {country} через геокодер...")
             capital_coords = self._get_capital_coords(country)
@@ -106,7 +98,6 @@ class AstrologyCalculator:
                     logger.info(f"✅ Найдена столица {country}: ({lat}, {lng}, {tz_str})")
                     return lat, lng, tz_str
 
-        # 4. Всё провалилось – Москва
         logger.warning(f"❌ Не удалось определить координаты для {city}, {country}. Используем Москву.")
         return self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
 
@@ -230,8 +221,7 @@ class AstrologyCalculator:
         else:
             data = model_data.__dict__
 
-        logger.info(f"Ключи данных: {list(data.keys()) if isinstance(data, dict) else 'не словарь'}")
-
+        # Добавляем астероид Гигиея в список ключей (если есть)
         planet_keys = [
             'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
             'uranus', 'neptune', 'pluto', 'chiron', 'pholus',
@@ -244,7 +234,8 @@ class AstrologyCalculator:
             'deneb', 'altair', 'rigel', 'achernar', 'capella', 'vega',
             'alcyone', 'alphecca', 'algorab', 'deneb_algedi', 'alkaid',
             'pars_fortunae', 'pars_spiritus', 'pars_amoris', 'pars_fidei',
-            'vertex', 'anti_vertex'
+            'vertex', 'anti_vertex',
+            'hygeia'  # добавлен астероид Гигиея для медицинских показателей
         ]
 
         planets = []
@@ -267,7 +258,6 @@ class AstrologyCalculator:
                             "degree": getattr(obj, 'position', 0.0),
                             "house": getattr(obj, 'house', 0),
                         })
-        logger.info(f"Планеты получены: {len(planets)} планет")
 
         houses = []
         house_keys = [
@@ -292,7 +282,6 @@ class AstrologyCalculator:
                             "sign": getattr(obj, 'sign', 'unknown'),
                             "degree": getattr(obj, 'position', 0.0),
                         })
-        logger.info(f"Дома получены: {len(houses)} домов")
 
         aspects = []
         try:
@@ -351,23 +340,85 @@ class AstrologyCalculator:
         self._chart_data = result
         return result
 
-    def _get_house_cusps_string(self, lang: str = 'ru') -> str:
-        """Возвращает отформатированную строку с куспидами домов на нужном языке."""
+    # ---------- НОВЫЕ МЕТОДЫ ДЛЯ ПРОГНОСТИЧЕСКИХ ДАННЫХ ----------
+
+    def _get_transit_aspects_string(self, lang: str = 'ru') -> str:
+        """Возвращает строку с транзитными аспектами на текущий момент."""
+        from .transit_horoscope_calculator import TransitHoroscopeCalculator
+        try:
+            transit_calc = TransitHoroscopeCalculator(self.user_data)
+            data = transit_calc.calculate()
+            transit_aspects = data.get('transit_aspects', '')
+            if not transit_aspects or transit_aspects.strip() == '':
+                return "Нет значимых транзитных аспектов на текущий момент."
+            return transit_aspects
+        except Exception as e:
+            logger.error(f"Ошибка при расчёте транзитов: {e}")
+            return "Ошибка при расчёте транзитных аспектов."
+
+    def _get_progression_aspects_string(self, lang: str = 'ru') -> str:
+        """Возвращает строку с прогрессивными аспектами (заглушка)."""
+        # В текущей версии kerykeion нет прямой поддержки прогрессий.
+        # Можно оставить заглушку или реализовать упрощённый расчёт.
+        return "Прогрессивные аспекты в данный момент не рассчитываются. (Функция в разработке)"
+
+    def _get_health_indicators_string(self, lang: str = 'ru') -> str:
+        """Анализирует 6-й и 8-й дома, аспекты к астероиду Гигиея."""
         chart = self._calculate_chart()
-        from bot.locales import TEXTS
-        texts = TEXTS.get(lang, TEXTS['ru'])
+        houses = chart.get('houses', [])
+        planets = chart.get('planets', [])
+        aspects = chart.get('aspects', [])
 
-        sign_abbr = texts.get('astro_sign_abbr', {})
-        def translate_sign(sign):
-            return sign_abbr.get(sign, sign)
+        indicators = []
 
-        cusp_fmt = texts.get('astro_house_cusp', "House {number}: {sign} {degree:.2f}°")
-        lines = []
-        for h in chart['houses']:
-            sign = translate_sign(h['sign'])
-            degree = h['degree']
-            lines.append(cusp_fmt.format(number=h['number'], sign=sign, degree=degree))
-        return "\n".join(lines)
+        # 6-й дом
+        if len(houses) >= 6:
+            house6 = houses[5]
+            sign6 = house6.get('sign', 'неизвестный')
+            # Находим планеты в 6-м доме
+            planets_in_6 = [p for p in planets if p.get('house') == 6]
+            planets6_names = ', '.join([p['name'] for p in planets_in_6]) if planets_in_6 else 'нет'
+            indicators.append(f"6-й дом в {sign6}: планеты в 6-м доме – {planets6_names}")
+
+        # 8-й дом
+        if len(houses) >= 8:
+            house8 = houses[7]
+            sign8 = house8.get('sign', 'неизвестный')
+            planets_in_8 = [p for p in planets if p.get('house') == 8]
+            planets8_names = ', '.join([p['name'] for p in planets_in_8]) if planets_in_8 else 'нет'
+            indicators.append(f"8-й дом в {sign8}: планеты в 8-м доме – {planets8_names}")
+
+        # Аспекты к астероиду Гигиея (Hygeia)
+        hygeia = next((p for p in planets if p.get('name').lower() == 'hygeia'), None)
+        if hygeia:
+            hygeia_sign = hygeia.get('sign', 'неизвестный')
+            hygeia_house = hygeia.get('house', 'неизвестный')
+            indicators.append(f"Гигиея (астероид здоровья) в {hygeia_sign} в {hygeia_house} доме")
+            # Находим аспекты к Гигиее (мажорные)
+            hygeia_aspects = []
+            for a in aspects:
+                p1 = a.get('p1', '').lower()
+                p2 = a.get('p2', '').lower()
+                if 'hygeia' in (p1, p2):
+                    aspect_name = a.get('aspect', '')
+                    orb = a.get('orb', 0.0)
+                    if aspect_name.lower() in self.MAJOR_ASPECTS and orb <= self.MAX_ORB:
+                        other = p2 if p1 == 'hygeia' else p1
+                        hygeia_aspects.append(f"{other} {aspect_name} (орбис: {orb:.2f}°)")
+            if hygeia_aspects:
+                indicators.append("Аспекты Гигиеи к натальным планетам: " + ", ".join(hygeia_aspects))
+            else:
+                indicators.append("Нет значимых аспектов к Гигиее.")
+        else:
+            indicators.append("Астероид Гигиея не найден в карте (возможно, не поддерживается версией kerykeion).")
+
+        return "\n".join(indicators) if indicators else "Нет данных по медицинским показателям."
+
+    def _get_astrocartography_string(self, lang: str = 'ru') -> str:
+        """Возвращает информацию по астрокартографическим линиям (заглушка)."""
+        return "Астрокартографический анализ требует специальных расчётов и пока не реализован."
+
+    # ---------- ОСТАЛЬНЫЕ МЕТОДЫ (build_prompt, get_display_parameters и др.) ----------
 
     def _load_prompt_template(self) -> Optional[str]:
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -385,6 +436,7 @@ class AstrologyCalculator:
         texts = TEXTS.get(lang, TEXTS['ru'])
 
         sign_abbr = texts.get('astro_sign_abbr', {})
+
         def translate_sign(sign):
             return sign_abbr.get(sign, sign)
 
@@ -404,7 +456,6 @@ class AstrologyCalculator:
             for p in chart['planets']
         )
 
-        # Фильтрация аспектов
         filtered_aspects = []
         for a in chart['aspects']:
             aspect_name = a['aspect'].lower()
@@ -417,8 +468,13 @@ class AstrologyCalculator:
                 f"- {a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)" for a in filtered_aspects
             )
 
-        # Куспиды домов
         cusps_str = self._get_house_cusps_string(lang)
+
+        # Новые данные
+        transit_aspects_str = self._get_transit_aspects_string(lang)
+        progression_aspects_str = self._get_progression_aspects_string(lang)
+        health_indicators_str = self._get_health_indicators_string(lang)
+        astrocartography_str = self._get_astrocartography_string(lang)
 
         gender_display = "Мужчина" if self.gender == 'M' else "Женщина"
         pronoun = "он" if self.gender == 'M' else "она"
@@ -439,7 +495,11 @@ class AstrologyCalculator:
             "ascendant": ascendant or "не известно",
             "planets_list": planets_str,
             "aspects_list": aspects_str,
-            "cusps_list": cusps_str,   # <-- добавляем
+            "cusps_list": cusps_str,
+            "transit_aspects_list": transit_aspects_str,
+            "progression_aspects_list": progression_aspects_str,
+            "health_indicators_list": health_indicators_str,
+            "astrocartography_lines": astrocartography_str,
             "extra_info": self.extra_info,
             "pronoun": pronoun,
             "possessive": possessive,
@@ -455,6 +515,7 @@ class AstrologyCalculator:
         from bot.locales import TEXTS
         texts = TEXTS.get(lang, TEXTS['ru'])
         sign_abbr = texts.get('astro_sign_abbr', {})
+
         def translate_sign(sign):
             return sign_abbr.get(sign, sign)
 
@@ -463,6 +524,8 @@ class AstrologyCalculator:
             for p in chart['planets']
         )
         cusps_str = self._get_house_cusps_string(lang)
+        transit_aspects_str = self._get_transit_aspects_string(lang)
+        health_indicators_str = self._get_health_indicators_string(lang)
         pronoun = "он" if self.gender == 'M' else "она"
         possessive = "его" if self.gender == 'M' else "её"
         return f"""
@@ -478,147 +541,41 @@ class AstrologyCalculator:
 Куспиды домов:
 {cusps_str}
 
-Опиши характер, эмоции, общение, сильные стороны, зоны роста, таланты и дай практические советы.
+Транзитные аспекты на текущий момент:
+{transit_aspects_str}
+
+Медицинские показатели (6-й и 8-й дома, Гигиея):
+{health_indicators_str}
+
+Опиши характер, эмоции, общение, сильные стороны, зоны роста, таланты, дай практические советы, учти влияние транзитов и здоровье.
 """
 
-    def get_display_parameters(self, lang: str = 'ru') -> str:
+    def _get_house_cusps_string(self, lang: str = 'ru') -> str:
         chart = self._calculate_chart()
         from bot.locales import TEXTS
         texts = TEXTS.get(lang, TEXTS['ru'])
-
-        planet_names = texts.get('astro_planet_names', {})
         sign_abbr = texts.get('astro_sign_abbr', {})
-        house_names = texts.get('astro_house_names', {})
-        aspect_names = texts.get('astro_aspect_names', {})
-
-        def translate_planet(name):
-            return planet_names.get(name, name)
 
         def translate_sign(sign):
             return sign_abbr.get(sign, sign)
 
-        def translate_house(house):
-            return house_names.get(house, house)
-
-        def translate_aspect(aspect):
-            return aspect_names.get(aspect, aspect)
-
-        sun_sign = None
-        moon_sign = None
-        ascendant = None
-        for planet in chart['planets']:
-            if planet['name'] == 'Sun':
-                sun_sign = translate_sign(planet['sign'])
-            elif planet['name'] == 'Moon':
-                moon_sign = translate_sign(planet['sign'])
-        if chart['houses']:
-            ascendant = translate_sign(chart['houses'][0]['sign'])
-
-        planets_lines = []
-        for p in chart['planets']:
-            planet_name = translate_planet(p['name'])
-            sign = translate_sign(p['sign'])
-            house = translate_house(p['house'])
-            degree = p['degree']
-            fmt = texts.get('astro_planet_format', '  • {planet} in {sign} ({degree:.2f}°) in {house} house')
-            planets_lines.append(fmt.format(planet=planet_name, sign=sign, degree=degree, house=house))
-        planets_str = "\n".join(planets_lines)
-
-        filtered_aspects = []
-        for a in chart['aspects']:
-            aspect_name = a['aspect'].lower()
-            if aspect_name in self.MAJOR_ASPECTS and a['orb'] <= self.MAX_ORB:
-                filtered_aspects.append(a)
-
-        aspects_lines = []
-        for a in filtered_aspects:
-            p1 = translate_planet(a['p1'])
-            p2 = translate_planet(a['p2'])
-            aspect = translate_aspect(a['aspect'])
-            orb = a['orb']
-            fmt = texts.get('astro_aspect_format', '  • {p1} {aspect} {p2} (orb: {orb:.2f}°)')
-            aspects_lines.append(fmt.format(p1=p1, p2=p2, aspect=aspect, orb=orb))
-        aspects_str = "\n".join(aspects_lines)
-
-        # Куспиды домов
         cusp_fmt = texts.get('astro_house_cusp', "House {number}: {sign} {degree:.2f}°")
-        cusps_lines = []
+        lines = []
         for h in chart['houses']:
             sign = translate_sign(h['sign'])
             degree = h['degree']
-            cusps_lines.append(cusp_fmt.format(number=h['number'], sign=sign, degree=degree))
-        cusps_str = "\n".join(cusps_lines)
-
-        # Локализованные заголовки
-        name_label = texts.get('astro_name', '👤 Name')
-        gender_label = texts.get('astro_gender', '⚥ Gender')
-        local_time_label = texts.get('astro_local_time', '📅 Local time')
-        timezone_label = texts.get('astro_timezone', '🕒 Timezone')
-        utc_label = texts.get('astro_utc_time', '🕒 UTC time')
-        place_label = texts.get('astro_place', '📍 Place')
-        coords_label = texts.get('astro_coordinates', '🌐 Coordinates')
-        sun_label = texts.get('astro_sun', '☀️ Sun')
-        moon_label = texts.get('astro_moon', '🌙 Moon')
-        asc_label = texts.get('astro_ascendant', '⬆️ Ascendant')
-        planets_header = texts.get('astro_planets_header', '🪐 Planets in signs and houses:')
-        aspects_header = texts.get('astro_aspects_header', '🔮 Major aspects (orb ≤ 5°):')
-        cusps_header = texts.get('astro_cusps_header', '🏠 House cusps:')
-
-        datetime_used = chart['datetime']
-        timezone_used = chart['timezone']
-        lat = chart['location']['lat']
-        lng = chart['location']['lng']
-        utc_display = chart.get('utc_datetime', 'не известно')
-        city, country = self._parse_birth_place()
-        place_display = f"{city}, {country}" if city else "не указано (использованы координаты по умолчанию)"
-        gender_display = texts.get('astro_gender_male', 'Male') if self.gender == 'M' else texts.get('astro_gender_female', 'Female')
-
-        lines = [
-            "━━━━━━━━━━━━━━━━━━━━━",
-            f"{name_label}: {self.name}",
-            f"{gender_label}: {gender_display}",
-            f"{local_time_label}: {datetime_used}",
-            f"{timezone_label}: {timezone_used}",
-            f"{utc_label}: {utc_display}",
-            f"{place_label}: {place_display}",
-            f"{coords_label}: {lat:.4f}, {lng:.4f}",
-            "━━━━━━━━━━━━━━━━━━━━━",
-            f"{sun_label}: {sun_sign or 'не известно'}",
-            f"{moon_label}: {moon_sign or 'не известно'}",
-            f"{asc_label}: {ascendant or 'не известно'}",
-            "",
-            planets_header,
-            planets_str,
-        ]
-
-        if cusps_str:
-            lines.append("")
-            lines.append(cusps_header)
-            lines.append(cusps_str)
-
-        if aspects_str:
-            lines.append("")
-            lines.append(aspects_header)
-            lines.append(aspects_str)
-
-        lines.append("━━━━━━━━━━━━━━━━━━━━━")
+            lines.append(cusp_fmt.format(number=h['number'], sign=sign, degree=degree))
         return "\n".join(lines)
 
     def get_basic_parameters(self, lang: str = 'ru') -> str:
-        """
-        Возвращает только базовые параметры (имя, пол, время, место, координаты, Солнце, Луна, Асцендент).
-        Используется для всех пользователей.
-        """
         chart = self._calculate_chart()
         from bot.locales import TEXTS
         texts = TEXTS.get(lang, TEXTS['ru'])
-
         sign_abbr = texts.get('astro_sign_abbr', {})
 
         def translate_sign(sign):
             return sign_abbr.get(sign, sign)
 
-        # Определяем Солнце, Луну, Асцендент
         sun_sign = None
         moon_sign = None
         ascendant = None
@@ -630,7 +587,6 @@ class AstrologyCalculator:
         if chart['houses']:
             ascendant = translate_sign(chart['houses'][0]['sign'])
 
-        # Локализованные заголовки
         name_label = texts.get('astro_name', '👤 Name')
         gender_label = texts.get('astro_gender', '⚥ Gender')
         local_time_label = texts.get('astro_local_time', '📅 Local time')
@@ -649,7 +605,8 @@ class AstrologyCalculator:
         utc_display = chart.get('utc_datetime', 'не известно')
         city, country = self._parse_birth_place()
         place_display = f"{city}, {country}" if city else "не указано (использованы координаты по умолчанию)"
-        gender_display = texts.get('astro_gender_male', 'Male') if self.gender == 'M' else texts.get('astro_gender_female', 'Female')
+        gender_display = texts.get('astro_gender_male', 'Male') if self.gender == 'M' else texts.get(
+            'astro_gender_female', 'Female')
 
         lines = [
             "━━━━━━━━━━━━━━━━━━━━━",
@@ -668,10 +625,6 @@ class AstrologyCalculator:
         return "\n".join(lines)
 
     def get_extra_parameters(self, lang: str = 'ru') -> str:
-        """
-        Возвращает дополнительные данные: планеты, куспиды, аспекты.
-        Используется только для разрешённых пользователей.
-        """
         chart = self._calculate_chart()
         from bot.locales import TEXTS
         texts = TEXTS.get(lang, TEXTS['ru'])
@@ -693,7 +646,6 @@ class AstrologyCalculator:
         def translate_aspect(aspect):
             return aspect_names.get(aspect, aspect)
 
-        # Планеты
         planets_lines = []
         for p in chart['planets']:
             planet_name = translate_planet(p['name'])
@@ -704,16 +656,6 @@ class AstrologyCalculator:
             planets_lines.append(fmt.format(planet=planet_name, sign=sign, degree=degree, house=house))
         planets_str = "\n".join(planets_lines)
 
-        # Куспиды домов
-        cusp_fmt = texts.get('astro_house_cusp', "House {number}: {sign} {degree:.2f}°")
-        cusps_lines = []
-        for h in chart['houses']:
-            sign = translate_sign(h['sign'])
-            degree = h['degree']
-            cusps_lines.append(cusp_fmt.format(number=h['number'], sign=sign, degree=degree))
-        cusps_str = "\n".join(cusps_lines)
-
-        # Аспекты (фильтруем мажорные)
         filtered_aspects = []
         for a in chart['aspects']:
             aspect_name = a['aspect'].lower()
@@ -729,12 +671,19 @@ class AstrologyCalculator:
             aspects_lines.append(fmt.format(p1=p1, p2=p2, aspect=aspect, orb=orb))
         aspects_str = "\n".join(aspects_lines)
 
-        # Собираем
-        lines = []
+        cusp_fmt = texts.get('astro_house_cusp', "House {number}: {sign} {degree:.2f}°")
+        cusps_lines = []
+        for h in chart['houses']:
+            sign = translate_sign(h['sign'])
+            degree = h['degree']
+            cusps_lines.append(cusp_fmt.format(number=h['number'], sign=sign, degree=degree))
+        cusps_str = "\n".join(cusps_lines)
+
         planets_header = texts.get('astro_planets_header', '🪐 Planets in signs and houses:')
         cusps_header = texts.get('astro_cusps_header', '🏠 House cusps:')
         aspects_header = texts.get('astro_aspects_header', '🔮 Major aspects (orb ≤ 5°):')
 
+        lines = []
         if planets_str:
             lines.append("")
             lines.append(planets_header)
@@ -747,5 +696,18 @@ class AstrologyCalculator:
             lines.append("")
             lines.append(aspects_header)
             lines.append(aspects_str)
+
+        # Добавляем транзитные аспекты и медицинские показатели для администраторов
+        transit_str = self._get_transit_aspects_string(lang)
+        if transit_str:
+            lines.append("")
+            lines.append("🌟 Транзитные аспекты на текущий момент:")
+            lines.append(transit_str)
+
+        health_str = self._get_health_indicators_string(lang)
+        if health_str:
+            lines.append("")
+            lines.append("🏥 Медицинские показатели (6-й и 8-й дома, Гигиея):")
+            lines.append(health_str)
 
         return "\n".join(lines)
