@@ -164,7 +164,7 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
             lines.append(prompt_data.get('cusps_list', ''))
 
     elif service_type == 'numerology':
-        lines.append("🔢 Нумерологический разбор")
+        #lines.append("🔢 Нумерологический разбор")
         lines.append("")
         lines.append(f"👤 Имя: {prompt_data.get('name', '')}")
         lines.append(f"⚥ Пол: {prompt_data.get('gender_display', '')}")

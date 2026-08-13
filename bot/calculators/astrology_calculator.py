@@ -3,7 +3,7 @@ import requests
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Tuple
 
 from kerykeion import AstrologicalSubject
@@ -42,6 +42,7 @@ class AstrologyCalculator:
         self._chart_data = None
         self._timezone = None
         self._tf = TimezoneFinder()
+        self._progression_data = None  # НОВОЕ: кеш прогрессий
 
     def _parse_birth_datetime(self) -> Tuple[int, int, int, int, int]:
         date_str = self.birth_date_str or "01.01.2000"
@@ -221,7 +222,7 @@ class AstrologyCalculator:
         else:
             data = model_data.__dict__
 
-        # Добавляем астероид Гигиея в список ключей (если есть)
+        # Добавляем астероид Гигиея
         planet_keys = [
             'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
             'uranus', 'neptune', 'pluto', 'chiron', 'pholus',
@@ -235,7 +236,7 @@ class AstrologyCalculator:
             'alcyone', 'alphecca', 'algorab', 'deneb_algedi', 'alkaid',
             'pars_fortunae', 'pars_spiritus', 'pars_amoris', 'pars_fidei',
             'vertex', 'anti_vertex',
-            'hygeia'  # добавлен астероид Гигиея для медицинских показателей
+            'hygeia'  # астероид здоровья
         ]
 
         planets = []
@@ -342,28 +343,56 @@ class AstrologyCalculator:
 
     # ---------- НОВЫЕ МЕТОДЫ ДЛЯ ПРОГНОСТИЧЕСКИХ ДАННЫХ ----------
 
-    def _get_transit_aspects_string(self, lang: str = 'ru') -> str:
-        """Возвращает строку с транзитными аспектами на текущий момент."""
-        from .transit_horoscope_calculator import TransitHoroscopeCalculator
-        try:
-            transit_calc = TransitHoroscopeCalculator(self.user_data)
-            data = transit_calc.calculate()
-            transit_aspects = data.get('transit_aspects', '')
-            if not transit_aspects or transit_aspects.strip() == '':
-                return "Нет значимых транзитных аспектов на текущий момент."
-            return transit_aspects
-        except Exception as e:
-            logger.error(f"Ошибка при расчёте транзитов: {e}")
-            return "Ошибка при расчёте транзитных аспектов."
+    def _get_progression_subject(self) -> AstrologicalSubject:
+        """Создаёт субъект для вторичных прогрессий (день за год)."""
+        year, month, day, hour, minute = self._parse_birth_datetime()
+        # Вычисляем возраст в днях (приблизительно)
+        birth_date = datetime(year, month, day, hour, minute)
+        now = datetime.now()
+        age_in_days = (now - birth_date).days
+        # Прогрессивная дата = дата рождения + возраст в днях
+        prog_date = birth_date + timedelta(days=age_in_days)
+        # Координаты и таймзона берём те же, что и для натальной карты
+        lat, lng, tz_str = self._get_coordinates_and_timezone()
+        return AstrologicalSubject(
+            name=f"Progressed_{self.name}",
+            year=prog_date.year,
+            month=prog_date.month,
+            day=prog_date.day,
+            hour=prog_date.hour,
+            minute=prog_date.minute,
+            lat=lat,
+            lng=lng,
+            tz_str=tz_str,
+        )
 
     def _get_progression_aspects_string(self, lang: str = 'ru') -> str:
-        """Возвращает строку с прогрессивными аспектами (заглушка)."""
-        # В текущей версии kerykeion нет прямой поддержки прогрессий.
-        # Можно оставить заглушку или реализовать упрощённый расчёт.
-        return "Прогрессивные аспекты в данный момент не рассчитываются. (Функция в разработке)"
+        """Возвращает строку с аспектами прогрессивных планет к натальным."""
+        try:
+            natal = self._get_natal_subject()
+            prog = self._get_progression_subject()
+            from kerykeion import AspectsFactory
+            # Получаем аспекты между прогрессивными и натальными планетами
+            aspects_data = AspectsFactory.dual_chart_aspects(prog, natal)
+            if not aspects_data or not hasattr(aspects_data, 'aspects'):
+                return "Нет данных по прогрессивным аспектам."
+
+            prog_aspects = []
+            for a in aspects_data.aspects:
+                orb = getattr(a, 'orbit', getattr(a, 'orb', getattr(a, 'orbis', 0.0)))
+                # Фильтруем только мажорные аспекты с орбисом <= 5°
+                if a.aspect.lower() in self.MAJOR_ASPECTS and orb <= self.MAX_ORB:
+                    prog_aspects.append(f"{a.p1_name} {a.aspect} {a.p2_name} (орбис: {orb:.2f}°)")
+            if prog_aspects:
+                return "\n".join(prog_aspects)
+            else:
+                return "Нет значимых прогрессивных аспектов на текущий период."
+        except Exception as e:
+            logger.error(f"Ошибка при расчёте прогрессивных аспектов: {e}")
+            return "Ошибка при расчёте прогрессивных аспектов."
 
     def _get_health_indicators_string(self, lang: str = 'ru') -> str:
-        """Анализирует 6-й и 8-й дома, аспекты к астероиду Гигиея."""
+        """Анализирует 6-й и 8-й дома, аспекты к Гигиее, сигнификаторы здоровья."""
         chart = self._calculate_chart()
         houses = chart.get('houses', [])
         planets = chart.get('planets', [])
@@ -371,30 +400,29 @@ class AstrologyCalculator:
 
         indicators = []
 
-        # 6-й дом
+        # 1. Анализ 6-го дома (здоровье, режим)
         if len(houses) >= 6:
             house6 = houses[5]
             sign6 = house6.get('sign', 'неизвестный')
-            # Находим планеты в 6-м доме
             planets_in_6 = [p for p in planets if p.get('house') == 6]
             planets6_names = ', '.join([p['name'] for p in planets_in_6]) if planets_in_6 else 'нет'
-            indicators.append(f"6-й дом в {sign6}: планеты в 6-м доме – {planets6_names}")
+            indicators.append(f"6-й дом (здоровье) в знаке {sign6}: планеты – {planets6_names}")
 
-        # 8-й дом
+        # 2. Анализ 8-го дома (кризисы, трансформация)
         if len(houses) >= 8:
             house8 = houses[7]
             sign8 = house8.get('sign', 'неизвестный')
             planets_in_8 = [p for p in planets if p.get('house') == 8]
             planets8_names = ', '.join([p['name'] for p in planets_in_8]) if planets_in_8 else 'нет'
-            indicators.append(f"8-й дом в {sign8}: планеты в 8-м доме – {planets8_names}")
+            indicators.append(f"8-й дом (кризисы) в знаке {sign8}: планеты – {planets8_names}")
 
-        # Аспекты к астероиду Гигиея (Hygeia)
+        # 3. Астероид Гигиея (здоровье)
         hygeia = next((p for p in planets if p.get('name').lower() == 'hygeia'), None)
         if hygeia:
             hygeia_sign = hygeia.get('sign', 'неизвестный')
             hygeia_house = hygeia.get('house', 'неизвестный')
             indicators.append(f"Гигиея (астероид здоровья) в {hygeia_sign} в {hygeia_house} доме")
-            # Находим аспекты к Гигиее (мажорные)
+            # Аспекты к Гигиее (мажорные)
             hygeia_aspects = []
             for a in aspects:
                 p1 = a.get('p1', '').lower()
@@ -406,19 +434,202 @@ class AstrologyCalculator:
                         other = p2 if p1 == 'hygeia' else p1
                         hygeia_aspects.append(f"{other} {aspect_name} (орбис: {orb:.2f}°)")
             if hygeia_aspects:
-                indicators.append("Аспекты Гигиеи к натальным планетам: " + ", ".join(hygeia_aspects))
+                indicators.append("Аспекты Гигиеи к планетам: " + ", ".join(hygeia_aspects))
             else:
                 indicators.append("Нет значимых аспектов к Гигиее.")
         else:
             indicators.append("Астероид Гигиея не найден в карте (возможно, не поддерживается версией kerykeion).")
 
+        # 4. Сигнификаторы здоровья: Луна, Сатурн, Хирон
+        moon = next((p for p in planets if p.get('name').lower() == 'moon'), None)
+        saturn = next((p for p in planets if p.get('name').lower() == 'saturn'), None)
+        chiron = next((p for p in planets if p.get('name').lower() == 'chiron'), None)
+
+        if moon:
+            indicators.append(
+                f"Луна (эмоции, циклы) в {moon.get('sign', 'неизвестно')} доме {moon.get('house', 'неизвестно')}")
+        if saturn:
+            indicators.append(
+                f"Сатурн (хронические состояния) в {saturn.get('sign', 'неизвестно')} доме {saturn.get('house', 'неизвестно')}")
+        if chiron:
+            indicators.append(
+                f"Хирон (уязвимость, исцеление) в {chiron.get('sign', 'неизвестно')} доме {chiron.get('house', 'неизвестно')}")
+
+        # 5. Дополнительные аспекты между сигнификаторами
+        health_aspects = []
+        for a in aspects:
+            p1 = a.get('p1', '').lower()
+            p2 = a.get('p2', '').lower()
+            if any(x in (p1, p2) for x in ['moon', 'saturn', 'chiron', 'hygeia']):
+                if p1 != p2:
+                    aspect_name = a.get('aspect', '')
+                    orb = a.get('orb', 0.0)
+                    if aspect_name.lower() in self.MAJOR_ASPECTS and orb <= self.MAX_ORB:
+                        health_aspects.append(f"{p1.capitalize()} {aspect_name} {p2.capitalize()} (орбис: {orb:.2f}°)")
+        if health_aspects:
+            indicators.append("Аспекты между сигнификаторами здоровья: " + ", ".join(health_aspects[:3]))  # ограничим 3
+
         return "\n".join(indicators) if indicators else "Нет данных по медицинским показателям."
 
     def _get_astrocartography_string(self, lang: str = 'ru') -> str:
-        """Возвращает информацию по астрокартографическим линиям (заглушка)."""
-        return "Астрокартографический анализ требует специальных расчётов и пока не реализован."
+        """
+        Рассчитывает астрокартографические линии (MC, IC, ASC, DSC) для основных планет
+        с помощью библиотеки ephem.
+        """
+        try:
+            import ephem
+            from math import pi, degrees
+        except ImportError:
+            if lang == 'ru':
+                return "❌ Библиотека ephem не установлена. Установите её для расчёта астрокартографии."
+            else:
+                return "❌ ephem library is not installed. Install it for astrocartography calculation."
 
-    # ---------- ОСТАЛЬНЫЕ МЕТОДЫ (build_prompt, get_display_parameters и др.) ----------
+        try:
+            # 1. Парсим дату и время рождения
+            year, month, day, hour, minute = self._parse_birth_datetime()
+            birth_dt = datetime(year, month, day, hour, minute)
+            date_str = birth_dt.strftime('%Y/%m/%d %H:%M:%S')
+
+            # 2. Получаем координаты места рождения
+            lat, lng, tz_str = self._get_coordinates_and_timezone()
+
+            # 3. Создаём наблюдателя для расчёта звёздного времени
+            obs = ephem.Observer()
+            obs.lat = str(lat)
+            obs.lon = str(lng)
+            obs.date = date_str
+
+            # 4. Получаем Гринвичское звёздное время (GST) на момент рождения
+            gst_rad = obs.sidereal_time()  # в радианах
+            gst_hours = gst_rad * 12 / pi  # переводим в часы (0–24)
+
+            # 5. Наклон эклиптики на дату рождения
+            obliquity_rad = ephem.obliquity(ephem.Date(date_str))
+
+            # 6. Список планет для анализа
+            planet_names = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn']
+
+            # 7. Для каждой планеты вычисляем линии
+            lines_by_planet = {}
+
+            for name in planet_names:
+                body = getattr(ephem, name)()
+                body.compute(ephem.Date(date_str))
+
+                # Эклиптическая долгота (в градусах) – для справки
+                lon_deg = degrees(body.hlon)
+
+                # Прямое восхождение (в часах)
+                ra_hours = body.ra * 12 / pi
+
+                # Списки долгот для каждой линии
+                mc = []
+                ic = []
+                asc = []
+                dsc = []
+
+                # Перебираем долготы на Земле от -180 до +180 с шагом 1°
+                for lon_deg in range(-180, 181, 1):
+                    # Местное звёздное время = GST + долгота (1 час = 15°)
+                    lst = (gst_hours + lon_deg / 15) % 24
+
+                    # Проверяем совпадение с RA планеты с небольшим допуском (0.4 часа ≈ 6°)
+                    threshold = 0.4
+
+                    # MC – планета в верхней кульминации (RA == LST)
+                    if abs(lst - ra_hours) < threshold:
+                        mc.append(lon_deg)
+
+                    # IC – планета в нижней кульминации (RA == LST + 12h)
+                    if abs((lst - (ra_hours + 12) % 24)) < threshold:
+                        ic.append(lon_deg)
+
+                    # ASC – планета восходит (RA == LST + 6h)
+                    if abs((lst - (ra_hours + 6) % 24)) < threshold:
+                        asc.append(lon_deg)
+
+                    # DSC – планета заходит (RA == LST + 18h)
+                    if abs((lst - (ra_hours + 18) % 24)) < threshold:
+                        dsc.append(lon_deg)
+
+                # Сохраняем результаты, если есть хотя бы одна линия
+                if mc or ic or asc or dsc:
+                    lines_by_planet[name] = {
+                        'MC': mc,
+                        'IC': ic,
+                        'ASC': asc,
+                        'DSC': dsc
+                    }
+
+            # 8. Форматируем результат для промпта
+            if not lines_by_planet:
+                if lang == 'ru':
+                    return "Астрокартографические линии не найдены. Попробуйте изменить порог чувствительности."
+                else:
+                    return "Astrocartography lines not found. Try adjusting the threshold."
+
+            result_lines = []
+            # Переводы названий линий и планет (для русского языка)
+            line_names_ru = {
+                'MC': 'кульминация (карьера)',
+                'IC': 'надир (дом)',
+                'ASC': 'восход (личность)',
+                'DSC': 'заход (отношения)'
+            }
+            planet_names_ru = {
+                'Sun': 'Солнце',
+                'Moon': 'Луна',
+                'Mercury': 'Меркурий',
+                'Venus': 'Венера',
+                'Mars': 'Марс',
+                'Jupiter': 'Юпитер',
+                'Saturn': 'Сатурн'
+            }
+
+            for planet, lines in lines_by_planet.items():
+                # Если выводим на русском, переводим названия
+                if lang == 'ru':
+                    planet_display = planet_names_ru.get(planet, planet)
+                    line_desc = []
+                    if lines['MC']:
+                        line_desc.append(f"MC: {', '.join(map(str, lines['MC']))}°")
+                    if lines['IC']:
+                        line_desc.append(f"IC: {', '.join(map(str, lines['IC']))}°")
+                    if lines['ASC']:
+                        line_desc.append(f"ASC: {', '.join(map(str, lines['ASC']))}°")
+                    if lines['DSC']:
+                        line_desc.append(f"DSC: {', '.join(map(str, lines['DSC']))}°")
+                    result_lines.append(f"• {planet_display}: " + "; ".join(line_desc))
+                else:
+                    # Английский вариант – оставляем названия планет и линий на английском
+                    line_desc = []
+                    if lines['MC']:
+                        line_desc.append(f"MC: {', '.join(map(str, lines['MC']))}°")
+                    if lines['IC']:
+                        line_desc.append(f"IC: {', '.join(map(str, lines['IC']))}°")
+                    if lines['ASC']:
+                        line_desc.append(f"ASC: {', '.join(map(str, lines['ASC']))}°")
+                    if lines['DSC']:
+                        line_desc.append(f"DSC: {', '.join(map(str, lines['DSC']))}°")
+                    result_lines.append(f"• {planet}: " + "; ".join(line_desc))
+
+            # Добавляем краткое пояснение
+            if lang == 'ru':
+                note = "\n\n*Примечание: линии рассчитаны приблизительно (погрешность ~6°). Для точного анализа используйте специализированные сервисы.*"
+            else:
+                note = "\n\n*Note: lines are approximate (error ~6°). For precise analysis, use specialized services.*"
+
+            return "\n".join(result_lines) + note
+
+        except Exception as e:
+            logger.error(f"Ошибка при расчёте астрокартографии: {e}")
+            if lang == 'ru':
+                return "Произошла ошибка при расчёте астрокартографических линий."
+            else:
+                return "An error occurred while calculating astrocartography lines."
+
+# ---------- ОСТАЛЬНЫЕ МЕТОДЫ (build_prompt, get_display_parameters и др.) ----------
 
     def _load_prompt_template(self) -> Optional[str]:
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -436,7 +647,6 @@ class AstrologyCalculator:
         texts = TEXTS.get(lang, TEXTS['ru'])
 
         sign_abbr = texts.get('astro_sign_abbr', {})
-
         def translate_sign(sign):
             return sign_abbr.get(sign, sign)
 
@@ -470,7 +680,7 @@ class AstrologyCalculator:
 
         cusps_str = self._get_house_cusps_string(lang)
 
-        # Новые данные
+        # Новые прогностические данные
         transit_aspects_str = self._get_transit_aspects_string(lang)
         progression_aspects_str = self._get_progression_aspects_string(lang)
         health_indicators_str = self._get_health_indicators_string(lang)
@@ -515,7 +725,6 @@ class AstrologyCalculator:
         from bot.locales import TEXTS
         texts = TEXTS.get(lang, TEXTS['ru'])
         sign_abbr = texts.get('astro_sign_abbr', {})
-
         def translate_sign(sign):
             return sign_abbr.get(sign, sign)
 
@@ -525,6 +734,7 @@ class AstrologyCalculator:
         )
         cusps_str = self._get_house_cusps_string(lang)
         transit_aspects_str = self._get_transit_aspects_string(lang)
+        progression_aspects_str = self._get_progression_aspects_string(lang)
         health_indicators_str = self._get_health_indicators_string(lang)
         pronoun = "он" if self.gender == 'M' else "она"
         possessive = "его" if self.gender == 'M' else "её"
@@ -544,10 +754,13 @@ class AstrologyCalculator:
 Транзитные аспекты на текущий момент:
 {transit_aspects_str}
 
+Прогрессивные аспекты:
+{progression_aspects_str}
+
 Медицинские показатели (6-й и 8-й дома, Гигиея):
 {health_indicators_str}
 
-Опиши характер, эмоции, общение, сильные стороны, зоны роста, таланты, дай практические советы, учти влияние транзитов и здоровье.
+Опиши характер, эмоции, общение, сильные стороны, зоны роста, таланты, дай практические советы, учти влияние транзитов, прогрессий и здоровье.
 """
 
     def _get_house_cusps_string(self, lang: str = 'ru') -> str:
@@ -555,7 +768,6 @@ class AstrologyCalculator:
         from bot.locales import TEXTS
         texts = TEXTS.get(lang, TEXTS['ru'])
         sign_abbr = texts.get('astro_sign_abbr', {})
-
         def translate_sign(sign):
             return sign_abbr.get(sign, sign)
 
@@ -572,7 +784,6 @@ class AstrologyCalculator:
         from bot.locales import TEXTS
         texts = TEXTS.get(lang, TEXTS['ru'])
         sign_abbr = texts.get('astro_sign_abbr', {})
-
         def translate_sign(sign):
             return sign_abbr.get(sign, sign)
 
@@ -605,8 +816,7 @@ class AstrologyCalculator:
         utc_display = chart.get('utc_datetime', 'не известно')
         city, country = self._parse_birth_place()
         place_display = f"{city}, {country}" if city else "не указано (использованы координаты по умолчанию)"
-        gender_display = texts.get('astro_gender_male', 'Male') if self.gender == 'M' else texts.get(
-            'astro_gender_female', 'Female')
+        gender_display = texts.get('astro_gender_male', 'Male') if self.gender == 'M' else texts.get('astro_gender_female', 'Female')
 
         lines = [
             "━━━━━━━━━━━━━━━━━━━━━",
@@ -697,12 +907,18 @@ class AstrologyCalculator:
             lines.append(aspects_header)
             lines.append(aspects_str)
 
-        # Добавляем транзитные аспекты и медицинские показатели для администраторов
+        # Добавляем транзитные и прогрессивные аспекты, медицинские показатели для администраторов
         transit_str = self._get_transit_aspects_string(lang)
         if transit_str:
             lines.append("")
             lines.append("🌟 Транзитные аспекты на текущий момент:")
             lines.append(transit_str)
+
+        progression_str = self._get_progression_aspects_string(lang)
+        if progression_str:
+            lines.append("")
+            lines.append("🔄 Прогрессивные аспекты:")
+            lines.append(progression_str)
 
         health_str = self._get_health_indicators_string(lang)
         if health_str:
@@ -711,3 +927,34 @@ class AstrologyCalculator:
             lines.append(health_str)
 
         return "\n".join(lines)
+
+    # ---- Вспомогательные методы для транзитов (используются ранее) ----
+    def _get_transit_aspects_string(self, lang: str = 'ru') -> str:
+        """Возвращает строку с транзитными аспектами на текущий момент."""
+        from .transit_horoscope_calculator import TransitHoroscopeCalculator
+        try:
+            transit_calc = TransitHoroscopeCalculator(self.user_data)
+            data = transit_calc.calculate()
+            transit_aspects = data.get('transit_aspects', '')
+            if not transit_aspects or transit_aspects.strip() == '':
+                return "Нет значимых транзитных аспектов на текущий момент."
+            return transit_aspects
+        except Exception as e:
+            logger.error(f"Ошибка при расчёте транзитов: {e}")
+            return "Ошибка при расчёте транзитных аспектов."
+
+    def _get_natal_subject(self) -> AstrologicalSubject:
+        """Возвращает натальный субъект (используется для прогрессий)."""
+        year, month, day, hour, minute = self._parse_birth_datetime()
+        lat, lng, tz_str = self._get_coordinates_and_timezone()
+        return AstrologicalSubject(
+            name=self.name,
+            year=year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            lat=lat,
+            lng=lng,
+            tz_str=tz_str,
+        )
