@@ -1414,98 +1414,36 @@ async def confirm_horoscope_state(message: Message, state: FSMContext):
 @dp.message(F.text == "🔮 Гороскоп на сегодня")
 async def start_horoscope(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    is_subscribed = await check_subscription_db(user_id)
     lang = await get_user_language(user_id)
-
-    if is_subscribed:
-        user_data = await get_user_data(user_id)
-        if user_data and user_data.get('name'):
-            zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
-            zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
-            template = await get_text(user_id, 'horoscope_confirm_data')
-            profile_text = template.format(
-                name=user_data.get('name', 'Не указано'),
-                birth_date=user_data.get('birth_date', 'Не указана'),
-                birth_time=user_data.get('birth_time', 'Не указано'),
-                birth_place=user_data.get('birth_place', 'Не указано'),
-                emoji=zodiac_emoji,
-                zodiac=zodiac_name
-            )
-            await state.set_state(HoroscopeStates.CONFIRM)
-            await message.answer(
-                profile_text,
-                reply_markup=get_horoscope_confirm_keyboard(lang)
-            )
-        else:
-            await state.set_state(UserDataStates.WAITING_NAME)
-            await message.answer(await get_text(user_id, 'horoscope_intro'), reply_markup=get_cancel_keyboard(lang))
-        return
-
-    if not await can_use_feature_db(user_id, 'horoscope'):
-        await message.answer(await get_text(user_id, 'horoscope_free_ready'),
-                             reply_markup=get_subscription_keyboard(lang))
-        return
-
     user_data = await get_user_data(user_id)
-    if user_data and user_data.get('name'):
-        if not gemini_service:
-            await message.answer(await get_text(user_id, 'error_service_unavailable'))
-            return
 
-        # Скрываем клавиатуру
-        await message.answer("⏳ Генерация гороскопа...", reply_markup=ReplyKeyboardRemove())
-
-        status_msg = await message.answer(await get_text(user_id, 'horoscope_status_planets'))
-        try:
-            await asyncio.sleep(1)
-            await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
-            await asyncio.sleep(1)
-            await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
-            await asyncio.sleep(1)
-
-            today = datetime.now().strftime("%d.%m.%Y")
-            horoscope = gemini_service.generate_horoscope(user_data, today, lang)
-            await save_message_to_archive(user_id, 'horoscope', horoscope)
-            await mark_feature_used_db(user_id, 'horoscope')
-
-            allowed_ids = [5484157606, 8790509202]
-            calc = TransitHoroscopeCalculator(user_data)
-            prompt_data = calc.calculate()
-
-            if user_id in allowed_ids:
-                parameters_text = format_parameters(prompt_data, 'horoscope', lang)
-                final_message = f"{parameters_text}\n\n{horoscope}"
-            else:
-                basic_params = format_basic_horoscope_parameters(prompt_data, lang)
-                final_message = f"{basic_params}\n\n{horoscope}"
-
-            result_template = await get_text(user_id, 'horoscope_result')
-            result_text = result_template.format(date=today, horoscope=final_message)
-
-            logger.info(f"📤 Отправка гороскопа, длина result_text: {len(result_text)}")
-            if len(result_text) > 0:
-                logger.info(f"📤 Первые 200 символов: {result_text[:200]}...")
-            else:
-                logger.error("❌ result_text пустой!")
-                result_text = "⚠️ Сообщение пустое. Попробуйте позже."
-
-            # Сначала отправляем результат, потом удаляем статус
-            await send_long_message(message, result_text, reply_markup=get_main_menu_button(lang))
-            await status_msg.delete()
-
-            if not is_subscribed:
-                await message.answer(
-                    await get_text(user_id, 'horoscope_promo'),
-                    reply_markup=get_subscription_promo_keyboard(lang)
-                )
-        except Exception as e:
-            try:
-                await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
-            except:
-                await message.answer(f"❌ Ошибка: {str(e)}")
-    else:
+    if not user_data or not user_data.get('name'):
+        # Нет данных – направляем на заполнение
         await state.set_state(UserDataStates.WAITING_NAME)
         await message.answer(await get_text(user_id, 'horoscope_intro'), reply_markup=get_cancel_keyboard(lang))
+        return
+
+    # Данные есть – показываем подтверждение
+    zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+    zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
+
+    template = await get_text(user_id, 'horoscope_confirm_data')
+    profile_text = template.format(
+        name=user_data.get('name', 'Не указано'),
+        birth_date=user_data.get('birth_date', 'Не указана'),
+        birth_time=user_data.get('birth_time', 'Не указано'),
+        birth_place=user_data.get('birth_place', 'Не указано'),
+        emoji=zodiac_emoji,
+        zodiac=zodiac_name
+    )
+
+    # Сохраняем данные в состояние (для использования в confirm_horoscope)
+    await state.update_data(user_data=user_data)
+    await state.set_state(HoroscopeStates.CONFIRM)
+    await message.answer(
+        profile_text,
+        reply_markup=get_horoscope_confirm_keyboard(lang)
+    )
 
 
 async def start_compatibility(message: Message, state: FSMContext):
@@ -1887,15 +1825,31 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
 
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    user_data = await get_user_data(user_id)
+    user_data = await state.get_data()
+    user_data = user_data.get('user_data')  # получаем данные из состояния
 
     if not user_data or not user_data.get('name'):
-        await callback.message.answer(await get_text(user_id, 'error_not_found'))
-        await state.clear()
-        return
+        # Если данные не найдены в состоянии, пробуем из БД
+        user_data = await get_user_data(user_id)
+        if not user_data or not user_data.get('name'):
+            await callback.message.answer(await get_text(user_id, 'error_not_found'))
+            await state.clear()
+            return
 
     if not gemini_service:
         await callback.message.answer(await get_text(user_id, 'error_service_unavailable'))
+        await state.clear()
+        return
+
+    # Проверяем подписку и лимиты
+    is_subscribed = await check_subscription_db(user_id)
+
+    if not is_subscribed and not await can_use_feature_db(user_id, 'horoscope'):
+        # Если нет подписки и лимит исчерпан – предлагаем подписку
+        await callback.message.answer(
+            await get_text(user_id, 'horoscope_free_ready'),
+            reply_markup=get_subscription_keyboard(lang)
+        )
         await state.clear()
         return
 
@@ -1914,6 +1868,10 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         horoscope = gemini_service.generate_horoscope(user_data, today, lang)
         await save_message_to_archive(user_id, 'horoscope', horoscope)
 
+        # Если нет подписки – отмечаем использование лимита
+        if not is_subscribed:
+            await mark_feature_used_db(user_id, 'horoscope')
+
         allowed_ids = [5484157606, 8790509202]
         calc = TransitHoroscopeCalculator(user_data)
         prompt_data = calc.calculate()
@@ -1925,6 +1883,8 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
             basic_params = format_basic_horoscope_parameters(prompt_data, lang)
             final_message = f"{basic_params}\n\n{horoscope}"
 
+        await status_msg.delete()
+
         result_template = await get_text(user_id, 'horoscope_result')
         result_text = result_template.format(date=today, horoscope=final_message)
 
@@ -1935,9 +1895,14 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
             logger.error("❌ result_text пустой!")
             result_text = "⚠️ Сообщение пустое. Попробуйте позже."
 
-        # Сначала результат, потом статус
         await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
-        await status_msg.delete()
+
+        # Если нет подписки – показываем промо
+        if not is_subscribed:
+            await callback.message.answer(
+                await get_text(user_id, 'horoscope_promo'),
+                reply_markup=get_subscription_promo_keyboard(lang)
+            )
 
         await state.clear()
     except Exception as e:
