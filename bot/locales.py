@@ -162,7 +162,7 @@ TEXTS = {
         'profile_data_saved': "✅ Данные сохранены!\n\n{profile}",
         'profile_continue_prompt': "Чтобы продолжить нажмите ещё раз \"🔮 Гороскоп на сегодня\".",
         'profile_fill_intro': "📝 Давайте заполним ваш профиль.\n\n❓ Как вас зовут?",
-        'profile_save_confirm': "🔐 Сохранить данные в ваш профиль чтобы не заполнять их каждый раз?\n\n{profile}\n\n📄 Нажимая «**Сохранить**», вы даёте согласие на обработку персональных данных в соответствии с [Политикой конфиденциальности]({privacy_url}).",
+        'profile_save_confirm': "🔐 Сохранить данные в ваш профиль чтобы не заполнять их каждый раз?\n\n{profile}\n\n📄 Нажимая «**Сохранить**», вы даёте [согласие на обработку персональных данных]({consent_url}) в соответствии с [Политикой конфиденциальности]({privacy_url}).",
         'timezone_updated': "✅ Часовой пояс обновлён!\n\n{profile}",
 
         # ========== Подписка ==========
@@ -531,7 +531,7 @@ TEXTS = {
         'profile_data_saved': "✅ Data saved!\n\n{profile}",
         'profile_continue_prompt': "To continue, press \"🔮 Horoscope for today\" again.",
         'profile_fill_intro': "📝 Let's fill out your profile.\n\n❓ What is your name?",
-        'profile_save_confirm': "🔐 Save the data to your profile so you don't have to fill it out every time?\n\n{profile}\n\n📄 By pressing «**Save**», you give consent to the processing of personal data in accordance with the [Privacy Policy]({privacy_url}).",
+        'profile_save_confirm': "🔐 Save the data to your profile so you don't have to fill it out every time?\n\n{profile}\n\n📄 By pressing «**Save**», you give [consent to the processing of personal data]({consent_url}) in accordance with the [Privacy Policy]({privacy_url}).",
         'timezone_updated': "✅ Time zone updated!\n\n{profile}",
 
         # ========== Subscription ==========
