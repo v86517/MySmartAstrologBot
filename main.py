@@ -1500,6 +1500,7 @@ async def start_numerology(message: Message, state: FSMContext):
 
     if numer_count == 0:
         # Нет доступных нумерологий → показываем оплату
+        await state.set_state(NumerologyStates.PAYMENT)
         await message.answer(
             await get_text(user_id, 'numerology_no_data'),
             reply_markup=get_numerology_payment_keyboard(lang)
@@ -1543,6 +1544,7 @@ async def start_astrology(message: Message, state: FSMContext):
 
     if astro_count == 0:
         # Нет доступных астрологий → показываем оплату
+        await state.set_state(AstrologyStates.PAYMENT)
         await message.answer(
             await get_text(user_id, 'astrology_no_data'),
             reply_markup=get_astrology_payment_keyboard(lang)
