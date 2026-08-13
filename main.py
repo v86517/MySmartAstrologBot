@@ -387,7 +387,8 @@ async def process_name(message: Message, state: FSMContext):
         await state.update_data(name=message.text)
         await state.set_state(UserDataStates.WAITING_BIRTH_DATE)
         await message.answer(
-            "📅 Шаг 2 из 5\n\nУкажите дату рождения в формате:\nДД.ММ.ГГГГ\n\nНапример: 15.03.1990"
+            "📅 Шаг 2 из 5\n\nУкажите дату рождения в формате:\nДД.ММ.ГГГГ\n\nНапример: 15.03.1990",
+            reply_markup=get_cancel_keyboard(lang)
         )
 
 
@@ -3359,37 +3360,62 @@ async def send_long_message(
 
 @dp.message(F.text)
 async def handle_menu_commands(message: Message, state: FSMContext):
-    current_state = await state.get_state()
-    if current_state is not None:
-        return
-
+    """
+    Обрабатывает текстовые команды главного меню.
+    Срабатывает всегда, но если состояние активно, обрабатываются только команды меню.
+    """
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
     texts = TEXTS.get(lang, TEXTS['ru'])
     text = message.text
 
-    logger.info(f"🔍 Общий обработчик: текст '{text}' от пользователя {user_id}, состояние: {current_state}")
+    # Список текстов кнопок меню на текущем языке
+    menu_commands = [
+        texts['menu_horoscope'],
+        texts['menu_compatibility'],
+        texts['menu_numerology'],
+        texts['menu_astrology'],
+        texts['menu_premium'],
+        texts['menu_expert'],
+        texts['menu_archive'],
+        texts['menu_profile'],
+        texts['menu_language'],
+    ]
 
-    if text == texts['menu_horoscope']:
-        await start_horoscope(message, state)
-    elif text == texts['menu_compatibility']:
-        await start_compatibility(message, state)
-    elif text == texts['menu_numerology']:
-        await start_numerology(message, state)
-    elif text == texts['menu_astrology']:
-        await start_astrology(message, state)
-    elif text == texts['menu_premium']:
-        await show_subscription(message)
-    elif text == texts['menu_expert']:
-        await expert_request(message)
-    elif text == texts['menu_archive']:
-        await show_archive(message)
-    elif text == texts['menu_profile']:
-        await profile(message)
-    elif text == texts['menu_language']:
-        await change_language(message)
-    else:
-        await handle_unknown(message)
+    # Если текст является командой меню, обрабатываем даже при активном состоянии
+    if text in menu_commands:
+        # Сбрасываем состояние, кроме кнопки языка (она не должна мешать)
+        if text != texts['menu_language']:
+            await state.clear()
+
+        # Вызываем соответствующий обработчик
+        if text == texts['menu_horoscope']:
+            await start_horoscope(message, state)
+        elif text == texts['menu_compatibility']:
+            await start_compatibility(message, state)
+        elif text == texts['menu_numerology']:
+            await start_numerology(message, state)
+        elif text == texts['menu_astrology']:
+            await start_astrology(message, state)
+        elif text == texts['menu_premium']:
+            await show_subscription(message)
+        elif text == texts['menu_expert']:
+            await expert_request(message)
+        elif text == texts['menu_archive']:
+            await show_archive(message)
+        elif text == texts['menu_profile']:
+            await profile(message)
+        elif text == texts['menu_language']:
+            await change_language(message)
+        return
+
+    # Если состояние активно, остальные текстовые сообщения игнорируем
+    current_state = await state.get_state()
+    if current_state is not None:
+        return
+
+    # Если состояние не активно, но текст не команда меню – обрабатываем как неизвестное
+    await handle_unknown(message)
 
 
 @dp.message()
