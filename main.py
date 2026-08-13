@@ -1496,34 +1496,37 @@ async def start_numerology(message: Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
+    numer_count = user_data.get('numerology_count', 0) if user_data else 0
 
+    if numer_count == 0:
+        # Нет доступных нумерологий → показываем оплату
+        await message.answer(
+            await get_text(user_id, 'numerology_no_data'),
+            reply_markup=get_numerology_payment_keyboard(lang)
+        )
+        return
+
+    # Есть счётчик > 0
     if user_data and user_data.get('name'):
+        # Данные есть → показываем подтверждение
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
         zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
-        numer_count = user_data.get('numerology_count', 0)
-
-        if numer_count > 0:
-            template = await get_text(user_id, 'numerology_start')
-            profile_text = template.format(
-                name=user_data.get('name', 'Не указано'),
-                birth_date=user_data.get('birth_date', 'Не указана'),
-                birth_time=user_data.get('birth_time', 'Не указано'),
-                birth_place=user_data.get('birth_place', 'Не указано'),
-                emoji=zodiac_emoji,
-                zodiac=zodiac_name
-            )
-            await message.answer(
-                profile_text,
-                reply_markup=get_numerology_confirm_keyboard(lang)
-            )
-            await state.set_state(NumerologyStates.CONFIRM_DATA)
-        else:
-            await message.answer(
-                await get_text(user_id, 'numerology_no_data'),
-                reply_markup=get_numerology_payment_keyboard(lang)
-            )
-            await state.set_state(NumerologyStates.PAYMENT)
+        template = await get_text(user_id, 'numerology_start')
+        profile_text = template.format(
+            name=user_data.get('name', 'Не указано'),
+            birth_date=user_data.get('birth_date', 'Не указана'),
+            birth_time=user_data.get('birth_time', 'Не указано'),
+            birth_place=user_data.get('birth_place', 'Не указано'),
+            emoji=zodiac_emoji,
+            zodiac=zodiac_name
+        )
+        await state.set_state(NumerologyStates.CONFIRM_DATA)
+        await message.answer(
+            profile_text,
+            reply_markup=get_numerology_confirm_keyboard(lang)
+        )
     else:
+        # Данных нет → начинаем сбор
         await state.set_state(NumerologyStates.WAITING_NAME)
         await message.answer(
             await get_text(user_id, 'numerology_no_user_data'),
@@ -1536,34 +1539,37 @@ async def start_astrology(message: Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
+    astro_count = user_data.get('astrology_count', 0) if user_data else 0
 
+    if astro_count == 0:
+        # Нет доступных астрологий → показываем оплату
+        await message.answer(
+            await get_text(user_id, 'astrology_no_data'),
+            reply_markup=get_astrology_payment_keyboard(lang)
+        )
+        return
+
+    # Есть счётчик > 0
     if user_data and user_data.get('name'):
+        # Данные есть → показываем подтверждение
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
         zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
-        astro_count = user_data.get('astrology_count', 0)
-
-        if astro_count > 0:
-            template = await get_text(user_id, 'astrology_start')
-            profile_text = template.format(
-                name=user_data.get('name', 'Не указано'),
-                birth_date=user_data.get('birth_date', 'Не указана'),
-                birth_time=user_data.get('birth_time', 'Не указано'),
-                birth_place=user_data.get('birth_place', 'Не указано'),
-                emoji=zodiac_emoji,
-                zodiac=zodiac_name
-            )
-            await message.answer(
-                profile_text,
-                reply_markup=get_astrology_confirm_keyboard(lang)
-            )
-            await state.set_state(AstrologyStates.CONFIRM_DATA)
-        else:
-            await message.answer(
-                await get_text(user_id, 'astrology_no_data'),
-                reply_markup=get_astrology_payment_keyboard(lang)
-            )
-            await state.set_state(AstrologyStates.PAYMENT)
+        template = await get_text(user_id, 'astrology_start')
+        profile_text = template.format(
+            name=user_data.get('name', 'Не указано'),
+            birth_date=user_data.get('birth_date', 'Не указана'),
+            birth_time=user_data.get('birth_time', 'Не указано'),
+            birth_place=user_data.get('birth_place', 'Не указано'),
+            emoji=zodiac_emoji,
+            zodiac=zodiac_name
+        )
+        await state.set_state(AstrologyStates.CONFIRM_DATA)
+        await message.answer(
+            profile_text,
+            reply_markup=get_astrology_confirm_keyboard(lang)
+        )
     else:
+        # Данных нет → начинаем сбор
         await state.set_state(AstrologyStates.WAITING_NAME)
         await message.answer(
             await get_text(user_id, 'astrology_no_user_data'),
