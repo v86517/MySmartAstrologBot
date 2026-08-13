@@ -383,3 +383,12 @@ def get_main_menu_button(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
     builder.button(text=texts.get('main_menu_button', '🏠 Главное меню'), callback_data="main_menu")
     return builder.as_markup()
+
+
+def get_compatibility_confirm_keyboard(lang: str = 'ru'):
+    builder = InlineKeyboardBuilder()
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['kb_confirm_compatibility'], callback_data="confirm_compatibility")
+    builder.button(text=texts['kb_cancel_compatibility'], callback_data="cancel_compatibility")
+    builder.adjust(1)
+    return builder.as_markup()

@@ -26,6 +26,7 @@ class CompatibilityStates(StatesGroup):
     WAITING_PERSON2_GENDER = State()
     WAITING_PERSON2_ZODIAC = State()
     CONFIRM_DATA = State()
+    CONFIRM_BOTH = State()
 
 class NumerologyStates(StatesGroup):
     """Состояния для нумерологии"""

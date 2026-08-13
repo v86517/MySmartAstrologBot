@@ -41,7 +41,7 @@ from bot.keyboards.keyboards import (
     get_subscription_payment_keyboard, get_fill_profile_keyboard,
     get_support_keyboard, get_horoscope_confirm_keyboard,
     get_language_keyboard,
-    get_main_menu_button,
+    get_main_menu_button, get_compatibility_confirm_keyboard,
 )
 from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates, HoroscopeStates
 from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji, get_zodiac_sign_localized
@@ -198,7 +198,7 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
         lines.append(f"  Внутренний паспорт: {prompt_data.get('v_top', '')}")
 
     elif service_type == 'compatibility':
-        lines.append("💕 Анализ совместимости")
+        #lines.append("💕 Анализ совместимости")
         lines.append("")
         lines.append(f"👤 Человек 1: {prompt_data.get('p1_name', '')}")
         lines.append(f"⚥ Пол: {prompt_data.get('p1_gender_text', '')}")
@@ -232,6 +232,41 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
 
     elif service_type == 'astrology':
         pass
+
+    return "\n".join(lines)
+
+
+def format_basic_horoscope_parameters(prompt_data: dict, lang: str = 'ru') -> str:
+    """Форматирует базовые параметры гороскопа для обычных пользователей."""
+    from bot.locales import TEXTS
+    texts = TEXTS.get(lang, TEXTS['ru'])
+
+    lines = []
+    lines.append("📅 Гороскоп на день")
+    lines.append("")
+    lines.append(f"{texts.get('horoscope_basic_name', '👤 Имя')}: {prompt_data.get('name', '')}")
+    lines.append(f"{texts.get('horoscope_basic_gender', '⚥ Пол')}: {prompt_data.get('gender_display', '')}")
+    lines.append(f"{texts.get('horoscope_basic_birth_date', '📅 Дата рождения')}: {prompt_data.get('birth_date', '')}")
+    lines.append(f"{texts.get('horoscope_basic_birth_time', '🕒 Время рождения')}: {prompt_data.get('birth_time', '')}")
+    lines.append(
+        f"{texts.get('horoscope_basic_birth_place', '📍 Место рождения')}: {prompt_data.get('birth_place', '')}")
+    lines.append("")
+    lines.append(f"{texts.get('horoscope_basic_sun', '☀️ Солнце')}: {prompt_data.get('sun_sign', '')}")
+    lines.append(f"{texts.get('horoscope_basic_moon', '🌙 Луна')}: {prompt_data.get('moon_sign', '')}")
+    lines.append(f"{texts.get('horoscope_basic_ascendant', '⬆️ Асцендент')}: {prompt_data.get('ascendant', '')}")
+    lines.append("")
+    lines.append(f"{texts.get('horoscope_basic_target_date', '📅 Дата')}: {prompt_data.get('target_date', '')}")
+    lines.append(
+        f"{texts.get('horoscope_basic_target_weekday', '📆 День недели')}: {prompt_data.get('target_weekday', '')}")
+    lines.append(f"{texts.get('horoscope_basic_lunar_day', '🌙 Лунный день')}: {prompt_data.get('lunar_day', '')}")
+    lines.append(
+        f"{texts.get('horoscope_basic_moon_illumination', '☀️ Освещённость Луны')}: {prompt_data.get('moon_illumination', '')}%")
+    lines.append(
+        f"{texts.get('horoscope_basic_transit_moon_sign', '🌙 Транзитная Луна в знаке')}: {prompt_data.get('transit_moon_sign', '')}")
+    lines.append(
+        f"{texts.get('horoscope_basic_transit_moon_house', '🏠 Транзитная Луна в доме')}: {prompt_data.get('transit_moon_house', '')}")
+    lines.append(
+        f"{texts.get('horoscope_basic_retrograde', '🔄 Ретроградные планеты')}: {prompt_data.get('retrograde_planets', '')}")
 
     return "\n".join(lines)
 
@@ -821,76 +856,35 @@ async def process_person2_gender(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    await state.clear()
+    # Сохраняем данные в состояние
+    await state.update_data(person1=person1, person2=person2)
+    await state.set_state(CompatibilityStates.CONFIRM_BOTH)
 
-    zodiac1_name = get_zodiac_sign_localized(person1['zodiac'], lang)
-    zodiac2_name = get_zodiac_sign_localized(person2['zodiac'], lang)
-    zodiac1_emoji = get_zodiac_emoji(person1['zodiac'])
-    zodiac2_emoji = get_zodiac_emoji(person2['zodiac'])
+    # Формируем текст подтверждения
+    from bot.locales import TEXTS
+    texts = TEXTS.get(lang, TEXTS['ru'])
 
-    template = await get_text(user_id, 'compatibility_summary')
-    summary_text = template.format(
-        name1=person1['name'],
-        date1=person1['birth_date'],
-        time1=person1['birth_time'],
-        place1=person1['birth_place'],
-        emoji1=zodiac1_emoji,
-        zodiac1=zodiac1_name,
-        name2=person2['name'],
-        date2=person2['birth_date'],
-        time2=person2['birth_time'],
-        place2=person2['birth_place'],
-        emoji2=zodiac2_emoji,
-        zodiac2=zodiac2_name
+    def person_text(person, num):
+        gender_display = "Мужчина" if person.get('gender') == 'M' else "Женщина"
+        return texts['compatibility_confirm_person'].format(
+            num=num,
+            name=person.get('name', ''),
+            gender=gender_display,
+            birth_date=person.get('birth_date', ''),
+            birth_time=person.get('birth_time', ''),
+            birth_place=person.get('birth_place', '')
+        )
+
+    confirm_text = (
+        f"{texts.get('compatibility_confirm_title', '📋 Подтверждение данных для совместимости')}\n\n"
+        f"{person_text(person1, 1)}\n\n"
+        f"{person_text(person2, 2)}"
     )
 
-    # Скрываем клавиатуру перед статусными сообщениями
-    await message.answer("⏳ Анализируем совместимость...", reply_markup=ReplyKeyboardRemove())
-
-    status_msg = await message.answer(summary_text)
-
-    try:
-        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_aspects'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_natal'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_forecast'))
-        await asyncio.sleep(1)
-
-        if gemini_service:
-            result = gemini_service.generate_compatibility_from_prompt(person1, person2, lang)
-
-            await mark_feature_used_db(user_id, 'compatibility')
-            await save_message_to_archive(user_id, 'compatibility', result)
-
-            allowed_ids = [5484157606, 8790509202]
-            if user_id in allowed_ids:
-                calc = CompatibilityCalculator(person1, person2)
-                prompt_data = calc.get_prompt_data()
-                parameters_text = format_parameters(prompt_data, 'compatibility', lang)
-                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{result}"
-            else:
-                final_message = result
-
-            await status_msg.delete()
-            result_template = await get_text(user_id, 'compatibility_result')
-            result_text = result_template.format(result=final_message)
-            await send_long_message(message, result_text, reply_markup=get_main_menu_button(lang))
-
-            if not await check_subscription_db(user_id):
-                await message.answer(
-                    await get_text(user_id, 'compatibility_promo'),
-                    reply_markup=get_subscription_promo_keyboard(lang)
-                )
-        else:
-            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
-    except Exception as e:
-        try:
-            await status_msg.edit_text(f"❌ Произошла ошибка при анализе:\n{str(e)}")
-        except:
-            await message.answer(f"❌ Произошла ошибка при анализе:\n{str(e)}")
-    finally:
-        await state.clear()
+    await message.answer(
+        confirm_text,
+        reply_markup=get_compatibility_confirm_keyboard(lang)
+    )
 
 
 # ---- NumerologyStates ----
@@ -1437,13 +1431,17 @@ async def start_horoscope(message: Message, state: FSMContext):
             await mark_feature_used_db(user_id, 'horoscope')
 
             allowed_ids = [5484157606, 8790509202]
+            calc = TransitHoroscopeCalculator(user_data)
+            prompt_data = calc.calculate()
+
             if user_id in allowed_ids:
-                calc = TransitHoroscopeCalculator(user_data)
-                prompt_data = calc.calculate()
+                # Для администраторов – полный вывод
                 parameters_text = format_parameters(prompt_data, 'horoscope', lang)
                 final_message = f"{parameters_text}\n\n{horoscope}"
             else:
-                final_message = horoscope
+                # Для обычных пользователей – только базовые параметры
+                basic_params = format_basic_horoscope_parameters(prompt_data, lang)
+                final_message = f"{basic_params}\n\n{horoscope}"
 
             await status_msg.delete()
 
@@ -1818,6 +1816,32 @@ def prepare_numerology_prompt_data(user_data: dict) -> dict:
     return prompt_data
 
 
+def format_basic_compatibility_parameters(person1: dict, person2: dict, lang: str = 'ru') -> str:
+    """Форматирует базовые данные для совместимости (для обычных пользователей)."""
+    from bot.locales import TEXTS
+    texts = TEXTS.get(lang, TEXTS['ru'])
+
+    def person_text(person, num):
+        gender = "Мужчина" if person.get('gender') == 'M' else "Женщина"
+        return texts['compatibility_confirm_person'].format(
+            num=num,
+            name=person.get('name', ''),
+            gender=gender,
+            birth_date=person.get('birth_date', ''),
+            birth_time=person.get('birth_time', ''),
+            birth_place=person.get('birth_place', '')
+        )
+
+    lines = [
+        texts.get('compatibility_confirm_title', '📋 Подтверждение данных для совместимости'),
+        "",
+        person_text(person1, 1),
+        "",
+        person_text(person2, 2),
+    ]
+    return "\n".join(lines)
+
+
 # ==================== ВСЕ CALLBACK-ХЕНДЛЕРЫ ====================
 
 @dp.callback_query(F.data == "confirm_horoscope", HoroscopeStates.CONFIRM)
@@ -1855,13 +1879,17 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         await save_message_to_archive(user_id, 'horoscope', horoscope)
 
         allowed_ids = [5484157606, 8790509202]
+        calc = TransitHoroscopeCalculator(user_data)
+        prompt_data = calc.calculate()
+
         if user_id in allowed_ids:
-            calc = TransitHoroscopeCalculator(user_data)
-            prompt_data = calc.calculate()
+            # Для администраторов – полный вывод
             parameters_text = format_parameters(prompt_data, 'horoscope', lang)
             final_message = f"{parameters_text}\n\n{horoscope}"
         else:
-            final_message = horoscope
+            # Для обычных пользователей – только базовые параметры
+            basic_params = format_basic_horoscope_parameters(prompt_data, lang)
+            final_message = f"{basic_params}\n\n{horoscope}"
 
         await status_msg.delete()
 
@@ -1884,6 +1912,78 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         except:
             await callback.message.answer(f"❌ Ошибка: {str(e)}")
         await state.clear()
+
+
+@dp.callback_query(F.data == "confirm_compatibility", CompatibilityStates.CONFIRM_BOTH)
+async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
+    data = await state.get_data()
+    person1 = data.get('person1')
+    person2 = data.get('person2')
+
+    if not person1 or not person2:
+        await callback.message.answer(await get_text(user_id, 'error_not_found'), reply_markup=get_main_menu(lang))
+        await state.clear()
+        return
+
+    # Скрываем клавиатуру и показываем статус
+    status_msg = await callback.message.answer("⏳ Анализируем совместимость...", reply_markup=ReplyKeyboardRemove())
+
+    try:
+        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_aspects'))
+        await asyncio.sleep(1)
+        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_natal'))
+        await asyncio.sleep(1)
+        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_forecast'))
+        await asyncio.sleep(1)
+
+        if gemini_service:
+            result = gemini_service.generate_compatibility_from_prompt(person1, person2, lang)
+
+            await mark_feature_used_db(user_id, 'compatibility')
+            await save_message_to_archive(user_id, 'compatibility', result)
+
+            allowed_ids = [5484157606, 8790509202]
+            if user_id in allowed_ids:
+                calc = CompatibilityCalculator(person1, person2)
+                prompt_data = calc.get_prompt_data()
+                parameters_text = format_parameters(prompt_data, 'compatibility', lang)
+                final_message = f"{parameters_text}\n\n{result}"
+            else:
+                basic = format_basic_compatibility_parameters(person1, person2, lang)
+                final_message = f"{basic}\n\n{result}"
+
+            await status_msg.delete()
+            result_template = await get_text(user_id, 'compatibility_result')
+            result_text = result_template.format(result=final_message)
+            await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
+
+            if not await check_subscription_db(user_id):
+                await callback.message.answer(
+                    await get_text(user_id, 'compatibility_promo'),
+                    reply_markup=get_subscription_promo_keyboard(lang)
+                )
+        else:
+            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
+    except Exception as e:
+        try:
+            await status_msg.edit_text(f"❌ Произошла ошибка при анализе:\n{str(e)}")
+        except:
+            await callback.message.answer(f"❌ Произошла ошибка при анализе:\n{str(e)}")
+    finally:
+        await state.clear()
+
+
+@dp.callback_query(F.data == "cancel_compatibility", CompatibilityStates.CONFIRM_BOTH)
+async def cancel_compatibility(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    await callback.message.delete()
+    user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
+    await callback.message.answer(await get_text(user_id, 'error_cancel'), reply_markup=get_main_menu(lang))
 
 
 @dp.callback_query(F.data == "use_my_data")
@@ -3075,13 +3175,17 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         await save_message_to_archive(user_id, 'horoscope', horoscope)
 
         allowed_ids = [5484157606, 8790509202]
+        calc = TransitHoroscopeCalculator(temp_data)
+        prompt_data = calc.calculate()
+
         if user_id in allowed_ids:
-            calc = TransitHoroscopeCalculator(temp_data)
-            prompt_data = calc.calculate()
+            # Для администраторов – полный вывод
             parameters_text = format_parameters(prompt_data, 'horoscope', lang)
             final_message = f"{parameters_text}\n\n{horoscope}"
         else:
-            final_message = horoscope
+            # Для обычных пользователей – только базовые параметры
+            basic_params = format_basic_horoscope_parameters(prompt_data, lang)
+            final_message = f"{basic_params}\n\n{horoscope}"
 
         await status_msg.delete()
         result_template = await get_text(user_id, 'horoscope_result')
