@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 
 from kerykeion import AstrologicalSubject
 from timezonefinder import TimezoneFinder
@@ -366,30 +366,161 @@ class AstrologyCalculator:
             tz_str=tz_str,
         )
 
+    def _extract_planets_from_subject(self, subject: AstrologicalSubject) -> List[Dict]:
+        """Извлекает список планет с градусами и знаками из субъекта."""
+        planets = []
+        try:
+            # Пытаемся получить планеты через атрибут .planets
+            if hasattr(subject, 'planets') and subject.planets:
+                for p in subject.planets:
+                    planets.append({
+                        "name": p.name,
+                        "sign": p.sign,
+                        "degree": p.position,
+                        "house": p.house,
+                    })
+            else:
+                # Иначе через модель
+                model = subject.model() if callable(subject.model) else subject.model
+                data = model.dict() if hasattr(model, 'dict') else model.__dict__
+                planet_keys = [
+                    'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
+                    'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith',
+                    'ceres', 'pallas', 'juno', 'vesta', 'eris', 'sedna', 'haumea', 'makemake',
+                    'mean_north_lunar_node', 'true_north_lunar_node',
+                    'mean_south_lunar_node', 'true_south_lunar_node'
+                ]
+                for key in planet_keys:
+                    if key in data:
+                        obj = data[key]
+                        if isinstance(obj, dict):
+                            if 'sign' in obj and 'position' in obj:
+                                planets.append({
+                                    "name": key.capitalize(),
+                                    "sign": obj.get('sign', 'unknown'),
+                                    "degree": obj.get('position', 0.0),
+                                    "house": obj.get('house', 0),
+                                })
+                        else:
+                            if hasattr(obj, 'sign') and hasattr(obj, 'position'):
+                                planets.append({
+                                    "name": key.capitalize(),
+                                    "sign": getattr(obj, 'sign', 'unknown'),
+                                    "degree": getattr(obj, 'position', 0.0),
+                                    "house": getattr(obj, 'house', 0),
+                                })
+        except Exception as e:
+            logger.warning(f"Не удалось извлечь планеты из субъекта: {e}")
+        return planets
+
+    def _get_progression_subject(self) -> AstrologicalSubject:
+        """Создаёт субъект для вторичных прогрессий (день за год)."""
+        year, month, day, hour, minute = self._parse_birth_datetime()
+        birth_date = datetime(year, month, day, hour, minute)
+        now = datetime.now()
+        age_in_days = (now - birth_date).days
+        prog_date = birth_date + timedelta(days=age_in_days)
+        lat, lng, tz_str = self._get_coordinates_and_timezone()
+        return AstrologicalSubject(
+            name=f"Progressed_{self.name}",
+            year=prog_date.year,
+            month=prog_date.month,
+            day=prog_date.day,
+            hour=prog_date.hour,
+            minute=prog_date.minute,
+            lat=lat,
+            lng=lng,
+            tz_str=tz_str,
+        )
+
     def _get_progression_aspects_string(self, lang: str = 'ru') -> str:
         """Возвращает строку с аспектами прогрессивных планет к натальным."""
         try:
-            natal = self._get_natal_subject()
-            prog = self._get_progression_subject()
-            from kerykeion import AspectsFactory
-            # Получаем аспекты между прогрессивными и натальными планетами
-            aspects_data = AspectsFactory.dual_chart_aspects(prog, natal)
-            if not aspects_data or not hasattr(aspects_data, 'aspects'):
-                return "Нет данных по прогрессивным аспектам."
+            natal_subject = self._get_natal_subject()
+            prog_subject = self._get_progression_subject()
 
-            prog_aspects = []
-            for a in aspects_data.aspects:
-                orb = getattr(a, 'orbit', getattr(a, 'orb', getattr(a, 'orbis', 0.0)))
-                # Фильтруем только мажорные аспекты с орбисом <= 5°
-                if a.aspect.lower() in self.MAJOR_ASPECTS and orb <= self.MAX_ORB:
-                    prog_aspects.append(f"{a.p1_name} {a.aspect} {a.p2_name} (орбис: {orb:.2f}°)")
-            if prog_aspects:
-                return "\n".join(prog_aspects)
-            else:
+            # Извлекаем планеты
+            natal_planets = self._extract_planets_from_subject(natal_subject)
+            prog_planets = self._extract_planets_from_subject(prog_subject)
+
+            if not natal_planets or not prog_planets:
+                return "Не удалось извлечь планеты для расчёта прогрессий."
+
+            # Ручной расчёт аспектов (мажорные, орбис ≤ 5°)
+            aspects = self._calculate_aspects_manual(prog_planets, natal_planets)
+
+            if not aspects:
                 return "Нет значимых прогрессивных аспектов на текущий период."
+
+            # Форматируем
+            lines = []
+            for a in aspects:
+                lines.append(f"{a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)")
+            return "\n".join(lines)
+
         except Exception as e:
             logger.error(f"Ошибка при расчёте прогрессивных аспектов: {e}")
             return "Ошибка при расчёте прогрессивных аспектов."
+
+    def _calculate_aspects_manual(self, planets1: List[Dict], planets2: List[Dict]) -> List[Dict]:
+        """Ручной расчёт аспектов между двумя списками планет (мажорные)."""
+        aspect_types = {
+            'conjunction': 8,
+            'opposition': 8,
+            'trine': 6,
+            'square': 6,
+            'sextile': 5,
+        }
+        aspects = []
+        for p1 in planets1:
+            for p2 in planets2:
+                if p1['name'] == p2['name']:
+                    continue  # пропускаем аспект планеты к самой себе
+                diff = abs(p1['degree'] - p2['degree']) % 360
+                if diff > 180:
+                    diff = 360 - diff
+                for aspect_name, orb in aspect_types.items():
+                    if aspect_name == 'conjunction' and diff <= orb:
+                        aspects.append({
+                            'p1': p1['name'],
+                            'p2': p2['name'],
+                            'aspect': aspect_name,
+                            'orb': diff,
+                        })
+                        break
+                    elif aspect_name == 'opposition' and abs(diff - 180) <= orb:
+                        aspects.append({
+                            'p1': p1['name'],
+                            'p2': p2['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 180),
+                        })
+                        break
+                    elif aspect_name == 'trine' and abs(diff - 120) <= orb:
+                        aspects.append({
+                            'p1': p1['name'],
+                            'p2': p2['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 120),
+                        })
+                        break
+                    elif aspect_name == 'square' and abs(diff - 90) <= orb:
+                        aspects.append({
+                            'p1': p1['name'],
+                            'p2': p2['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 90),
+                        })
+                        break
+                    elif aspect_name == 'sextile' and abs(diff - 60) <= orb:
+                        aspects.append({
+                            'p1': p1['name'],
+                            'p2': p2['name'],
+                            'aspect': aspect_name,
+                            'orb': abs(diff - 60),
+                        })
+                        break
+        return aspects
 
     def _get_health_indicators_string(self, lang: str = 'ru') -> str:
         """Анализирует 6-й и 8-й дома, аспекты к Гигиее, сигнификаторы здоровья."""
