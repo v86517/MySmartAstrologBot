@@ -286,21 +286,23 @@ def format_basic_horoscope_parameters(prompt_data: dict, lang: str = 'ru') -> st
     return "\n".join(lines)
 
 
-def format_profile_data(data: dict, lang: str) -> str:
+def format_profile_data(data: dict, lang: str, show_timezone: bool = True) -> str:
     """Форматирует данные пользователя для отображения с учётом языка"""
     gender_display = 'Мужской' if data.get('gender') == 'M' else 'Женский' if data.get('gender') == 'F' else 'Не указан'
     zodiac_emoji = get_zodiac_emoji(data.get('zodiac', 'Неизвестно'))
     zodiac_name = get_zodiac_sign_localized(data.get('zodiac', 'Неизвестно'), lang)
     timezone = data.get('timezone_offset', 3)
-    return (
+    text = (
         f"👤 Имя: {data.get('name', 'Не указано')}\n"
         f"📅 Дата рождения: {data.get('birth_date', 'Не указана')}\n"
         f"🕒 Время рождения: {data.get('birth_time', 'Не указано')}\n"
         f"📍 Место рождения: {data.get('birth_place', 'Не указано')}\n"
         f"👤 Пол: {gender_display}\n"
         f"{zodiac_emoji} Знак зодиака: {zodiac_name}\n"
-        f"🕒 Часовой пояс: UTC+{timezone}"
     )
+    if show_timezone:
+        text += f"🕒 Часовой пояс: UTC+{timezone}\n"
+    return text
 
 # ==================== КОМАНДЫ ====================
 
@@ -571,14 +573,17 @@ async def process_gender(message: Message, state: FSMContext):
     data['timezone_offset'] = 3
     await state.update_data(temp_data=data)
 
-    # Формируем профиль для отображения
-    profile_text = format_profile_data(data, lang)
+    # Формируем профиль без часового пояса
+    profile_text = format_profile_data(data, lang, show_timezone=False)
+
+    # Получаем URL для ссылок
+    consent_url = os.getenv('CONSENT_URL', 'ссылка на согласие')
     privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
 
-    # ПОЛУЧАЕМ ТЕКСТ, А ПОТОМ ПРИМЕНЯЕМ .format()
     save_template = await get_text(user_id, 'profile_save_confirm')
     save_text = save_template.format(
         profile=profile_text,
+        consent_url=consent_url,
         privacy_url=privacy_url
     )
 
