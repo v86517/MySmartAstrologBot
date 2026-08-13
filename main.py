@@ -1956,11 +1956,14 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             result_template = await get_text(user_id, 'compatibility_result')
             result_text = result_template.format(result=final_message)
 
-            # Сначала отправляем результат
+            # Отправляем результат
             await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
 
-            # Затем удаляем статусное сообщение
-            await status_msg.delete()
+            # Удаляем статусное сообщение (если ещё существует)
+            try:
+                await status_msg.delete()
+            except:
+                pass  # если уже удалено, игнорируем
 
             if not await check_subscription_db(user_id):
                 await callback.message.answer(
@@ -1970,6 +1973,7 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
+        # Пытаемся отредактировать статусное сообщение, если не получается – отправляем новое
         try:
             await status_msg.edit_text(f"❌ Произошла ошибка при анализе:\n{str(e)}")
         except:
