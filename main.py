@@ -1082,7 +1082,6 @@ async def process_numerology_gender(message: Message, state: FSMContext):
 
             allowed_ids = [5484157606, 8790509202]
             if user_id in allowed_ids:
-                # сбор параметров (код не меняется)
                 from bot.calculators.base_calculator import BaseCalculator
                 from bot.calculators.natal_calculator import NatalCalculator
                 calc = BaseCalculator()
@@ -1119,14 +1118,16 @@ async def process_numerology_gender(message: Message, state: FSMContext):
                     prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
 
                 parameters_text = format_parameters(prompt_data, 'numerology', lang)
-                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{result}"
+                final_message = f"{parameters_text}\n\n{result}"
             else:
                 final_message = result
 
-            await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
             result_text = result_template.format(result=final_message)
+
+            # Сначала результат, потом статус
             await send_long_message(message, result_text, reply_markup=get_main_menu_button(lang))
+            await status_msg.delete()
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -1350,8 +1351,9 @@ async def process_astrology_gender(message: Message, state: FSMContext):
             await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
 
-            await status_msg.delete()
+            # Сначала результат, потом статус
             await send_long_message(message, final_message, reply_markup=get_main_menu_button(lang))
+            await status_msg.delete()
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -1435,15 +1437,11 @@ async def start_horoscope(message: Message, state: FSMContext):
             prompt_data = calc.calculate()
 
             if user_id in allowed_ids:
-                # Для администраторов – полный вывод
                 parameters_text = format_parameters(prompt_data, 'horoscope', lang)
                 final_message = f"{parameters_text}\n\n{horoscope}"
             else:
-                # Для обычных пользователей – только базовые параметры
                 basic_params = format_basic_horoscope_parameters(prompt_data, lang)
                 final_message = f"{basic_params}\n\n{horoscope}"
-
-            await status_msg.delete()
 
             result_template = await get_text(user_id, 'horoscope_result')
             result_text = result_template.format(date=today, horoscope=final_message)
@@ -1455,7 +1453,9 @@ async def start_horoscope(message: Message, state: FSMContext):
                 logger.error("❌ result_text пустой!")
                 result_text = "⚠️ Сообщение пустое. Попробуйте позже."
 
+            # Сначала отправляем результат, потом удаляем статус
             await send_long_message(message, result_text, reply_markup=get_main_menu_button(lang))
+            await status_msg.delete()
 
             if not is_subscribed:
                 await message.answer(
@@ -1470,51 +1470,6 @@ async def start_horoscope(message: Message, state: FSMContext):
     else:
         await state.set_state(UserDataStates.WAITING_NAME)
         await message.answer(await get_text(user_id, 'horoscope_intro'), reply_markup=get_cancel_keyboard(lang))
-
-
-async def start_compatibility(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    lang = await get_user_language(user_id)
-
-    if not await can_use_feature_db(user_id, 'compatibility'):
-        await message.answer(
-            await get_text(user_id, 'compatibility_limit'),
-            reply_markup=get_subscription_keyboard(lang)
-        )
-        return
-
-    user_data = await get_user_data(user_id)
-
-    if user_data and user_data.get('name'):
-        zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
-        zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
-        gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'
-
-        template = await get_text(user_id, 'compatibility_use_data')
-        profile_text = template.format(
-            name=user_data.get('name', 'Не указано'),
-            birth_date=user_data.get('birth_date', 'Не указана'),
-            birth_time=user_data.get('birth_time', 'Не указано'),
-            birth_place=user_data.get('birth_place', 'Не указано'),
-            gender=gender_display,
-            emoji=zodiac_emoji,
-            zodiac=zodiac_name
-        )
-
-        await message.answer(
-            profile_text,
-            reply_markup=get_compatibility_keyboard(lang)
-        )
-
-        await state.update_data(person1_data=user_data)
-        await state.set_state(CompatibilityStates.CONFIRM_DATA)
-
-    else:
-        await state.set_state(CompatibilityStates.WAITING_PERSON1_NAME)
-        await message.answer(
-            await get_text(user_id, 'compatibility_intro'),
-            reply_markup=get_cancel_keyboard(lang)
-        )
 
 
 async def start_numerology(message: Message, state: FSMContext):
@@ -1883,15 +1838,11 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         prompt_data = calc.calculate()
 
         if user_id in allowed_ids:
-            # Для администраторов – полный вывод
             parameters_text = format_parameters(prompt_data, 'horoscope', lang)
             final_message = f"{parameters_text}\n\n{horoscope}"
         else:
-            # Для обычных пользователей – только базовые параметры
             basic_params = format_basic_horoscope_parameters(prompt_data, lang)
             final_message = f"{basic_params}\n\n{horoscope}"
-
-        await status_msg.delete()
 
         result_template = await get_text(user_id, 'horoscope_result')
         result_text = result_template.format(date=today, horoscope=final_message)
@@ -1903,7 +1854,9 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
             logger.error("❌ result_text пустой!")
             result_text = "⚠️ Сообщение пустое. Попробуйте позже."
 
+        # Сначала результат, потом статус
         await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
+        await status_msg.delete()
 
         await state.clear()
     except Exception as e:
@@ -1955,10 +1908,14 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
                 basic = format_basic_compatibility_parameters(person1, person2, lang)
                 final_message = f"{basic}\n\n{result}"
 
-            await status_msg.delete()
             result_template = await get_text(user_id, 'compatibility_result')
             result_text = result_template.format(result=final_message)
+
+            # Сначала отправляем результат
             await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
+
+            # Затем удаляем статусное сообщение
+            await status_msg.delete()
 
             if not await check_subscription_db(user_id):
                 await callback.message.answer(
@@ -2137,14 +2094,16 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
                     prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
 
                 parameters_text = format_parameters(prompt_data, 'numerology', lang)
-                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{result}"
+                final_message = f"{parameters_text}\n\n{result}"
             else:
                 final_message = result
 
-            await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
             result_text = result_template.format(result=final_message)
+
+            # Сначала результат, потом статус
             await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
+            await status_msg.delete()
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -2296,14 +2255,16 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
                     prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
 
                 parameters_text = format_parameters(prompt_data, 'numerology', lang)
-                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{result}"
+                final_message = f"{parameters_text}\n\n{result}"
             else:
                 final_message = result
 
-            await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
             result_text = result_template.format(result=final_message)
+
+            # Сначала результат, потом статус
             await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
+            await status_msg.delete()
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -2415,8 +2376,9 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
             await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
 
-            await status_msg.delete()
+            # Сначала результат, потом статус
             await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
+            await status_msg.delete()
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -2545,8 +2507,9 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
             await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
 
-            await status_msg.delete()
+            # Сначала результат, потом статус
             await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
+            await status_msg.delete()
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -3179,19 +3142,18 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         prompt_data = calc.calculate()
 
         if user_id in allowed_ids:
-            # Для администраторов – полный вывод
             parameters_text = format_parameters(prompt_data, 'horoscope', lang)
             final_message = f"{parameters_text}\n\n{horoscope}"
         else:
-            # Для обычных пользователей – только базовые параметры
             basic_params = format_basic_horoscope_parameters(prompt_data, lang)
             final_message = f"{basic_params}\n\n{horoscope}"
 
-        await status_msg.delete()
         result_template = await get_text(user_id, 'horoscope_result')
         result_text = result_template.format(date=today, horoscope=final_message)
-        # ✅ Используем send_long_message для разбиения длинного сообщения
+
+        # Сначала результат, потом статус
         await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
+        await status_msg.delete()
 
         await state.clear()
         if not await check_subscription_db(user_id):
