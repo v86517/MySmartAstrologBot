@@ -1926,16 +1926,21 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    # Скрываем клавиатуру и показываем статус
+    # Отправляем статусное сообщение (без клавиатуры)
     status_msg = await callback.message.answer("⏳ Анализируем совместимость...", reply_markup=ReplyKeyboardRemove())
 
     try:
-        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_aspects'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_natal'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'compatibility_status_forecast'))
-        await asyncio.sleep(1)
+        # Обновляем статус (может выбросить исключение, если сообщение удалено)
+        try:
+            await status_msg.edit_text(await get_text(user_id, 'compatibility_status_aspects'))
+            await asyncio.sleep(1)
+            await status_msg.edit_text(await get_text(user_id, 'compatibility_status_natal'))
+            await asyncio.sleep(1)
+            await status_msg.edit_text(await get_text(user_id, 'compatibility_status_forecast'))
+            await asyncio.sleep(1)
+        except:
+            # Если не удалось обновить статус, продолжаем генерацию (сообщение могло быть удалено)
+            pass
 
         if gemini_service:
             result = gemini_service.generate_compatibility_from_prompt(person1, person2, lang)
@@ -1956,10 +1961,10 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             result_template = await get_text(user_id, 'compatibility_result')
             result_text = result_template.format(result=final_message)
 
-            # Отправляем результат
+            # Отправляем результат с клавиатурой
             await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
 
-            # Удаляем статусное сообщение (если ещё существует)
+            # Пытаемся удалить статусное сообщение (игнорируем ошибки)
             try:
                 await status_msg.delete()
             except:
@@ -1971,15 +1976,18 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
                     reply_markup=get_subscription_promo_keyboard(lang)
                 )
         else:
-            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
+            await callback.message.answer(await get_text(user_id, 'error_service_unavailable'))
+            try:
+                await status_msg.delete()
+            except:
+                pass
     except Exception as e:
-        # Пытаемся удалить статусное сообщение (игнорируем ошибки)
+        # В случае любой ошибки отправляем новое сообщение
+        await callback.message.answer(f"❌ Произошла ошибка при анализе:\n{str(e)}")
         try:
             await status_msg.delete()
         except:
             pass
-        # Отправляем новое сообщение с ошибкой
-        await callback.message.answer(f"❌ Произошла ошибка при анализе:\n{str(e)}")
     finally:
         await state.clear()
 
