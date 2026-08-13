@@ -2746,6 +2746,50 @@ async def skip_edit_step(callback: CallbackQuery, state: FSMContext):
     logger.info(f"⏩ После пропуска, new_data: {new_data}")
 
 
+@dp.callback_query(F.data == "cancel", NumerologyStates.PAYMENT)
+async def cancel_numerology_payment(callback: CallbackQuery, state: FSMContext):
+    """Отмена оплаты нумерологии (без лишнего сообщения)"""
+    await state.clear()
+    await callback.message.delete()
+    user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
+    await callback.message.answer("🏠", reply_markup=get_main_menu(lang))
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "cancel", AstrologyStates.PAYMENT)
+async def cancel_astrology_payment(callback: CallbackQuery, state: FSMContext):
+    """Отмена оплаты астрологии (без лишнего сообщения)"""
+    await state.clear()
+    await callback.message.delete()
+    user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
+    await callback.message.answer("🏠", reply_markup=get_main_menu(lang))
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "cancel", NumerologyStates.CONFIRM_DATA)
+async def cancel_numerology_confirm(callback: CallbackQuery, state: FSMContext):
+    """Отмена подтверждения нумерологии (без лишнего сообщения)"""
+    await state.clear()
+    await callback.message.delete()
+    user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
+    await callback.message.answer("🏠", reply_markup=get_main_menu(lang))
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "cancel", AstrologyStates.CONFIRM_DATA)
+async def cancel_astrology_confirm(callback: CallbackQuery, state: FSMContext):
+    """Отмена подтверждения астрологии (без лишнего сообщения)"""
+    await state.clear()
+    await callback.message.delete()
+    user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
+    await callback.message.answer("🏠", reply_markup=get_main_menu(lang))
+    await callback.answer()
+
+
 @dp.callback_query(F.data == "edit_timezone")
 async def edit_timezone(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
