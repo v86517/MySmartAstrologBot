@@ -198,7 +198,6 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
         lines.append(f"  Внутренний паспорт: {prompt_data.get('v_top', '')}")
 
     elif service_type == 'compatibility':
-        lines.append("💕 Анализ совместимости")
         lines.append("")
         lines.append(f"👤 Человек 1: {prompt_data.get('p1_name', '')}")
         lines.append(f"⚥ Пол: {prompt_data.get('p1_gender_text', '')}")
