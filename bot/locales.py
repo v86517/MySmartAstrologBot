@@ -172,7 +172,7 @@ TEXTS = {
         'subscription_payment_error': "⚠️ Платежная система временно недоступна.\nПожалуйста, попробуйте позже или свяжитесь с поддержкой.",
         'subscription_extend': "🔄 Продление подписки\n\n💰 333 ₽ / месяц\n\nНажмите кнопку ниже для продления.",
         'subscription_cancel_not_found': "❌ Пользователь не найден в базе данных.",
-        'subscription_not_active': "📌 У вас нет активной подписки.\nОформить подписку можно в разделе ⭐ Подписка.",
+        'subscription_not_active': "📌 У вас нет активной подписки.\nОформить подписку можно в разделе ⭐ Premium.",
         'subscription_canceled': "❌ Ваша подписка отменена.\n\nВы больше не будете получать ежедневные гороскопы.\nВы можете оформить подписку снова в любой момент в разделе ⭐ Подписка.",
 
         # ========== Эксперт ==========
@@ -541,7 +541,7 @@ TEXTS = {
         'subscription_payment_error': "⚠️ Payment system is temporarily unavailable.\nPlease try again later or contact support.",
         'subscription_extend': "🔄 Subscription renewal\n\n💰 333 ₽ / month\n\nClick the button below to renew.",
         'subscription_cancel_not_found': "❌ User not found in the database.",
-        'subscription_not_active': "📌 You don't have an active subscription.\nYou can subscribe in the ⭐ Subscription section.",
+        'subscription_not_active': "📌 You don't have an active subscription.\nYou can subscribe in the ⭐ Premium section.",
         'subscription_canceled': "❌ Your subscription has been canceled.\n\nYou will no longer receive daily horoscopes.\nYou can subscribe again at any time in the ⭐ Subscription section.",
 
         # ========== Expert ==========
