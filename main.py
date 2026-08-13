@@ -1963,7 +1963,7 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             try:
                 await status_msg.delete()
             except:
-                pass  # если уже удалено, игнорируем
+                pass
 
             if not await check_subscription_db(user_id):
                 await callback.message.answer(
@@ -1973,11 +1973,13 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
-        # Пытаемся отредактировать статусное сообщение, если не получается – отправляем новое
+        # Пытаемся удалить статусное сообщение (игнорируем ошибки)
         try:
-            await status_msg.edit_text(f"❌ Произошла ошибка при анализе:\n{str(e)}")
+            await status_msg.delete()
         except:
-            await callback.message.answer(f"❌ Произошла ошибка при анализе:\n{str(e)}")
+            pass
+        # Отправляем новое сообщение с ошибкой
+        await callback.message.answer(f"❌ Произошла ошибка при анализе:\n{str(e)}")
     finally:
         await state.clear()
 
