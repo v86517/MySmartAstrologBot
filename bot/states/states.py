@@ -52,3 +52,6 @@ class AstrologyStates(StatesGroup):
 
 class HoroscopeStates(StatesGroup):
     CONFIRM = State()
+
+class SubscriptionStates(StatesGroup):
+    WAITING_TIMEZONE = State()

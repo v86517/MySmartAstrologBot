@@ -43,7 +43,7 @@ from bot.keyboards.keyboards import (
     get_language_keyboard,
     get_main_menu_button, get_compatibility_confirm_keyboard,
 )
-from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates, HoroscopeStates
+from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates, HoroscopeStates, SubscriptionStates
 from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji, get_zodiac_sign_localized
 from bot.services.gemini import GeminiService
 
@@ -2932,48 +2932,19 @@ async def send_expert_request(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "subscribe_pay")
-async def subscribe_payment(callback: CallbackQuery):
+async def subscribe_payment(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
 
-    if not yookassa.is_configured:
-        await callback.message.answer(
-            await get_text(user_id, 'subscription_payment_error')
-        )
-        return
+    # Устанавливаем состояние для выбора часового пояса
+    await state.set_state(SubscriptionStates.WAITING_TIMEZONE)
+    await state.update_data(subscription_flow=True)  # флаг для process_timezone
 
-    result = yookassa.create_payment(
-        user_id=user_id,
-        amount=11.00, #amount=333.00,
-        description=f"Подписка на астробота (ID: {user_id})",
-        payment_type='subscription'
-    )
-
-    if result['success']:
-        await save_payment_db(user_id, result['payment_id'], 333.00, 'subscription', 'pending')
-
-        await callback.message.answer(
-            await get_text(user_id, 'subscription_payment_process'),
-            reply_markup=get_subscription_payment_keyboard(result['confirmation_url'], lang)
-        )
-    else:
-        await callback.message.answer(
-            f"❌ Ошибка при создании платежа: {result['error']}"
-        )
-
-
-@dp.callback_query(F.data == "subscribe_extend")
-async def subscribe_extend(callback: CallbackQuery):
     await callback.message.delete()
-    await callback.answer()
-
-    user_id = callback.from_user.id
-    lang = await get_user_language(user_id)
     await callback.message.answer(
-        await get_text(user_id, 'subscription_extend'),
-        reply_markup=get_subscription_keyboard(lang)
+        await get_text(user_id, 'choose_timezone'),
+        reply_markup=get_timezone_keyboard(lang)
     )
 
 
@@ -3200,17 +3171,59 @@ async def cancel_horoscope(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("🏠", reply_markup=get_main_menu(lang))
 
 
-@dp.callback_query(F.data.startswith("tz_"), UserDataStates.WAITING_TIMEZONE)
+@dp.callback_query(F.data.startswith("tz_"))
 async def process_timezone(callback: CallbackQuery, state: FSMContext):
     tz_offset = int(callback.data.split("_")[1])
     await callback.answer()
 
+    user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
+    current_state = await state.get_state()
+
+    # ---- Режим подписки (выбор часового пояса перед оплатой) ----
+    if current_state == SubscriptionStates.WAITING_TIMEZONE:
+        # Сохраняем часовой пояс в БД
+        from core.models import User
+        from asgiref.sync import sync_to_async
+        user = await sync_to_async(User.objects.get)(telegram_id=user_id)
+        user.timezone_offset = tz_offset
+        await sync_to_async(user.save)()
+
+        # Создаём платёж
+        if not yookassa.is_configured:
+            await callback.message.answer(
+                await get_text(user_id, 'subscription_payment_error')
+            )
+            await state.clear()
+            return
+
+        result = yookassa.create_payment(
+            user_id=user_id,
+            amount=333.00,
+            description=f"Подписка на астробота (ID: {user_id})",
+            payment_type='subscription'
+        )
+
+        if result['success']:
+            await save_payment_db(user_id, result['payment_id'], 333.00, 'subscription', 'pending')
+            await state.clear()
+            await callback.message.delete()
+            await callback.message.answer(
+                await get_text(user_id, 'subscription_payment_process'),
+                reply_markup=get_payment_url_keyboard(result['confirmation_url'], lang)
+            )
+        else:
+            await callback.message.answer(
+                f"❌ Ошибка при создании платежа: {result['error']}"
+            )
+            await state.clear()
+        return
+
+    # ---- Остальные режимы (для UserDataStates.WAITING_TIMEZONE) ----
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
     fill_mode = state_data.get('fill_mode', False)
     is_timezone_edit = state_data.get('is_timezone_edit', False)
-    user_id = callback.from_user.id
-    lang = await get_user_language(user_id)
 
     if is_edit:
         new_data = state_data.get('new_data', {})
@@ -3237,6 +3250,8 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         return
 
     if is_timezone_edit:
+        from core.models import User
+        from asgiref.sync import sync_to_async
         user = await sync_to_async(User.objects.get)(telegram_id=user_id)
         user.timezone_offset = tz_offset
         await sync_to_async(user.save)()
@@ -3249,6 +3264,7 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(msg, reply_markup=get_profile_keyboard(lang))
         return
 
+    # ---- Обычный режим (первое заполнение профиля) ----
     temp_data = state_data.get('temp_data', {})
     temp_data['timezone_offset'] = tz_offset
     await state.update_data(temp_data=temp_data)
