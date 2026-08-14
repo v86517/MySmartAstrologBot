@@ -2790,6 +2790,23 @@ async def cancel_astrology_confirm(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@dp.callback_query(F.data == "cancel_expert")
+async def cancel_expert(callback: CallbackQuery, state: FSMContext):
+    """Отмена в разделе 'Личный астролог'"""
+    await state.clear()
+    await callback.message.delete()
+    user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
+
+    if lang == 'ru':
+        text = "Вы вышли из «<b>👩‍🏫 Личный астролог</b>»\nВыберите раздел ниже <b>👇</b>"
+    else:
+        text = "You have exited «<b>👩‍🏫 Personal astrologer</b>»\nChoose a section below <b>👇</b>"
+
+    await callback.message.answer(text, reply_markup=get_main_menu(lang), parse_mode="HTML")
+    await callback.answer()
+
+
 @dp.callback_query(F.data == "edit_timezone")
 async def edit_timezone(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
