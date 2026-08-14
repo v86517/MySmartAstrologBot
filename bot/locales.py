@@ -392,7 +392,7 @@ TEXTS = {
         'error_payment_not_confirmed': "⏳ Payment not confirmed yet.\nPlease complete the payment or check the status later.",
         'unknown_command': "❓ I didn't understand your command.\nUse the menu buttons or type /start",
         'continuation': "📄 Continuation ({i}/{total}):\n\n{text}",
-        'choose_timezone': "🕒 Choose your time zone:",
+        'choose_timezone': "🕒 Choose your time zone for correct automatic horoscope sending time at 08:00 (e.g.: Moscow - UTC+3, Vladivostok - UTC+10):",
 
         # ========== Main menu buttons ==========
         'menu_horoscope': "🔮 Horoscope for today",
