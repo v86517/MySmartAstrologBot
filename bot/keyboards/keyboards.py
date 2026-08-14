@@ -311,12 +311,11 @@ def get_skip_keyboard(lang: str = 'ru'):
     return builder.as_markup()
 
 
-def get_timezone_keyboard(lang: str = 'ru'):  # lang не используется, но оставим для совместимости
+def get_timezone_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
     for i in range(1, 13):
         builder.button(text=f"UTC+{i}", callback_data=f"tz_{i}")
-    texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['kb_cancel'], callback_data="cancel")
+    # кнопка "Отмена" удалена
     builder.adjust(3, 3, 3, 3)
     return builder.as_markup()
 
