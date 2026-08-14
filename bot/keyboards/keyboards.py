@@ -150,7 +150,7 @@ def get_numerology_payment_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
     builder.button(text=texts['kb_pay_888'], callback_data="numerology_pay")
-    builder.button(text=texts['kb_cancel'], callback_data="cancel")
+    #builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -179,7 +179,7 @@ def get_astrology_payment_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
     builder.button(text=texts['kb_pay_999'], callback_data="astrology_pay")
-    builder.button(text=texts['kb_cancel'], callback_data="cancel")
+    #builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -297,7 +297,7 @@ def get_payment_url_keyboard(url: str, lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
     builder.button(text=texts['kb_go_pay'], url=url)
-    builder.button(text=texts['kb_cancel'], callback_data="cancel")
+    #builder.button(text=texts['kb_cancel'], callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
