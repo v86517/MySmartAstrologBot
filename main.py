@@ -3135,11 +3135,15 @@ async def back_to_main_menu(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "cancel")
 async def cancel(callback: CallbackQuery, state: FSMContext):
+    """Общий обработчик отмены для сценариев сбора данных"""
     await state.clear()
     await callback.message.delete()
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    await callback.message.answer(await get_text(user_id, 'error_cancel'), reply_markup=get_main_menu(lang))
+    await callback.message.answer(
+        await get_text(user_id, 'error_cancel'),
+        reply_markup=get_main_menu(lang)
+    )
     await callback.answer()
 
 
