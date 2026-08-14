@@ -2790,7 +2790,7 @@ async def cancel_astrology_confirm(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@dp.callback_query(F.data == "cancel_expert")
+@dp.callback_query(F.data == "cancel_expert", ~F.state)   # <-- фильтр: только когда состояние None
 async def cancel_expert(callback: CallbackQuery, state: FSMContext):
     """Отмена в разделе 'Личный астролог'"""
     await state.clear()
