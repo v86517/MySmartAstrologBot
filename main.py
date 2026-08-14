@@ -582,17 +582,18 @@ async def process_gender(message: Message, state: FSMContext):
     # ----- Обычный режим (первое заполнение) -----
     data = await state.get_data()
     data['gender'] = gender
-    # Устанавливаем часовой пояс по умолчанию (UTC+3)
     data['timezone_offset'] = 3
     await state.update_data(temp_data=data)
 
-    # Формируем профиль для отображения
+    # Формируем профиль
     profile_text = format_profile_data(data, lang, show_timezone=False)
+    consent_url = os.getenv('CONSENT_URL', 'ссылка на согласие')
     privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
 
     save_template = await get_text(user_id, 'profile_save_confirm')
     save_text = save_template.format(
         profile=profile_text,
+        consent_url=consent_url,
         privacy_url=privacy_url
     )
 
