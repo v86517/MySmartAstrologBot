@@ -152,6 +152,13 @@ TEXTS = {
         'astrology_status_building': "⏳ Строим натальную карту...",
 
         # ========== Профиль и редактирование ==========
+        'profile_field_name': '👤 Имя',
+        'profile_field_birth_date': '📅 Дата рождения',
+        'profile_field_birth_time': '🕒 Время рождения',
+        'profile_field_birth_place': '📍 Место рождения',
+        'profile_field_gender': '👤 Пол',
+        'profile_field_zodiac': 'Знак зодиака',
+        'profile_field_timezone': '🕒 Часовой пояс',
         'profile_text': "👤 Ваш профиль\n\nИмя: {name}\n📅 Дата рождения: {birth_date}\n🕒 Время рождения: {birth_time}\n📍 Место рождения: {birth_place}\n👤 Пол: {gender}\n{emoji} Знак зодиака: {zodiac}\n🕒 Часовой пояс: UTC+{timezone}",
         'profile_subscription_active': "\n\n⭐ Подписка: **Активна** ✅",
         'profile_no_data_message': "📝 У вас пока нет сохраненных данных.\nЧтобы заполнить профиль, нажмите **📝 Заполнить и Сохранить** или **🔮 Гороскоп на сегодня**.\n\n📄 Нажимая «**Заполнить и Сохранить**», вы даёте [согласие на обработку персональных данных]({consent_url}) в соответствии с [Политикой конфиденциальности]({privacy_url}).",
@@ -528,6 +535,13 @@ TEXTS = {
         'astrology_status_building': "⏳ Building natal chart...",
 
         # ========== Profile and editing ==========
+        'profile_field_name': '👤 Name',
+        'profile_field_birth_date': '📅 Date of birth',
+        'profile_field_birth_time': '🕒 Time of birth',
+        'profile_field_birth_place': '📍 Place of birth',
+        'profile_field_gender': '👤 Gender',
+        'profile_field_zodiac': 'Zodiac sign',
+        'profile_field_timezone': '🕒 Time zone',
         'profile_text': "👤 Your profile\n\nName: {name}\n📅 Date of birth: {birth_date}\n🕒 Time of birth: {birth_time}\n📍 Place of birth: {birth_place}\n👤 Gender: {gender}\n{emoji} Zodiac sign: {zodiac}\n🕒 Time zone: UTC+{timezone}",
         'profile_subscription_active': "\n\n⭐ Subscription: **Active** ✅",
         'profile_no_data_message': "📝 You have no saved data yet.\nTo fill your profile, press **📝 Fill and Save** or **🔮 Horoscope for today**.\n\n📄 By pressing «**Fill and Save**», you give [consent to the processing of personal data]({consent_url}) in accordance with the [Privacy Policy]({privacy_url}).",

@@ -288,21 +288,32 @@ def format_basic_horoscope_parameters(prompt_data: dict, lang: str = 'ru') -> st
 
 def format_profile_data(data: dict, lang: str, show_timezone: bool = True) -> str:
     """Форматирует данные пользователя для отображения с учётом языка"""
-    gender_display = 'Мужской' if data.get('gender') == 'M' else 'Женский' if data.get('gender') == 'F' else 'Не указан'
+    from bot.locales import TEXTS
+    texts = TEXTS.get(lang, TEXTS['ru'])
+
+    # Локализованный пол
+    if data.get('gender') == 'M':
+        gender_display = texts.get('astro_gender_male', 'Мужской')
+    elif data.get('gender') == 'F':
+        gender_display = texts.get('astro_gender_female', 'Женский')
+    else:
+        gender_display = texts.get('astro_gender_unknown', 'Не указан')
+
     zodiac_emoji = get_zodiac_emoji(data.get('zodiac', 'Неизвестно'))
     zodiac_name = get_zodiac_sign_localized(data.get('zodiac', 'Неизвестно'), lang)
     timezone = data.get('timezone_offset', 3)
-    text = (
-        f"👤 Имя: {data.get('name', 'Не указано')}\n"
-        f"📅 Дата рождения: {data.get('birth_date', 'Не указана')}\n"
-        f"🕒 Время рождения: {data.get('birth_time', 'Не указано')}\n"
-        f"📍 Место рождения: {data.get('birth_place', 'Не указано')}\n"
-        f"👤 Пол: {gender_display}\n"
-        f"{zodiac_emoji} Знак зодиака: {zodiac_name}\n"
-    )
+
+    lines = [
+        f"{texts.get('profile_field_name', '👤 Имя')}: {data.get('name', 'Не указано')}",
+        f"{texts.get('profile_field_birth_date', '📅 Дата рождения')}: {data.get('birth_date', 'Не указана')}",
+        f"{texts.get('profile_field_birth_time', '🕒 Время рождения')}: {data.get('birth_time', 'Не указано')}",
+        f"{texts.get('profile_field_birth_place', '📍 Место рождения')}: {data.get('birth_place', 'Не указано')}",
+        f"{texts.get('profile_field_gender', '👤 Пол')}: {gender_display}",
+        f"{zodiac_emoji} {texts.get('profile_field_zodiac', 'Знак зодиака')}: {zodiac_name}",
+    ]
     if show_timezone:
-        text += f"🕒 Часовой пояс: UTC+{timezone}\n"
-    return text
+        lines.append(f"{texts.get('profile_field_timezone', '🕒 Часовой пояс')}: UTC+{timezone}")
+    return "\n".join(lines)
 
 
 def normalize_gender(text: str) -> str:
@@ -580,13 +591,20 @@ async def process_gender(message: Message, state: FSMContext):
         return
 
     # ----- Обычный режим (первое заполнение) -----
+    if gender not in ["М", "Ж"]:
+        await message.answer(await get_text(user_id, 'error_gender_only'), reply_markup=get_cancel_keyboard(lang))
+        return
+
+    db_gender = 'M' if gender == 'М' else 'F'
     data = await state.get_data()
-    data['gender'] = gender
+    data['gender'] = db_gender
     data['timezone_offset'] = 3
     await state.update_data(temp_data=data)
 
-    # Формируем профиль
+    # Формируем профиль без часового пояса (локализованный)
     profile_text = format_profile_data(data, lang, show_timezone=False)
+
+    # Получаем URL для ссылок
     consent_url = os.getenv('CONSENT_URL', 'ссылка на согласие')
     privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
 
