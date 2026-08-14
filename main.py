@@ -591,20 +591,12 @@ async def process_gender(message: Message, state: FSMContext):
         return
 
     # ----- Обычный режим (первое заполнение) -----
-    if gender not in ["М", "Ж"]:
-        await message.answer(await get_text(user_id, 'error_gender_only'), reply_markup=get_cancel_keyboard(lang))
-        return
-
-    db_gender = 'M' if gender == 'М' else 'F'
     data = await state.get_data()
-    data['gender'] = db_gender
+    data['gender'] = gender
     data['timezone_offset'] = 3
     await state.update_data(temp_data=data)
 
-    # Формируем профиль без часового пояса (локализованный)
     profile_text = format_profile_data(data, lang, show_timezone=False)
-
-    # Получаем URL для ссылок
     consent_url = os.getenv('CONSENT_URL', 'ссылка на согласие')
     privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
 
