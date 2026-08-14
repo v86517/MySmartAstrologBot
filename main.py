@@ -2799,11 +2799,11 @@ async def cancel_expert(callback: CallbackQuery, state: FSMContext):
     lang = await get_user_language(user_id)
 
     if lang == 'ru':
-        text = "🚪 Выход из «👩‍🏫 Личный астролог»"
+        text = "Вы вышли из «<b>👩‍🏫 Личный астролог</b>»\nВыберите раздел ниже <b>👇</b>"
     else:
-        text = "🚪 Exiting «👩‍🏫 Personal astrologer»"
+        text = "You have exited «<b>👩‍🏫 Personal astrologer</b>»\nChoose a section below <b>👇</b>"
 
-    await callback.message.answer(text, reply_markup=get_main_menu(lang))
+    await callback.message.answer(text, reply_markup=get_main_menu(lang), parse_mode="HTML")
     await callback.answer()
 
 
