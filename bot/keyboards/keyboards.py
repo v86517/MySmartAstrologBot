@@ -77,7 +77,7 @@ def get_cancel_keyboard(lang: str = 'ru'):
     """Кнопка отмены"""
     builder = InlineKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['kb_cancel'], callback_data="cancel_expert")
+    builder.button(text=texts['kb_cancel'], callback_data="cancel")
     return builder.as_markup()
 
 
