@@ -768,6 +768,7 @@ class AstrologyCalculator:
         texts = TEXTS.get(lang, TEXTS['ru'])
 
         sign_abbr = texts.get('astro_sign_abbr', {})
+
         def translate_sign(sign):
             return sign_abbr.get(sign, sign)
 
@@ -801,7 +802,6 @@ class AstrologyCalculator:
 
         cusps_str = self._get_house_cusps_string(lang)
 
-        # Новые прогностические данные
         transit_aspects_str = self._get_transit_aspects_string(lang)
         progression_aspects_str = self._get_progression_aspects_string(lang)
         health_indicators_str = self._get_health_indicators_string(lang)
@@ -810,6 +810,12 @@ class AstrologyCalculator:
         gender_display = "Мужчина" if self.gender == 'M' else "Женщина"
         pronoun = "он" if self.gender == 'M' else "она"
         possessive = "его" if self.gender == 'M' else "её"
+
+        # ---- Языковая инструкция для нейросети ----
+        if lang == 'en':
+            language_instruction = "IMPORTANT: Respond in English only. All your analysis must be in English."
+        else:
+            language_instruction = "ВАЖНО: Отвечай только на русском языке. Весь анализ должен быть на русском."
 
         template = self._load_prompt_template()
         if not template:
@@ -834,6 +840,7 @@ class AstrologyCalculator:
             "extra_info": self.extra_info,
             "pronoun": pronoun,
             "possessive": possessive,
+            "language_instruction": language_instruction,  # <-- добавлено
         }
 
         prompt = template
