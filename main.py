@@ -2792,12 +2792,12 @@ async def cancel_astrology_confirm(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "cancel_expert")
 async def cancel_expert(callback: CallbackQuery, state: FSMContext):
-    """Отмена в разделе 'Личный астролог' (без текста, только клавиатура)"""
+    """Отмена в разделе 'Личный астролог' — без текста и эмодзи"""
     await state.clear()
     await callback.message.delete()
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    await callback.message.answer("\u200B", reply_markup=get_main_menu(lang))
+    await callback.message.answer("\u00A0", reply_markup=get_main_menu(lang))
     await callback.answer()
 
 
