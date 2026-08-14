@@ -208,7 +208,7 @@ def get_expert_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
     builder.button(text=texts['kb_send_request'], callback_data="expert_request")
-    builder.button(text=texts['kb_cancel'], callback_data="cancel_expert")  # <-- заменили cancel на cancel_expert
+    builder.button(text=texts['kb_cancel'], callback_data="main_menu")  # <-- изменено с cancel_expert на main_menu
     builder.adjust(1)
     return builder.as_markup()
 
