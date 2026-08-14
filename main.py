@@ -1898,7 +1898,10 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         return
 
     # Скрываем клавиатуру
-    await callback.message.answer("⏳ Генерация гороскопа...", reply_markup=ReplyKeyboardRemove())
+    await callback.message.answer(
+        await get_text(user_id, 'horoscope_generating'),
+        reply_markup=ReplyKeyboardRemove()
+    )
 
     status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
     try:
@@ -3356,7 +3359,10 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
 
     # Скрываем клавиатуру
-    await callback.message.answer("⏳ Генерация гороскопа...", reply_markup=ReplyKeyboardRemove())
+    await callback.message.answer(
+        await get_text(user_id, 'horoscope_generating'),
+        reply_markup=ReplyKeyboardRemove()
+    )
 
     status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
     try:

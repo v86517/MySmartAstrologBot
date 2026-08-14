@@ -73,6 +73,7 @@ TEXTS = {
         'horoscope_basic_transit_moon_sign': '🌙 Транзитная Луна в знаке',
         'horoscope_basic_transit_moon_house': '🏠 Транзитная Луна в доме',
         'horoscope_basic_retrograde': '🔄 Ретроградные планеты',
+        'horoscope_generating': "⏳ Генерация гороскопа...",
 
         # ========== Совместимость ==========
         'compatibility_limit': "✨ Сегодняшний бесплатный анализ совместимости уже использован.\n\nПолучайте неограниченный доступ\nза 333 ₽ в месяц.",
@@ -456,6 +457,7 @@ TEXTS = {
         'horoscope_basic_transit_moon_sign': '🌙 Transit Moon in sign',
         'horoscope_basic_transit_moon_house': '🏠 Transit Moon in house',
         'horoscope_basic_retrograde': '🔄 Retrograde planets',
+        'horoscope_generating': "⏳ Generating horoscope...",
 
         # ========== Compatibility ==========
         'compatibility_limit': "✨ Today's free compatibility analysis has already been used.\n\nGet unlimited access\nfor 333 ₽ per month.",
