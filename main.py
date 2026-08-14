@@ -1121,7 +1121,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
     )
 
     # Скрываем клавиатуру
-    await message.answer("⏳ Рассчитываем нумерологию...", reply_markup=ReplyKeyboardRemove())
+    await message.answer(await get_text(user_id, 'numerology_status_calculating'), reply_markup=ReplyKeyboardRemove())
 
     status_msg = await message.answer(profile_text)
 
@@ -1379,7 +1379,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
     )
 
     # Скрываем клавиатуру
-    await message.answer("⏳ Строим натальную карту...", reply_markup=ReplyKeyboardRemove())
+    await message.answer(await get_text(user_id, 'astrology_status_building'), reply_markup=ReplyKeyboardRemove())
 
     status_msg = await message.answer(profile_text)
 
@@ -1975,7 +1975,8 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         return
 
     # Отправляем статусное сообщение (без клавиатуры)
-    status_msg = await callback.message.answer("⏳ Анализируем совместимость...", reply_markup=ReplyKeyboardRemove())
+    status_msg = await callback.message.answer(await get_text(user_id, 'compatibility_status_analyzing'),
+                                               reply_markup=ReplyKeyboardRemove())
 
     try:
         # Обновляем статус (может выбросить исключение, если сообщение удалено)
@@ -2146,7 +2147,8 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
     )
 
     # Скрываем клавиатуру
-    await callback.message.answer("⏳ Рассчитываем нумерологию...", reply_markup=ReplyKeyboardRemove())
+    await callback.message.answer(await get_text(user_id, 'numerology_status_calculating'),
+                                  reply_markup=ReplyKeyboardRemove())
 
     status_msg = await callback.message.answer(profile_text)
 
@@ -2308,7 +2310,8 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         numerology_data.pop(user_id, None)
 
     # Скрываем клавиатуру
-    await callback.message.answer("⏳ Рассчитываем нумерологию...", reply_markup=ReplyKeyboardRemove())
+    await callback.message.answer(await get_text(user_id, 'numerology_status_calculating'),
+                                  reply_markup=ReplyKeyboardRemove())
 
     status_msg = await callback.message.answer(await get_text(user_id, 'numerology_confirm_start'))
 

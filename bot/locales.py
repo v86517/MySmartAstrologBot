@@ -384,6 +384,8 @@ TEXTS = {
 
         'main_menu': "🏠 Главное меню",
         'main_menu_button': "🏠 Главное меню",
+        'numerology_status_calculating': "⏳ Рассчитываем нумерологию...",
+        'compatibility_status_analyzing': "⏳ Анализируем совместимость...",
     },
     'en': {
         # ========== Common ==========
@@ -670,5 +672,8 @@ TEXTS = {
         'main_menu': "🏠 Main menu",
 
         'main_menu_button': "🏠 Main menu",
+
+        'numerology_status_calculating': "⏳ Calculating numerology...",
+        'compatibility_status_analyzing': "⏳ Analyzing compatibility...",
     }
 }
