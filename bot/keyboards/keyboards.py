@@ -208,7 +208,7 @@ def get_expert_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
     builder.button(text=texts['kb_send_request'], callback_data="expert_request")
-    builder.button(text=texts['kb_cancel'], callback_data="cancel_expert")   # <-- было cancel
+    #builder.button(text=texts['kb_cancel'], callback_data="cancel_expert")   # <-- было cancel
     builder.adjust(1)
     return builder.as_markup()
 
@@ -217,7 +217,7 @@ def get_subscription_keyboard(lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
     builder.button(text=texts['kb_pay_333'], callback_data="subscribe_pay")
-    builder.button(text=texts['kb_cancel'], callback_data="close_subscription")
+    #builder.button(text=texts['kb_cancel'], callback_data="close_subscription")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -347,7 +347,7 @@ def get_subscription_payment_keyboard(url: str, lang: str = 'ru'):
     builder = InlineKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
     builder.button(text=texts['kb_go_pay'], url=url)
-    builder.button(text=texts['kb_cancel'], callback_data="close_subscription")
+    #builder.button(text=texts['kb_cancel'], callback_data="close_subscription")
     builder.adjust(1)
     return builder.as_markup()
 
