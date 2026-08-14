@@ -304,6 +304,22 @@ def format_profile_data(data: dict, lang: str, show_timezone: bool = True) -> st
         text += f"🕒 Часовой пояс: UTC+{timezone}\n"
     return text
 
+
+def normalize_gender(text: str) -> str:
+    """
+    Приводит введённый пол к стандартному виду 'M' или 'F'.
+    Принимает: М, Ж, M, F (регистр не важен).
+    Возвращает 'M' или 'F', либо None, если не распознано.
+    """
+    text = text.strip().upper()
+    if text in ('М', 'M'):
+        return 'M'
+    elif text in ('Ж', 'F'):
+        return 'F'
+    else:
+        return None
+
+
 # ==================== КОМАНДЫ ====================
 
 @dp.message(CommandStart())
@@ -541,20 +557,23 @@ async def process_birth_place(message: Message, state: FSMContext):
 async def process_gender(message: Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
-    gender = message.text.upper()
+    gender = normalize_gender(message.text)
     state_data = await state.get_data()
     is_edit = state_data.get('is_edit', False)
     new_data = state_data.get('new_data', {})
 
     logger.info(f"📝 Шаг ПОЛ, is_edit={is_edit}, new_data до: {new_data}")
 
+    if gender is None:
+        await message.answer(
+            await get_text(user_id, 'error_gender_only'),
+            reply_markup=get_cancel_keyboard(lang)
+        )
+        return
+
     if is_edit:
-        # Режим редактирования профиля — оставляем как было
-        if gender in ["М", "Ж"]:
-            new_data['gender'] = 'M' if gender == 'М' else 'F'
-            logger.info(f"📝 Шаг ПОЛ, обновлён пол: {new_data['gender']}")
-        else:
-            logger.info("📝 Шаг ПОЛ, пол не изменён")
+        new_data['gender'] = gender
+        logger.info(f"📝 Шаг ПОЛ, обновлён пол: {new_data['gender']}")
 
         await state.update_data(new_data=new_data)
         await state.set_state(UserDataStates.WAITING_TIMEZONE)
@@ -562,28 +581,17 @@ async def process_gender(message: Message, state: FSMContext):
         return
 
     # ----- Обычный режим (первое заполнение) -----
-    if gender not in ["М", "Ж"]:
-        await message.answer(await get_text(user_id, 'error_gender_only'), reply_markup=get_cancel_keyboard(lang))
-        return
-
-    db_gender = 'M' if gender == 'М' else 'F'
     data = await state.get_data()
-    data['gender'] = db_gender
-    # Устанавливаем часовой пояс по умолчанию (UTC+3)
-    data['timezone_offset'] = 3
+    data['gender'] = gender
+    data['timezone_offset'] = 3  # по умолчанию
     await state.update_data(temp_data=data)
 
-    # Формируем профиль без часового пояса
     profile_text = format_profile_data(data, lang, show_timezone=False)
-
-    # Получаем URL для ссылок
-    consent_url = os.getenv('CONSENT_URL', 'ссылка на согласие')
     privacy_url = os.getenv('PRIVACY_POLICY_URL', 'ссылка на политику конфиденциальности')
 
     save_template = await get_text(user_id, 'profile_save_confirm')
     save_text = save_template.format(
         profile=profile_text,
-        consent_url=consent_url,
         privacy_url=privacy_url
     )
 
@@ -708,16 +716,14 @@ async def process_person1_birth_place(message: Message, state: FSMContext):
 async def process_person1_gender(message: Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
-    gender = message.text.upper()
+    gender = normalize_gender(message.text)
 
-    if gender not in ["М", "Ж"]:
+    if gender is None:
         await message.answer(
             await get_text(user_id, 'error_invalid_gender'),
             reply_markup=get_cancel_keyboard(lang)
         )
         return
-
-    db_gender = 'M' if gender == 'М' else 'F'
 
     data = await state.get_data()
     person1 = {
@@ -725,14 +731,14 @@ async def process_person1_gender(message: Message, state: FSMContext):
         'birth_date': data.get('person1_birth_date'),
         'birth_time': data.get('person1_birth_time'),
         'birth_place': data.get('person1_birth_place'),
-        'gender': db_gender,
+        'gender': gender,
         'zodiac': data.get('person1_zodiac')
     }
 
     await state.update_data(person1=person1)
     await state.set_state(CompatibilityStates.WAITING_PERSON2_NAME)
 
-    gender_display = 'Мужской' if gender == 'М' else 'Женский'
+    gender_display = 'Мужской' if gender == 'M' else 'Женский'
     zodiac1_name = get_zodiac_sign_localized(person1['zodiac'], lang)
     template = await get_text(user_id, 'compatibility_person1_complete')
     await message.answer(
@@ -861,16 +867,14 @@ async def process_person2_birth_place(message: Message, state: FSMContext):
 async def process_person2_gender(message: Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
-    gender = message.text.upper()
+    gender = normalize_gender(message.text)
 
-    if gender not in ["М", "Ж"]:
+    if gender is None:
         await message.answer(
             await get_text(user_id, 'error_invalid_gender'),
             reply_markup=get_cancel_keyboard(lang)
         )
         return
-
-    db_gender = 'M' if gender == 'М' else 'F'
 
     data = await state.get_data()
     person2 = {
@@ -878,7 +882,7 @@ async def process_person2_gender(message: Message, state: FSMContext):
         'birth_date': data.get('person2_birth_date'),
         'birth_time': data.get('person2_birth_time'),
         'birth_place': data.get('person2_birth_place'),
-        'gender': db_gender,
+        'gender': gender,
         'zodiac': data.get('person2_zodiac')
     }
 
@@ -1020,15 +1024,15 @@ async def process_numerology_birth_place(message: Message, state: FSMContext):
 async def process_numerology_gender(message: Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
-    gender = message.text.upper()
-    if gender not in ["М", "Ж"]:
+    gender = normalize_gender(message.text)
+
+    if gender is None:
         await message.answer(
             await get_text(user_id, 'error_invalid_gender'),
             reply_markup=get_cancel_keyboard(lang)
         )
         return
 
-    db_gender = 'M' if gender == 'М' else 'F'
     data = await state.get_data()
 
     user_data_from_db = await get_user_data(user_id)
@@ -1040,7 +1044,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
             'birth_date': data.get('numerology_birth_date'),
             'birth_time': data.get('numerology_birth_time'),
             'birth_place': data.get('numerology_birth_place'),
-            'gender': db_gender,
+            'gender': gender,
             'zodiac': data.get('numerology_zodiac'),
             'is_manual': True
         }
@@ -1076,7 +1080,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         'birth_date': data.get('numerology_birth_date'),
         'birth_time': data.get('numerology_birth_time'),
         'birth_place': data.get('numerology_birth_place'),
-        'gender': db_gender,
+        'gender': gender,
         'zodiac': data.get('numerology_zodiac')
     }
     numerology_data[user_id] = user_data_for_calc
@@ -1085,7 +1089,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
 
     zodiac_emoji = get_zodiac_emoji(data.get('numerology_zodiac', 'Неизвестно'))
     zodiac_name = get_zodiac_sign_localized(data.get('numerology_zodiac', 'Неизвестно'), lang)
-    gender_display = 'Мужской' if gender == 'М' else 'Женский'
+    gender_display = 'Мужской' if gender == 'M' else 'Женский'
 
     template = await get_text(user_id, 'numerology_data_saved')
     profile_text = template.format(
@@ -1118,6 +1122,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
 
             allowed_ids = [5484157606, 8790509202]
             if user_id in allowed_ids:
+                # сбор параметров (код не меняется)
                 from bot.calculators.base_calculator import BaseCalculator
                 from bot.calculators.natal_calculator import NatalCalculator
                 calc = BaseCalculator()
@@ -1154,16 +1159,14 @@ async def process_numerology_gender(message: Message, state: FSMContext):
                     prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
 
                 parameters_text = format_parameters(prompt_data, 'numerology', lang)
-                final_message = f"{parameters_text}\n\n{result}"
+                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{result}"
             else:
                 final_message = result
 
+            await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
             result_text = result_template.format(result=final_message)
-
-            # Сначала результат, потом статус
             await send_long_message(message, result_text, reply_markup=get_main_menu_button(lang))
-            await status_msg.delete()
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -1274,15 +1277,15 @@ async def process_astrology_birth_place(message: Message, state: FSMContext):
 async def process_astrology_gender(message: Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
-    gender = message.text.upper()
-    if gender not in ["М", "Ж"]:
+    gender = normalize_gender(message.text)
+
+    if gender is None:
         await message.answer(
             await get_text(user_id, 'error_invalid_gender'),
             reply_markup=get_cancel_keyboard(lang)
         )
         return
 
-    db_gender = 'M' if gender == 'М' else 'F'
     data = await state.get_data()
 
     user_data_from_db = await get_user_data(user_id)
@@ -1294,7 +1297,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
             'birth_date': data.get('astrology_birth_date'),
             'birth_time': data.get('astrology_birth_time'),
             'birth_place': data.get('astrology_birth_place'),
-            'gender': db_gender,
+            'gender': gender,
             'zodiac': data.get('astrology_zodiac'),
             'is_manual': True
         }
@@ -1330,7 +1333,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         'birth_date': data.get('astrology_birth_date'),
         'birth_time': data.get('astrology_birth_time'),
         'birth_place': data.get('astrology_birth_place'),
-        'gender': db_gender,
+        'gender': gender,
         'zodiac': data.get('astrology_zodiac')
     }
     astrology_data[user_id] = user_data_for_calc
@@ -1339,7 +1342,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
 
     zodiac_emoji = get_zodiac_emoji(data.get('astrology_zodiac', 'Неизвестно'))
     zodiac_name = get_zodiac_sign_localized(data.get('astrology_zodiac', 'Неизвестно'), lang)
-    gender_display = 'Мужской' if gender == 'М' else 'Женский'
+    gender_display = 'Мужской' if gender == 'M' else 'Женский'
 
     template = await get_text(user_id, 'astrology_data_saved')
     profile_text = template.format(
@@ -1387,9 +1390,8 @@ async def process_astrology_gender(message: Message, state: FSMContext):
             await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
 
-            # Сначала результат, потом статус
-            await send_long_message(message, final_message, reply_markup=get_main_menu_button(lang))
             await status_msg.delete()
+            await send_long_message(message, final_message, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
