@@ -4,7 +4,7 @@ TEXTS = {
     'ru': {
         # ========== Общие ==========
         'welcome': "✨ Добро пожаловать в <b>«Мой астролог»</b>!\n\n🌙 Узнайте, что звёзды приготовили <b>именно для вас сегодня</b>.\n\nВыберите раздел ниже <b>👇</b>",
-        'profile_no_data': "📝 У вас пока нет сохраненных данных.\nЧтобы заполнить профиль, нажмите 🔮 <b>Гороскоп на сегодня</b> или <b>Заполнить и Сохранить</b>.",
+        'profile_no_data': "📝 У вас пока нет сохраненных данных.\nЧтобы заполнить профиль, нажмите **📝 Заполнить и Сохранить** или **🔮 Гороскоп на сегодня**.",
         'choose_language': "Выберите язык:",
         'language_set': "✅ Язык установлен на русский!",
         'error_name_short': "❗ Имя должно содержать хотя бы 2 символа.",
@@ -18,7 +18,7 @@ TEXTS = {
         'error_gender_only': "❗ Пожалуйста, напишите только одну букву:\nМ - мужской\nЖ - женский",
         'error_not_found': "❗ Данные не найдены. Начните заново.",
         'error_service_unavailable': "❌ Сервис астролога временно недоступен.",
-        'error_cancel': "🤷‍♂️ Заполнение данных отменено.\nВы можете начать заново, нажав на нужную кнопку в меню",
+        'error_cancel': "🤷‍♂️ Заполнение данных отменено.\nВы можете начать заново, нажав на нужную кнопку в меню 👇",
         'error_payment_not_found': "❌ Информация о платеже не найдена.",
         'error_payment_not_confirmed': "⏳ Оплата пока не подтверждена.\nПожалуйста, завершите оплату или проверьте статус позже.",
         'unknown_command': "❓ Я не понял вашу команду.\nИспользуйте кнопки меню или напишите /start",
@@ -147,8 +147,8 @@ TEXTS = {
         # ========== Профиль и редактирование ==========
         'profile_text': "👤 Ваш профиль\n\nИмя: {name}\n📅 Дата рождения: {birth_date}\n🕒 Время рождения: {birth_time}\n📍 Место рождения: {birth_place}\n👤 Пол: {gender}\n{emoji} Знак зодиака: {zodiac}\n🕒 Часовой пояс: UTC+{timezone}",
         'profile_subscription_active': "\n\n⭐ Подписка: **Активна** ✅",
-        'profile_no_data_message': "📝 У вас пока нет сохраненных данных.\nЧтобы заполнить профиль, нажмите 🔮 **Гороскоп на сегодня** или **Заполнить и Сохранить**.\n\n📄 Нажимая «**Заполнить и Сохранить**», вы даёте [согласие на обработку персональных данных]({consent_url}) в соответствии с [Политикой конфиденциальности]({privacy_url}).",
-        'profile_no_data_message_can_use': "📝 У вас пока нет сохраненных данных.\nЧтобы заполнить профиль, нажмите **Заполнить и Сохранить**.\n\n📄 Нажимая «Заполнить и Сохранить», вы даёте [согласие на обработку персональных данных]({consent_url}) в соответствии с [Политикой конфиденциальности]({privacy_url}).",
+        'profile_no_data_message': "📝 У вас пока нет сохраненных данных.\nЧтобы заполнить профиль, нажмите **📝 Заполнить и Сохранить** или **🔮 Гороскоп на сегодня**.\n\n📄 Нажимая «**Заполнить и Сохранить**», вы даёте [согласие на обработку персональных данных]({consent_url}) в соответствии с [Политикой конфиденциальности]({privacy_url}).",
+        'profile_no_data_message_can_use': "📝 У вас пока нет сохраненных данных.\nЧтобы заполнить профиль, нажмите **📝 Заполнить и Сохранить**.\n\n📄 Нажимая «Заполнить и Сохранить», вы даёте [согласие на обработку персональных данных]({consent_url}) в соответствии с [Политикой конфиденциальности]({privacy_url}).",
         'edit_name_prompt': "✏️ Текущее имя: {name}\n\nВведите новое имя или нажмите «Пропустить».",
         'edit_birth_date_prompt': "✏️ Текущая дата рождения: {date}\n\nВведите новую дату в формате ДД.ММ.ГГГГ или нажмите «Пропустить».",
         'edit_birth_time_prompt': "✏️ Текущее время рождения: {time}\n\nВведите новое время в формате ЧЧ:ММ или нажмите «Пропустить».",
@@ -342,7 +342,7 @@ TEXTS = {
         'kb_support': "🆘 Поддержка",
         'kb_write_support': "💬 Написать в поддержку",
         'kb_go_pay': "💳 Перейти к оплате",
-        'kb_fill_and_save': "📄 Заполнить и Сохранить",
+        'kb_fill_and_save': "📝 Заполнить и Сохранить",
         'kb_get_horoscope': "🔮 Получить гороскоп на сегодня",
 
         'zodiac_signs': {
@@ -373,7 +373,7 @@ TEXTS = {
     'en': {
         # ========== Common ==========
         'welcome': "✨ Welcome to <b>«My Astrologer»</b>!\n\n🌙 Find out what the stars have in store <b>for you today</b>.\n\nChoose a section below <b>👇</b>",
-        'profile_no_data': "📝 You have no saved data yet.\nTo fill your profile, press 🔮 <b>Horoscope for today</b> or <b>Fill and Save</b>.",
+        'profile_no_data': "📝 You have no saved data yet.\nTo fill your profile, press **📝 Fill and Save** or **🔮 Horoscope for today**.",
         'choose_language': "Choose your language:",
         'language_set': "✅ Language set to English!",
         'error_name_short': "❗ Name must be at least 2 characters.",
@@ -387,7 +387,7 @@ TEXTS = {
         'error_gender_only': "❗ Please write only one letter:\nM - male\nF - female",
         'error_not_found': "❗ Data not found. Start over.",
         'error_service_unavailable': "❌ Astrologer service is temporarily unavailable.",
-        'error_cancel': "🤷‍♂️ Data entry canceled.\nYou can start over by pressing the appropriate button in the menu",
+        'error_cancel': "🤷‍♂️ Data entry canceled.\nYou can start over by pressing the appropriate button in the menu 👇",
         'error_payment_not_found': "❌ Payment information not found.",
         'error_payment_not_confirmed': "⏳ Payment not confirmed yet.\nPlease complete the payment or check the status later.",
         'unknown_command': "❓ I didn't understand your command.\nUse the menu buttons or type /start",
@@ -516,8 +516,8 @@ TEXTS = {
         # ========== Profile and editing ==========
         'profile_text': "👤 Your profile\n\nName: {name}\n📅 Date of birth: {birth_date}\n🕒 Time of birth: {birth_time}\n📍 Place of birth: {birth_place}\n👤 Gender: {gender}\n{emoji} Zodiac sign: {zodiac}\n🕒 Time zone: UTC+{timezone}",
         'profile_subscription_active': "\n\n⭐ Subscription: **Active** ✅",
-        'profile_no_data_message': "📝 You have no saved data yet.\nTo fill your profile, press 🔮 **Horoscope for today** or **Fill and Save**.\n\n📄 By pressing «**Fill and Save**», you give [consent to the processing of personal data]({consent_url}) in accordance with the [Privacy Policy]({privacy_url}).",
-        'profile_no_data_message_can_use': "📝 You have no saved data yet.\nTo fill your profile, press **Fill and Save**.\n\n📄 By pressing «Fill and Save», you give [consent to the processing of personal data]({consent_url}) in accordance with the [Privacy Policy]({privacy_url}).",
+        'profile_no_data_message': "📝 You have no saved data yet.\nTo fill your profile, press **📝 Fill and Save** or **🔮 Horoscope for today**.\n\n📄 By pressing «**Fill and Save**», you give [consent to the processing of personal data]({consent_url}) in accordance with the [Privacy Policy]({privacy_url}).",
+        'profile_no_data_message_can_use': "📝 You have no saved data yet.\nTo fill your profile, press **📝 Fill and Save**.\n\n📄 By pressing «Fill and Save», you give [consent to the processing of personal data]({consent_url}) in accordance with the [Privacy Policy]({privacy_url}).",
         'edit_name_prompt': "✏️ Current name: {name}\n\nEnter a new name or press «Skip».",
         'edit_birth_date_prompt': "✏️ Current date of birth: {date}\n\nEnter a new date in DD.MM.YYYY format or press «Skip».",
         'edit_birth_time_prompt': "✏️ Current time of birth: {time}\n\nEnter a new time in HH:MM format or press «Skip».",
@@ -612,7 +612,7 @@ TEXTS = {
         'kb_support': "🆘 Support",
         'kb_write_support': "💬 Write to support",
         'kb_go_pay': "💳 Go to payment",
-        'kb_fill_and_save': "📄 Fill and Save",
+        'kb_fill_and_save': "📝 Fill and Save",
         'kb_get_horoscope': "🔮 Get today's horoscope",
 
         'zodiac_signs': {
