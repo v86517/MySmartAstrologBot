@@ -2790,21 +2790,21 @@ async def cancel_astrology_confirm(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@dp.callback_query(F.data == "cancel_expert", ~F.state)   # <-- фильтр: только когда состояние None
-async def cancel_expert(callback: CallbackQuery, state: FSMContext):
-    """Отмена в разделе 'Личный астролог'"""
-    await state.clear()
-    await callback.message.delete()
-    user_id = callback.from_user.id
-    lang = await get_user_language(user_id)
+#@dp.callback_query(F.data == "cancel_expert", ~F.state)   # <-- фильтр: только когда состояние None
+#async def cancel_expert(callback: CallbackQuery, state: FSMContext):
+#    """Отмена в разделе 'Личный астролог'"""
+#    await state.clear()
+#    await callback.message.delete()
+#    user_id = callback.from_user.id
+#    lang = await get_user_language(user_id)
 
-    if lang == 'ru':
-        text = "Вы вышли из «<b>👩‍🏫 Личный астролог</b>»\nВыберите раздел ниже <b>👇</b>"
-    else:
-        text = "You have exited «<b>👩‍🏫 Personal astrologer</b>»\nChoose a section below <b>👇</b>"
+#    if lang == 'ru':
+#        text = "Вы вышли из «<b>👩‍🏫 Личный астролог</b>»\nВыберите раздел ниже <b>👇</b>"
+#    else:
+#        text = "You have exited «<b>👩‍🏫 Personal astrologer</b>»\nChoose a section below <b>👇</b>"
 
-    await callback.message.answer(text, reply_markup=get_main_menu(lang), parse_mode="HTML")
-    await callback.answer()
+#    await callback.message.answer(text, reply_markup=get_main_menu(lang), parse_mode="HTML")
+#    await callback.answer()
 
 
 @dp.callback_query(F.data == "edit_timezone")
@@ -3135,16 +3135,30 @@ async def back_to_main_menu(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "cancel")
 async def cancel(callback: CallbackQuery, state: FSMContext):
-    """Общий обработчик отмены для сценариев сбора данных"""
-    await state.clear()
-    await callback.message.delete()
+    """Общий обработчик отмены: разделяем логику по состоянию"""
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    await callback.message.answer(
-        await get_text(user_id, 'error_cancel'),
-        reply_markup=get_main_menu(lang)
-    )
-    await callback.answer()
+    current_state = await state.get_state()
+
+    if current_state is None:
+        # Состояние не активно – значит, это отмена из «Личного астролога»
+        await state.clear()
+        await callback.message.delete()
+        if lang == 'ru':
+            text = "Вы вышли из «<b>👩‍🏫 Личный астролог</b>»\nВыберите раздел ниже <b>👇</b>"
+        else:
+            text = "You have exited «<b>👩‍🏫 Personal astrologer</b>»\nChoose a section below <b>👇</b>"
+        await callback.message.answer(text, reply_markup=get_main_menu(lang), parse_mode="HTML")
+        await callback.answer()
+    else:
+        # Состояние активно – сценарий сбора данных
+        await state.clear()
+        await callback.message.delete()
+        await callback.message.answer(
+            await get_text(user_id, 'error_cancel'),
+            reply_markup=get_main_menu(lang)
+        )
+        await callback.answer()
 
 
 @dp.callback_query(F.data == "cancel_horoscope", HoroscopeStates.CONFIRM)
