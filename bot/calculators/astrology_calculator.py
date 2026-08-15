@@ -1061,7 +1061,7 @@ class AstrologyCalculator:
         """Возвращает строку с транзитными аспектами на текущий момент."""
         from .transit_horoscope_calculator import TransitHoroscopeCalculator
         try:
-            transit_calc = TransitHoroscopeCalculator(self.user_data)
+            transit_calc = TransitHoroscopeCalculator(self.user_data, lang)
             data = transit_calc.calculate()
             transit_aspects = data.get('transit_aspects', '')
             if not transit_aspects or transit_aspects.strip() == '':

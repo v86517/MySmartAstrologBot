@@ -21,8 +21,9 @@ class TransitHoroscopeCalculator(BaseCalculator):
     Класс для расчёта гороскопа на сегодня с учётом транзитов.
     """
 
-    def __init__(self, user_data: Dict[str, Any]):
+    def __init__(self, user_data: Dict[str, Any], lang: str = 'ru'):
         self.user_data = user_data
+        self.lang = lang
         self.birth_date = user_data.get('birth_date')
         self.birth_time = user_data.get('birth_time')
         self.birth_place = user_data.get('birth_place')
@@ -260,7 +261,11 @@ class TransitHoroscopeCalculator(BaseCalculator):
         element = self.get_zodiac_element(zodiac)
         quality = self.get_zodiac_quality(zodiac)
 
-        gender_text = "Мужчина" if self.gender == 'M' else "Женщина"
+        # Локализованный пол
+        if self.lang == 'en':
+            gender_text = "Male" if self.gender == 'M' else "Female"
+        else:
+            gender_text = "Мужчина" if self.gender == 'M' else "Женщина"
 
         data = {
             "name": self.name,

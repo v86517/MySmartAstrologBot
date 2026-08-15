@@ -2008,7 +2008,7 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
             await mark_feature_used_db(user_id, 'horoscope')
 
         allowed_ids = [8790509202]
-        calc = TransitHoroscopeCalculator(user_data)
+        calc = TransitHoroscopeCalculator(user_data, lang)
         prompt_data = calc.calculate()
 
         if user_id in allowed_ids:
@@ -3471,7 +3471,7 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         await save_message_to_archive(user_id, 'horoscope', horoscope)
 
         allowed_ids = [8790509202]
-        calc = TransitHoroscopeCalculator(temp_data)
+        calc = TransitHoroscopeCalculator(temp_data, lang)
         prompt_data = calc.calculate()
 
         if user_id in allowed_ids:
