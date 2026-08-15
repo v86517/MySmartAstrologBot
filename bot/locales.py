@@ -74,6 +74,14 @@ TEXTS = {
         'horoscope_basic_transit_moon_house': '🏠 Транзитная Луна в доме',
         'horoscope_basic_retrograde': '🔄 Ретроградные планеты',
         'horoscope_generating': "⏳ Генерация гороскопа...",
+        # Дни недели
+        'weekday_monday': 'Понедельник',
+        'weekday_tuesday': 'Вторник',
+        'weekday_wednesday': 'Среда',
+        'weekday_thursday': 'Четверг',
+        'weekday_friday': 'Пятница',
+        'weekday_saturday': 'Суббота',
+        'weekday_sunday': 'Воскресенье',
 
         # ========== Совместимость ==========
         'compatibility_limit': "✨ Сегодняшний бесплатный анализ совместимости уже использован.\n\nПолучайте неограниченный доступ\nза 333 ₽ в месяц.",
@@ -100,6 +108,23 @@ TEXTS = {
         'compatibility_confirm_person': "👤 Человек {num}\nИмя: {name}\nПол: {gender}\nДата рождения: {birth_date}\nВремя рождения: {birth_time}\nМесто рождения: {birth_place}",
         'kb_confirm_compatibility': "✅ Получить совместимость",
         'kb_cancel_compatibility': "❌ Отмена",
+# Для совместимости (заголовки)
+        'compatibility_person': "👤 Человек {num}",
+        'compatibility_gender_label': "⚥ Пол",
+        'compatibility_birth_date_label': "📅 Дата рождения",
+        'compatibility_birth_time_label': "🕒 Время рождения",
+        'compatibility_birth_place_label': "📍 Место рождения",
+        'compatibility_sun_label': "☀️ Солнце",
+        'compatibility_moon_label': "🌙 Луна",
+        'compatibility_ascendant_label': "⬆️ Асцендент",
+        'compatibility_house_cusps_label': "🏠 Куспиды домов",
+        'compatibility_natal_planets_label': "🪐 Натальные планеты в знаках и домах (Человек {num})",
+        'compatibility_natal_aspects_label': "🔮 Натальные аспекты (Человек {num})",
+        'compatibility_synastry_aspects_label': "🔮 Синастрические аспекты",
+        'compatibility_date_label': "📅 Дата",
+        'compatibility_weekday_label': "📆 День недели",
+        'compatibility_lunar_day_label': "🌙 Лунный день",
+        'compatibility_moon_illumination_label': "☀️ Освещённость Луны",
 
         # ========== Нумерология ==========
         'numerology_start': "🌌 Нумерология — познай себя\n\nВаши данные:\n👤 Имя: {name}\n📅 Дата рождения: {birth_date}\n🕒 Время рождения: {birth_time}\n📍 Место рождения: {birth_place}\n{emoji} Знак зодиака: {zodiac}\n\nХотите получить числовой разбор?",
@@ -460,6 +485,14 @@ TEXTS = {
         'horoscope_basic_transit_moon_house': '🏠 Transit Moon in house',
         'horoscope_basic_retrograde': '🔄 Retrograde planets',
         'horoscope_generating': "⏳ Generating horoscope...",
+        # Days of week
+        'weekday_monday': 'Monday',
+        'weekday_tuesday': 'Tuesday',
+        'weekday_wednesday': 'Wednesday',
+        'weekday_thursday': 'Thursday',
+        'weekday_friday': 'Friday',
+        'weekday_saturday': 'Saturday',
+        'weekday_sunday': 'Sunday',
 
         # ========== Compatibility ==========
         'compatibility_limit': "✨ Today's free compatibility analysis has already been used.\n\nGet unlimited access\nfor 333 ₽ per month.",
@@ -486,6 +519,23 @@ TEXTS = {
         'compatibility_confirm_person': "👤 Person {num}\nName: {name}\nGender: {gender}\nDate of birth: {birth_date}\nTime of birth: {birth_time}\nPlace of birth: {birth_place}",
         'kb_confirm_compatibility': "✅ Get compatibility",
         'kb_cancel_compatibility': "❌ Cancel",
+        # For compatibility (labels)
+        'compatibility_person': "👤 Person {num}",
+        'compatibility_gender_label': "⚥ Gender",
+        'compatibility_birth_date_label': "📅 Date of birth",
+        'compatibility_birth_time_label': "🕒 Time of birth",
+        'compatibility_birth_place_label': "📍 Place of birth",
+        'compatibility_sun_label': "☀️ Sun",
+        'compatibility_moon_label': "🌙 Moon",
+        'compatibility_ascendant_label': "⬆️ Ascendant",
+        'compatibility_house_cusps_label': "🏠 House cusps",
+        'compatibility_natal_planets_label': "🪐 Natal planets in signs and houses (Person {num})",
+        'compatibility_natal_aspects_label': "🔮 Natal aspects (Person {num})",
+        'compatibility_synastry_aspects_label': "🔮 Synastry aspects",
+        'compatibility_date_label': "📅 Date",
+        'compatibility_weekday_label': "📆 Day of week",
+        'compatibility_lunar_day_label': "🌙 Lunar day",
+        'compatibility_moon_illumination_label': "☀️ Moon illumination",
 
         # ========== Numerology ==========
         'numerology_start': "🌌 Numerology — know yourself\n\nYour data:\n👤 Name: {name}\n📅 Date of birth: {birth_date}\n🕒 Time of birth: {birth_time}\n📍 Place of birth: {birth_place}\n{emoji} Zodiac sign: {zodiac}\n\nDo you want to get a numerical analysis?",

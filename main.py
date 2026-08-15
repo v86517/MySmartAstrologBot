@@ -198,52 +198,84 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
         lines.append(f"  Внутренний паспорт: {prompt_data.get('v_top', '')}")
 
     elif service_type == 'compatibility':
-        lines.append("")
-        lines.append(f"👤 Человек 1: {prompt_data.get('p1_name', '')}")
-        lines.append(f"⚥ Пол: {prompt_data.get('p1_gender_text', '')}")
-        lines.append(f"📅 Дата рождения: {prompt_data.get('p1_birth_date', '')}")
-        lines.append(f"🕒 Время рождения: {prompt_data.get('p1_birth_time', '')}")
-        lines.append(f"📍 Место рождения: {prompt_data.get('p1_birth_place', '')}")
-        lines.append(f"☀️ Солнце: {prompt_data.get('p1_sun_sign', '')}")
-        lines.append(f"🌙 Луна: {prompt_data.get('p1_moon_sign', '')}")
-        lines.append(f"⬆️ Асцендент: {prompt_data.get('p1_ascendant', '')}")
+        lines.append("")  # убираем лишний заголовок
+        # Человек 1
+        lines.append(texts.get('compatibility_person', '👤 Person {num}').format(num=1))
+        lines.append(f"{texts.get('compatibility_gender_label', '⚥ Gender')}: {prompt_data.get('p1_gender_text', '')}")
+        lines.append(
+            f"{texts.get('compatibility_birth_date_label', '📅 Date of birth')}: {prompt_data.get('p1_birth_date', '')}")
+        lines.append(
+            f"{texts.get('compatibility_birth_time_label', '🕒 Time of birth')}: {prompt_data.get('p1_birth_time', '')}")
+        lines.append(
+            f"{texts.get('compatibility_birth_place_label', '📍 Place of birth')}: {prompt_data.get('p1_birth_place', '')}")
+        lines.append(f"{texts.get('compatibility_sun_label', '☀️ Sun')}: {prompt_data.get('p1_sun_sign', '')}")
+        lines.append(f"{texts.get('compatibility_moon_label', '🌙 Moon')}: {prompt_data.get('p1_moon_sign', '')}")
+        lines.append(
+            f"{texts.get('compatibility_ascendant_label', '⬆️ Ascendant')}: {prompt_data.get('p1_ascendant', '')}")
         if prompt_data.get('p1_cusps_list') and prompt_data.get('p1_cusps_list') != "не известно":
-            lines.append("🏠 Куспиды домов:")
+            lines.append(texts.get('compatibility_house_cusps_label', '🏠 House cusps') + ":")
             lines.append(prompt_data.get('p1_cusps_list', ''))
         if prompt_data.get('p1_planets_list') and prompt_data.get('p1_planets_list') != "не известно":
             lines.append("")
-            lines.append("🪐 Натальные планеты в знаках и домах (Человек 1):")
+            lines.append(texts.get('compatibility_natal_planets_label',
+                                   '🪐 Natal planets in signs and houses (Person {num})').format(num=1) + ":")
             lines.append(prompt_data.get('p1_planets_list', ''))
         if prompt_data.get('p1_aspects_list') and prompt_data.get('p1_aspects_list') != "не известно":
             lines.append("")
-            lines.append("🔮 Натальные аспекты (Человек 1):")
+            lines.append(
+                texts.get('compatibility_natal_aspects_label', '🔮 Natal aspects (Person {num})').format(num=1) + ":")
             lines.append(prompt_data.get('p1_aspects_list', ''))
+
         lines.append("")
-        lines.append(f"👤 Человек 2: {prompt_data.get('p2_name', '')}")
-        lines.append(f"⚥ Пол: {prompt_data.get('p2_gender_text', '')}")
-        lines.append(f"📅 Дата рождения: {prompt_data.get('p2_birth_date', '')}")
-        lines.append(f"🕒 Время рождения: {prompt_data.get('p2_birth_time', '')}")
-        lines.append(f"📍 Место рождения: {prompt_data.get('p2_birth_place', '')}")
-        lines.append(f"☀️ Солнце: {prompt_data.get('p2_sun_sign', '')}")
-        lines.append(f"🌙 Луна: {prompt_data.get('p2_moon_sign', '')}")
-        lines.append(f"⬆️ Асцендент: {prompt_data.get('p2_ascendant', '')}")
+        # Человек 2
+        lines.append(texts.get('compatibility_person', '👤 Person {num}').format(num=2))
+        lines.append(f"{texts.get('compatibility_gender_label', '⚥ Gender')}: {prompt_data.get('p2_gender_text', '')}")
+        lines.append(
+            f"{texts.get('compatibility_birth_date_label', '📅 Date of birth')}: {prompt_data.get('p2_birth_date', '')}")
+        lines.append(
+            f"{texts.get('compatibility_birth_time_label', '🕒 Time of birth')}: {prompt_data.get('p2_birth_time', '')}")
+        lines.append(
+            f"{texts.get('compatibility_birth_place_label', '📍 Place of birth')}: {prompt_data.get('p2_birth_place', '')}")
+        lines.append(f"{texts.get('compatibility_sun_label', '☀️ Sun')}: {prompt_data.get('p2_sun_sign', '')}")
+        lines.append(f"{texts.get('compatibility_moon_label', '🌙 Moon')}: {prompt_data.get('p2_moon_sign', '')}")
+        lines.append(
+            f"{texts.get('compatibility_ascendant_label', '⬆️ Ascendant')}: {prompt_data.get('p2_ascendant', '')}")
         if prompt_data.get('p2_cusps_list') and prompt_data.get('p2_cusps_list') != "не известно":
-            lines.append("🏠 Куспиды домов:")
+            lines.append(texts.get('compatibility_house_cusps_label', '🏠 House cusps') + ":")
             lines.append(prompt_data.get('p2_cusps_list', ''))
         if prompt_data.get('p2_planets_list') and prompt_data.get('p2_planets_list') != "не известно":
             lines.append("")
-            lines.append("🪐 Натальные планеты в знаках и домах (Человек 2):")
+            lines.append(texts.get('compatibility_natal_planets_label',
+                                   '🪐 Natal planets in signs and houses (Person {num})').format(num=2) + ":")
             lines.append(prompt_data.get('p2_planets_list', ''))
         if prompt_data.get('p2_aspects_list') and prompt_data.get('p2_aspects_list') != "не известно":
             lines.append("")
-            lines.append("🔮 Натальные аспекты (Человек 2):")
+            lines.append(
+                texts.get('compatibility_natal_aspects_label', '🔮 Natal aspects (Person {num})').format(num=2) + ":")
             lines.append(prompt_data.get('p2_aspects_list', ''))
+
         lines.append("")
-        lines.append(f"🔮 Синастрические аспекты:\n{prompt_data.get('aspects_synastry_list', '')}")
-        lines.append(f"📅 Дата: {prompt_data.get('target_date', '')}")
-        lines.append(f"📆 День недели: {prompt_data.get('target_weekday', '')}")
-        lines.append(f"🌙 Лунный день: {prompt_data.get('lunar_day', '')}")
-        lines.append(f"☀️ Освещённость Луны: {prompt_data.get('moon_illumination', '')}%")
+        lines.append(texts.get('compatibility_synastry_aspects_label', '🔮 Synastry aspects') + ":")
+        lines.append(prompt_data.get('aspects_synastry_list', ''))
+        lines.append(f"{texts.get('compatibility_date_label', '📅 Date')}: {prompt_data.get('target_date', '')}")
+        # Локализуем день недели
+        weekday = prompt_data.get('target_weekday', '')
+        weekday_map = {
+            'Понедельник': texts.get('weekday_monday', 'Monday'),
+            'Вторник': texts.get('weekday_tuesday', 'Tuesday'),
+            'Среда': texts.get('weekday_wednesday', 'Wednesday'),
+            'Четверг': texts.get('weekday_thursday', 'Thursday'),
+            'Пятница': texts.get('weekday_friday', 'Friday'),
+            'Суббота': texts.get('weekday_saturday', 'Saturday'),
+            'Воскресенье': texts.get('weekday_sunday', 'Sunday'),
+            'Monday': 'Monday', 'Tuesday': 'Tuesday', 'Wednesday': 'Wednesday',
+            'Thursday': 'Thursday', 'Friday': 'Friday', 'Saturday': 'Saturday', 'Sunday': 'Sunday',
+        }
+        target_weekday = weekday_map.get(weekday, weekday)
+        lines.append(f"{texts.get('compatibility_weekday_label', '📆 Day of week')}: {target_weekday}")
+        lines.append(f"{texts.get('compatibility_lunar_day_label', '🌙 Lunar day')}: {prompt_data.get('lunar_day', '')}")
+        lines.append(
+            f"{texts.get('compatibility_moon_illumination_label', '☀️ Moon illumination')}: {prompt_data.get('moon_illumination', '')}%")
 
     elif service_type == 'astrology':
         pass
@@ -256,32 +288,50 @@ def format_basic_horoscope_parameters(prompt_data: dict, lang: str = 'ru') -> st
     from bot.locales import TEXTS
     texts = TEXTS.get(lang, TEXTS['ru'])
 
+    # Локализованный пол
+    if prompt_data.get('gender') == 'M':
+        gender_display = texts.get('astro_gender_male', 'Male')
+    elif prompt_data.get('gender') == 'F':
+        gender_display = texts.get('astro_gender_female', 'Female')
+    else:
+        gender_display = texts.get('astro_gender_unknown', 'Not specified')
+
+    # Локализованный день недели
+    weekday = prompt_data.get('target_weekday', '')
+    weekday_map = {
+        'Понедельник': texts.get('weekday_monday', 'Monday'),
+        'Вторник': texts.get('weekday_tuesday', 'Tuesday'),
+        'Среда': texts.get('weekday_wednesday', 'Wednesday'),
+        'Четверг': texts.get('weekday_thursday', 'Thursday'),
+        'Пятница': texts.get('weekday_friday', 'Friday'),
+        'Суббота': texts.get('weekday_saturday', 'Saturday'),
+        'Воскресенье': texts.get('weekday_sunday', 'Sunday'),
+        # Если уже на английском
+        'Monday': 'Monday', 'Tuesday': 'Tuesday', 'Wednesday': 'Wednesday',
+        'Thursday': 'Thursday', 'Friday': 'Friday', 'Saturday': 'Saturday', 'Sunday': 'Sunday',
+    }
+    target_weekday = weekday_map.get(weekday, weekday)
+
     lines = []
-    lines.append("📅 Гороскоп на день")
+    # Убираем "📅 Гороскоп на день" – он есть в horoscope_result
     lines.append("")
-    lines.append(f"{texts.get('horoscope_basic_name', '👤 Имя')}: {prompt_data.get('name', '')}")
-    lines.append(f"{texts.get('horoscope_basic_gender', '⚥ Пол')}: {prompt_data.get('gender_display', '')}")
-    lines.append(f"{texts.get('horoscope_basic_birth_date', '📅 Дата рождения')}: {prompt_data.get('birth_date', '')}")
-    lines.append(f"{texts.get('horoscope_basic_birth_time', '🕒 Время рождения')}: {prompt_data.get('birth_time', '')}")
-    lines.append(
-        f"{texts.get('horoscope_basic_birth_place', '📍 Место рождения')}: {prompt_data.get('birth_place', '')}")
+    lines.append(f"{texts.get('horoscope_basic_name', '👤 Name')}: {prompt_data.get('name', '')}")
+    lines.append(f"{texts.get('horoscope_basic_gender', '⚥ Gender')}: {gender_display}")
+    lines.append(f"{texts.get('horoscope_basic_birth_date', '📅 Date of birth')}: {prompt_data.get('birth_date', '')}")
+    lines.append(f"{texts.get('horoscope_basic_birth_time', '🕒 Time of birth')}: {prompt_data.get('birth_time', '')}")
+    lines.append(f"{texts.get('horoscope_basic_birth_place', '📍 Place of birth')}: {prompt_data.get('birth_place', '')}")
     lines.append("")
-    lines.append(f"{texts.get('horoscope_basic_sun', '☀️ Солнце')}: {prompt_data.get('sun_sign', '')}")
-    lines.append(f"{texts.get('horoscope_basic_moon', '🌙 Луна')}: {prompt_data.get('moon_sign', '')}")
-    lines.append(f"{texts.get('horoscope_basic_ascendant', '⬆️ Асцендент')}: {prompt_data.get('ascendant', '')}")
+    lines.append(f"{texts.get('horoscope_basic_sun', '☀️ Sun')}: {prompt_data.get('sun_sign', '')}")
+    lines.append(f"{texts.get('horoscope_basic_moon', '🌙 Moon')}: {prompt_data.get('moon_sign', '')}")
+    lines.append(f"{texts.get('horoscope_basic_ascendant', '⬆️ Ascendant')}: {prompt_data.get('ascendant', '')}")
     lines.append("")
-    lines.append(f"{texts.get('horoscope_basic_target_date', '📅 Дата')}: {prompt_data.get('target_date', '')}")
-    lines.append(
-        f"{texts.get('horoscope_basic_target_weekday', '📆 День недели')}: {prompt_data.get('target_weekday', '')}")
-    lines.append(f"{texts.get('horoscope_basic_lunar_day', '🌙 Лунный день')}: {prompt_data.get('lunar_day', '')}")
-    lines.append(
-        f"{texts.get('horoscope_basic_moon_illumination', '☀️ Освещённость Луны')}: {prompt_data.get('moon_illumination', '')}%")
-    lines.append(
-        f"{texts.get('horoscope_basic_transit_moon_sign', '🌙 Транзитная Луна в знаке')}: {prompt_data.get('transit_moon_sign', '')}")
-    lines.append(
-        f"{texts.get('horoscope_basic_transit_moon_house', '🏠 Транзитная Луна в доме')}: {prompt_data.get('transit_moon_house', '')}")
-    lines.append(
-        f"{texts.get('horoscope_basic_retrograde', '🔄 Ретроградные планеты')}: {prompt_data.get('retrograde_planets', '')}")
+    lines.append(f"{texts.get('horoscope_basic_target_date', '📅 Date')}: {prompt_data.get('target_date', '')}")
+    lines.append(f"{texts.get('horoscope_basic_target_weekday', '📆 Day of week')}: {target_weekday}")
+    lines.append(f"{texts.get('horoscope_basic_lunar_day', '🌙 Lunar day')}: {prompt_data.get('lunar_day', '')}")
+    lines.append(f"{texts.get('horoscope_basic_moon_illumination', '☀️ Moon illumination')}: {prompt_data.get('moon_illumination', '')}%")
+    lines.append(f"{texts.get('horoscope_basic_transit_moon_sign', '🌙 Transit Moon in sign')}: {prompt_data.get('transit_moon_sign', '')}")
+    lines.append(f"{texts.get('horoscope_basic_transit_moon_house', '🏠 Transit Moon in house')}: {prompt_data.get('transit_moon_house', '')}")
+    lines.append(f"{texts.get('horoscope_basic_retrograde', '🔄 Retrograde planets')}: {prompt_data.get('retrograde_planets', '')}")
 
     return "\n".join(lines)
 
@@ -1496,7 +1546,12 @@ async def start_compatibility(message: Message, state: FSMContext):
     if user_data and user_data.get('name'):
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
         zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
-        gender_display = 'Мужской' if user_data.get('gender') == 'M' else 'Женский' if user_data.get('gender') == 'F' else 'Не указан'
+        if user_data.get('gender') == 'M':
+            gender_display = await get_text(user_id, 'astro_gender_male')
+        elif user_data.get('gender') == 'F':
+            gender_display = await get_text(user_id, 'astro_gender_female')
+        else:
+            gender_display = await get_text(user_id, 'astro_gender_unknown')
 
         template = await get_text(user_id, 'compatibility_use_data')
         profile_text = template.format(
@@ -1851,8 +1906,6 @@ def format_basic_compatibility_parameters(person1: dict, person2: dict, lang: st
         )
 
     lines = [
-        texts.get('compatibility_confirm_title', '📋 Подтверждение данных для совместимости'),
-        "",
         person_text(person1, 1),
         "",
         person_text(person2, 2),
@@ -1911,8 +1964,8 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
         await asyncio.sleep(1)
 
-        today = datetime.now().strftime("%d.%m.%Y")
-        horoscope = gemini_service.generate_horoscope(user_data, today, lang)
+        # Генерируем гороскоп (дата уже внутри generate_horoscope)
+        horoscope = gemini_service.generate_horoscope(user_data, lang=lang)
         await save_message_to_archive(user_id, 'horoscope', horoscope)
 
         # Если нет подписки – отмечаем использование лимита
@@ -1932,8 +1985,10 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
 
         await status_msg.delete()
 
+        # Используем дату из prompt_data (рассчитанную по часовому поясу пользователя)
+        target_date = prompt_data.get('target_date', datetime.now().strftime("%d.%m.%Y"))
         result_template = await get_text(user_id, 'horoscope_result')
-        result_text = result_template.format(date=today, horoscope=final_message)
+        result_text = result_template.format(date=target_date, horoscope=final_message)
 
         logger.info(f"📤 Отправка гороскопа (confirm), длина result_text: {len(result_text)}")
         if len(result_text) > 0:
@@ -3375,8 +3430,8 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
         await asyncio.sleep(1)
 
-        today = datetime.now().strftime("%d.%m.%Y")
-        horoscope = gemini_service.generate_horoscope(temp_data, today, lang)
+        # Генерируем гороскоп (дата уже внутри generate_horoscope)
+        horoscope = gemini_service.generate_horoscope(temp_data, lang=lang)
         await mark_feature_used_db(user_id, 'horoscope')
         await save_message_to_archive(user_id, 'horoscope', horoscope)
 
@@ -3391,8 +3446,10 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
             basic_params = format_basic_horoscope_parameters(prompt_data, lang)
             final_message = f"{basic_params}\n\n{horoscope}"
 
+        # Используем дату из prompt_data (рассчитанную по часовому поясу пользователя)
+        target_date = prompt_data.get('target_date', datetime.now().strftime("%d.%m.%Y"))
         result_template = await get_text(user_id, 'horoscope_result')
-        result_text = result_template.format(date=today, horoscope=final_message)
+        result_text = result_template.format(date=target_date, horoscope=final_message)
 
         # Сначала результат, потом статус
         await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
