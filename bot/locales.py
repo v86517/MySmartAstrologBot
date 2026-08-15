@@ -226,6 +226,7 @@ TEXTS = {
         'archive_footer': "━━━━━━━━━━━━━━━━━━━━━\n💡 Нажмите на кнопку ниже, чтобы посмотреть полный прогноз.",
         'archive_hint': "📄 Продолжение ({i}/{total}):\n\n{text}",
         'archive_message_header': "{emoji} {type}\n📅 {date}\n━━━━━━━━━━━━━━━━━━━━━\n\n{content}",
+        'archive_no_premium': "📚 В вашем архиве пока нет сохранённых прогнозов.\n\n🔮 Подпишитесь на Premium, чтобы сохранять гороскопы и совместимость!",
 
         # ========== Поддержка ==========
         'support_text': "🆘 **Поддержка**\n\nЕсли у вас возникли вопросы по работе бота, оплате, подписке или вы заметили ошибку, напишите администратору.\n\nМы постараемся ответить как можно быстрее 👇",
@@ -637,6 +638,7 @@ TEXTS = {
         'archive_footer': "━━━━━━━━━━━━━━━━━━━━━\n💡 Click the button below to view the full forecast.",
         'archive_hint': "📄 Continuation ({i}/{total}):\n\n{text}",
         'archive_message_header': "{emoji} {type}\n📅 {date}\n━━━━━━━━━━━━━━━━━━━━━\n\n{content}",
+        'archive_no_premium': "📚 You have no saved forecasts in your archive yet.\n\n🔮 Subscribe to Premium to save horoscopes and compatibility!",
 
         # ========== Support ==========
         'support_text': "🆘 **Support**\n\nIf you have any questions about the bot, payment, subscription, or you notice an error, write to the administrator.\n\nWe will try to respond as soon as possible 👇",

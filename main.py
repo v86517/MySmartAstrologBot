@@ -1769,8 +1769,7 @@ async def show_archive(message: Message):
 
         if not messages:
             await message.answer(
-                "📚 В вашем архиве пока нет сохранённых прогнозов.\n\n"
-                "🔮 Подпишитесь на Premium, чтобы сохранять гороскопы и совместимость!",
+                await get_text(user_id, 'archive_no_premium'),  # <-- заменили
                 reply_markup=get_subscription_keyboard(lang)
             )
             return
