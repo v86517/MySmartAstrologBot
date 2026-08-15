@@ -288,13 +288,8 @@ def format_basic_horoscope_parameters(prompt_data: dict, lang: str = 'ru') -> st
     from bot.locales import TEXTS
     texts = TEXTS.get(lang, TEXTS['ru'])
 
-    # Локализованный пол
-    if prompt_data.get('gender') == 'M':
-        gender_display = texts.get('astro_gender_male', 'Male')
-    elif prompt_data.get('gender') == 'F':
-        gender_display = texts.get('astro_gender_female', 'Female')
-    else:
-        gender_display = texts.get('astro_gender_unknown', 'Not specified')
+    # Локализованный пол – теперь берём готовое значение из prompt_data
+    gender_display = prompt_data.get('gender_display', texts.get('astro_gender_unknown', 'Not specified'))
 
     # Локализованный день недели
     weekday = prompt_data.get('target_weekday', '')
@@ -313,7 +308,6 @@ def format_basic_horoscope_parameters(prompt_data: dict, lang: str = 'ru') -> st
     target_weekday = weekday_map.get(weekday, weekday)
 
     lines = []
-    # Убираем "📅 Гороскоп на день" – он есть в horoscope_result
     lines.append("")
     lines.append(f"{texts.get('horoscope_basic_name', '👤 Name')}: {prompt_data.get('name', '')}")
     lines.append(f"{texts.get('horoscope_basic_gender', '⚥ Gender')}: {gender_display}")
@@ -1490,44 +1484,85 @@ async def confirm_horoscope_state(message: Message, state: FSMContext):
 async def start_horoscope(message: Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
-    user_data = await get_user_data(user_id)
+    is_subscribed = await check_subscription_db(user_id)
 
-    if not user_data or not user_data.get('name'):
-        # Нет данных – направляем на заполнение
-        await state.set_state(UserDataStates.WAITING_NAME)
-        await message.answer(await get_text(user_id, 'horoscope_intro'), reply_markup=get_cancel_keyboard(lang))
+    # Если есть подписка – сразу проверяем данные
+    if is_subscribed:
+        user_data = await get_user_data(user_id)
+        if user_data and user_data.get('name'):
+            # Показываем подтверждение
+            zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+            zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
+
+            if user_data.get('gender') == 'M':
+                gender_display = await get_text(user_id, 'astro_gender_male')
+            elif user_data.get('gender') == 'F':
+                gender_display = await get_text(user_id, 'astro_gender_female')
+            else:
+                gender_display = await get_text(user_id, 'astro_gender_unknown')
+
+            template = await get_text(user_id, 'horoscope_confirm_data')
+            profile_text = template.format(
+                name=user_data.get('name', 'Не указано'),
+                gender=gender_display,
+                birth_date=user_data.get('birth_date', 'Не указана'),
+                birth_time=user_data.get('birth_time', 'Не указано'),
+                birth_place=user_data.get('birth_place', 'Не указано'),
+                emoji=zodiac_emoji,
+                zodiac=zodiac_name
+            )
+
+            await state.update_data(user_data=user_data)
+            await state.set_state(HoroscopeStates.CONFIRM)
+            await message.answer(profile_text, reply_markup=get_horoscope_confirm_keyboard(lang))
+            return
+        else:
+            # Подписка есть, но данных нет – начинаем сбор
+            await state.set_state(UserDataStates.WAITING_NAME)
+            await message.answer(await get_text(user_id, 'horoscope_intro'), reply_markup=get_cancel_keyboard(lang))
+            return
+
+    # Нет подписки – проверяем лимит
+    if not await can_use_feature_db(user_id, 'horoscope'):
+        # Лимит исчерпан – предлагаем подписку
+        await message.answer(
+            await get_text(user_id, 'horoscope_free_ready'),
+            reply_markup=get_subscription_keyboard(lang)
+        )
         return
 
-    # Данные есть – показываем подтверждение
-    zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
-    zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
+    # Лимит есть – проверяем данные
+    user_data = await get_user_data(user_id)
+    if user_data and user_data.get('name'):
+        # Данные есть – показываем подтверждение (но без подписки, поэтому после подтверждения будет использован лимит)
+        zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
+        zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
 
-    # Определяем локализованный пол
-    if user_data.get('gender') == 'M':
-        gender_display = await get_text(user_id, 'astro_gender_male')
-    elif user_data.get('gender') == 'F':
-        gender_display = await get_text(user_id, 'astro_gender_female')
+        if user_data.get('gender') == 'M':
+            gender_display = await get_text(user_id, 'astro_gender_male')
+        elif user_data.get('gender') == 'F':
+            gender_display = await get_text(user_id, 'astro_gender_female')
+        else:
+            gender_display = await get_text(user_id, 'astro_gender_unknown')
+
+        template = await get_text(user_id, 'horoscope_confirm_data')
+        profile_text = template.format(
+            name=user_data.get('name', 'Не указано'),
+            gender=gender_display,
+            birth_date=user_data.get('birth_date', 'Не указана'),
+            birth_time=user_data.get('birth_time', 'Не указано'),
+            birth_place=user_data.get('birth_place', 'Не указано'),
+            emoji=zodiac_emoji,
+            zodiac=zodiac_name
+        )
+
+        await state.update_data(user_data=user_data)
+        await state.set_state(HoroscopeStates.CONFIRM)
+        await message.answer(profile_text, reply_markup=get_horoscope_confirm_keyboard(lang))
     else:
-        gender_display = await get_text(user_id, 'astro_gender_unknown')
-
-    template = await get_text(user_id, 'horoscope_confirm_data')
-    profile_text = template.format(
-        name=user_data.get('name', 'Не указано'),
-        gender=gender_display,
-        birth_date=user_data.get('birth_date', 'Не указана'),
-        birth_time=user_data.get('birth_time', 'Не указано'),
-        birth_place=user_data.get('birth_place', 'Не указано'),
-        emoji=zodiac_emoji,
-        zodiac=zodiac_name
-    )
-
-    # Сохраняем данные в состояние (для использования в confirm_horoscope)
-    await state.update_data(user_data=user_data)
-    await state.set_state(HoroscopeStates.CONFIRM)
-    await message.answer(
-        profile_text,
-        reply_markup=get_horoscope_confirm_keyboard(lang)
-    )
+        # Данных нет – начинаем сбор
+        await state.set_state(UserDataStates.WAITING_NAME)
+        await message.answer(await get_text(user_id, 'horoscope_intro'), reply_markup=get_cancel_keyboard(lang))
 
 
 async def start_compatibility(message: Message, state: FSMContext):

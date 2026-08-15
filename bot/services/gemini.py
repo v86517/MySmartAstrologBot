@@ -100,10 +100,19 @@ class GeminiService:
             return f"❌ Ошибка: {str(e)}"
 
     # ---------- ГОРОСКОП ----------
-    def generate_horoscope(self, user_data: Dict[str, Any], date: str = None, lang: str = 'ru') -> str:
+    def generate_horoscope(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
         from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
         calculator = TransitHoroscopeCalculator(user_data)
         prompt_data = calculator.calculate()
+
+        # Добавляем языковую инструкцию
+        if lang == 'en':
+            prompt_data[
+                'language_instruction'] = "IMPORTANT: Respond in English only. All your forecast must be in English."
+        else:
+            prompt_data[
+                'language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь прогноз должен быть на русском."
+
         return self.generate_from_prompt(prompt_data, 'prompt_horoscope.txt', lang)
 
     # ---------- СОВМЕСТИМОСТЬ ----------
