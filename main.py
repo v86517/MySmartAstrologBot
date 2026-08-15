@@ -2017,14 +2017,10 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
         await asyncio.sleep(1)
 
-        # Генерируем гороскоп (дата уже внутри generate_horoscope)
+        # Генерируем гороскоп
         horoscope = gemini_service.generate_horoscope(user_data, lang=lang)
-        await save_message_to_archive(user_id, 'horoscope', final_message)
 
-        # Если нет подписки – отмечаем использование лимита
-        if not is_subscribed:
-            await mark_feature_used_db(user_id, 'horoscope')
-
+        # Формируем final_message в зависимости от прав пользователя
         allowed_ids = [8790509202]
         calc = TransitHoroscopeCalculator(user_data, lang)
         prompt_data = calc.calculate()
@@ -2035,6 +2031,13 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         else:
             basic_params = format_basic_horoscope_parameters(prompt_data, lang)
             final_message = f"{basic_params}\n\n{horoscope}"
+
+        # Сохраняем в архив
+        await save_message_to_archive(user_id, 'horoscope', final_message)
+
+        # Если нет подписки – отмечаем использование лимита
+        if not is_subscribed:
+            await mark_feature_used_db(user_id, 'horoscope')
 
         await status_msg.delete()
 
@@ -3489,11 +3492,10 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
         await asyncio.sleep(1)
 
-        # Генерируем гороскоп (дата уже внутри generate_horoscope)
+        # Генерируем гороскоп
         horoscope = gemini_service.generate_horoscope(temp_data, lang=lang)
-        await mark_feature_used_db(user_id, 'horoscope')
-        await save_message_to_archive(user_id, 'horoscope', final_message)
 
+        # Формируем final_message в зависимости от прав пользователя
         allowed_ids = [8790509202]
         calc = TransitHoroscopeCalculator(temp_data, lang)
         prompt_data = calc.calculate()
@@ -3504,6 +3506,10 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         else:
             basic_params = format_basic_horoscope_parameters(prompt_data, lang)
             final_message = f"{basic_params}\n\n{horoscope}"
+
+        # Сохраняем в архив
+        await mark_feature_used_db(user_id, 'horoscope')
+        await save_message_to_archive(user_id, 'horoscope', final_message)
 
         # Используем дату из prompt_data (рассчитанную по часовому поясу пользователя)
         target_date = prompt_data.get('target_date', datetime.now().strftime("%d.%m.%Y"))
