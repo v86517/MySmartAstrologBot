@@ -3293,10 +3293,14 @@ async def process_zodiac_choice(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "main_menu")
 async def back_to_main_menu(callback: CallbackQuery):
     await callback.answer()
-    await callback.message.delete()
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    await callback.message.answer("🏠", reply_markup=get_main_menu(lang))
+
+    # Убираем инлайн-кнопку из текущего сообщения (текст остаётся)
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+    # Отправляем Reply-клавиатуру главного меню отдельным сообщением
+    await callback.message.answer("🏠", reply_markup=get_main_menu(lang)
 
 
 @dp.callback_query(F.data == "cancel_horoscope", HoroscopeStates.CONFIRM)
