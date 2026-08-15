@@ -3300,7 +3300,7 @@ async def back_to_main_menu(callback: CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=None)
 
     # Отправляем Reply-клавиатуру главного меню отдельным сообщением
-    await callback.message.answer("🏠", reply_markup=get_main_menu(lang)
+    await callback.message.answer("🏠", reply_markup=get_main_menu(lang))
 
 
 @dp.callback_query(F.data == "cancel_horoscope", HoroscopeStates.CONFIRM)
