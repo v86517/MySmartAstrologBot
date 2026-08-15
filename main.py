@@ -1179,8 +1179,6 @@ async def process_numerology_gender(message: Message, state: FSMContext):
 
         if gemini_service:
             result = gemini_service.generate_numerology(numerology_data[user_id], lang)
-            await save_message_to_archive(user_id, 'numerology', result)
-            await add_numerology_count(user_id, -1)
 
             allowed_ids = [8790509202]
             if user_id in allowed_ids:
@@ -1224,6 +1222,9 @@ async def process_numerology_gender(message: Message, state: FSMContext):
                 final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{result}"
             else:
                 final_message = result
+
+            await save_message_to_archive(user_id, 'numerology', final_message)
+            await add_numerology_count(user_id, -1)
 
             await status_msg.delete()
             result_template = await get_text(user_id, 'numerology_result')
@@ -1745,18 +1746,33 @@ async def expert_request(message: Message):
         reply_markup=get_expert_keyboard(lang)
     )
 
+    async def show_archive(message: Message):
+        user_id = message.from_user.id
+        lang = await get_user_language(user_id)
+        is_subscribed = await check_subscription_db(user_id)
 
-async def show_archive(message: Message):
-    user_id = message.from_user.id
-    lang = await get_user_language(user_id)
-    messages = await get_user_archive(user_id, limit=10)
+        # Получаем все сообщения из архива
+        messages = await get_user_archive(user_id, limit=50)
 
-    if not messages:
-        await message.answer(
-            await get_text(user_id, 'archive_empty'),
-            reply_markup=get_main_menu(lang)
-        )
-        return
+        if not messages:
+            await message.answer(
+                await get_text(user_id, 'archive_empty'),
+                reply_markup=get_main_menu(lang)
+            )
+            return
+
+        # Фильтруем сообщения: если нет подписки, показываем только нумерологию и астрологию
+        if not is_subscribed:
+            allowed_types = ['numerology', 'astrology']
+            messages = [msg for msg in messages if msg.message_type in allowed_types]
+
+            if not messages:
+                await message.answer(
+                    "📚 В вашем архиве пока нет сохранённых прогнозов.\n\n"
+                    "🔮 Подпишитесь на Premium, чтобы сохранять гороскопы и совместимость!",
+                    reply_markup=get_subscription_keyboard(lang)
+                )
+                return
 
     type_display_map = {
         'horoscope': await get_text(user_id, 'type_horoscope'),
@@ -2001,7 +2017,7 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
 
         # Генерируем гороскоп (дата уже внутри generate_horoscope)
         horoscope = gemini_service.generate_horoscope(user_data, lang=lang)
-        await save_message_to_archive(user_id, 'horoscope', horoscope)
+        await save_message_to_archive(user_id, 'horoscope', final_message)
 
         # Если нет подписки – отмечаем использование лимита
         if not is_subscribed:
@@ -2084,9 +2100,6 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             result = gemini_service.generate_compatibility_from_prompt(person1, person2, lang)
 
-            await mark_feature_used_db(user_id, 'compatibility')
-            await save_message_to_archive(user_id, 'compatibility', result)
-
             allowed_ids = [8790509202]
             if user_id in allowed_ids:
                 calc = CompatibilityCalculator(person1, person2)
@@ -2096,6 +2109,9 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             else:
                 basic = format_basic_compatibility_parameters(person1, person2, lang)
                 final_message = f"{basic}\n\n{result}"
+
+            await mark_feature_used_db(user_id, 'compatibility')
+            await save_message_to_archive(user_id, 'compatibility', final_message)
 
             result_template = await get_text(user_id, 'compatibility_result')
             result_text = result_template.format(result=final_message)
@@ -2252,8 +2268,6 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
 
         if gemini_service:
             result = gemini_service.generate_numerology(numerology_data[user_id], lang)
-            await save_message_to_archive(user_id, 'numerology', result)
-            await add_numerology_count(user_id, -1)
 
             allowed_ids = [8790509202]
             if user_id in allowed_ids:
@@ -2296,6 +2310,9 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
                 final_message = f"{parameters_text}\n\n{result}"
             else:
                 final_message = result
+
+            await save_message_to_archive(user_id, 'numerology', final_message)
+            await add_numerology_count(user_id, -1)
 
             result_template = await get_text(user_id, 'numerology_result')
             result_text = result_template.format(result=final_message)
@@ -2415,8 +2432,6 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
 
         if gemini_service:
             result = gemini_service.generate_numerology(user_data, lang)
-            await save_message_to_archive(user_id, 'numerology', result)
-            await add_numerology_count(user_id, -1)
 
             allowed_ids = [8790509202]
             if user_id in allowed_ids:
@@ -2458,6 +2473,9 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
                 final_message = f"{parameters_text}\n\n{result}"
             else:
                 final_message = result
+
+            await save_message_to_archive(user_id, 'numerology', final_message)
+            await add_numerology_count(user_id, -1)
 
             result_template = await get_text(user_id, 'numerology_result')
             result_text = result_template.format(result=final_message)
@@ -3472,7 +3490,7 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         # Генерируем гороскоп (дата уже внутри generate_horoscope)
         horoscope = gemini_service.generate_horoscope(temp_data, lang=lang)
         await mark_feature_used_db(user_id, 'horoscope')
-        await save_message_to_archive(user_id, 'horoscope', horoscope)
+        await save_message_to_archive(user_id, 'horoscope', final_message)
 
         allowed_ids = [8790509202]
         calc = TransitHoroscopeCalculator(temp_data, lang)

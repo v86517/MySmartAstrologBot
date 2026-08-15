@@ -49,7 +49,8 @@ class GeminiService:
         if not template:
             return f"❌ Шаблон {prompt_file} не найден."
         prompt = self._replace_placeholders(template, prompt_data)
-        prompt = self._add_language_instruction(prompt, lang)
+        # Убираем добавление инструкции в конце – она уже передана через плейсхолдер {language_instruction}
+        # prompt = self._add_language_instruction(prompt, lang)   # <-- закомментировано или удалено
 
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         payload = {
@@ -75,7 +76,7 @@ class GeminiService:
             return f"❌ Ошибка: {str(e)}"
 
     def _send_prompt(self, prompt: str, lang: str = 'ru') -> str:
-        prompt = self._add_language_instruction(prompt, lang)
+        #prompt = self._add_language_instruction(prompt, lang)
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         payload = {
             "model": self.model,
@@ -102,7 +103,7 @@ class GeminiService:
     # ---------- ГОРОСКОП ----------
     def generate_horoscope(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
         from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
-        calculator = TransitHoroscopeCalculator(user_data)
+        calculator = TransitHoroscopeCalculator(user_data, lang)  # передаём lang
         prompt_data = calculator.calculate()
 
         # Добавляем языковую инструкцию
@@ -116,10 +117,20 @@ class GeminiService:
         return self.generate_from_prompt(prompt_data, 'prompt_horoscope.txt', lang)
 
     # ---------- СОВМЕСТИМОСТЬ ----------
-    def generate_compatibility_from_prompt(self, person1: Dict[str, Any], person2: Dict[str, Any], lang: str = 'ru') -> str:
+    def generate_compatibility_from_prompt(self, person1: Dict[str, Any], person2: Dict[str, Any],
+                                           lang: str = 'ru') -> str:
         from bot.calculators.compatibility_calculator import CompatibilityCalculator
         calculator = CompatibilityCalculator(person1, person2)
         prompt_data = calculator.get_prompt_data()
+
+        # Добавляем языковую инструкцию
+        if lang == 'en':
+            prompt_data[
+                'language_instruction'] = "IMPORTANT: Respond in English only. All your analysis must be in English."
+        else:
+            prompt_data[
+                'language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь анализ должен быть на русском."
+
         return self.generate_from_prompt(prompt_data, 'prompt_connect.txt', lang)
 
     # ---------- НУМЕРОЛОГИЯ ----------
@@ -156,6 +167,14 @@ class GeminiService:
             prompt_data['personal_day'] = self._base_calc.calculate_personal_day(birth_date, target_date)
         else:
             prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
+
+        # Добавляем языковую инструкцию
+        if lang == 'en':
+            prompt_data[
+                'language_instruction'] = "IMPORTANT: Respond in English only. All your analysis must be in English."
+        else:
+            prompt_data[
+                'language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь анализ должен быть на русском."
 
         return self.generate_from_prompt(prompt_data, 'prompt_numerology.txt', lang)
 
