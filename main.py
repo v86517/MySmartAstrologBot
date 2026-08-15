@@ -1746,34 +1746,36 @@ async def expert_request(message: Message):
         reply_markup=get_expert_keyboard(lang)
     )
 
-    async def show_archive(message: Message):
-        user_id = message.from_user.id
-        lang = await get_user_language(user_id)
-        is_subscribed = await check_subscription_db(user_id)
 
-        # Получаем все сообщения из архива
-        messages = await get_user_archive(user_id, limit=50)
+async def show_archive(message: Message):
+    user_id = message.from_user.id
+    lang = await get_user_language(user_id)
+    is_subscribed = await check_subscription_db(user_id)
+
+    # Получаем все сообщения из архива (последние 50)
+    messages = await get_user_archive(user_id, limit=50)
+
+    if not messages:
+        await message.answer(
+            await get_text(user_id, 'archive_empty'),
+            reply_markup=get_main_menu(lang)
+        )
+        return
+
+    # Фильтруем: если нет подписки, показываем только нумерологию и астрологию
+    if not is_subscribed:
+        allowed_types = ['numerology', 'astrology']
+        messages = [msg for msg in messages if msg.message_type in allowed_types]
 
         if not messages:
             await message.answer(
-                await get_text(user_id, 'archive_empty'),
-                reply_markup=get_main_menu(lang)
+                "📚 В вашем архиве пока нет сохранённых прогнозов.\n\n"
+                "🔮 Подпишитесь на Premium, чтобы сохранять гороскопы и совместимость!",
+                reply_markup=get_subscription_keyboard(lang)
             )
             return
 
-        # Фильтруем сообщения: если нет подписки, показываем только нумерологию и астрологию
-        if not is_subscribed:
-            allowed_types = ['numerology', 'astrology']
-            messages = [msg for msg in messages if msg.message_type in allowed_types]
-
-            if not messages:
-                await message.answer(
-                    "📚 В вашем архиве пока нет сохранённых прогнозов.\n\n"
-                    "🔮 Подпишитесь на Premium, чтобы сохранять гороскопы и совместимость!",
-                    reply_markup=get_subscription_keyboard(lang)
-                )
-                return
-
+    # Формируем текст архива
     type_display_map = {
         'horoscope': await get_text(user_id, 'type_horoscope'),
         'compatibility': await get_text(user_id, 'type_compatibility'),
