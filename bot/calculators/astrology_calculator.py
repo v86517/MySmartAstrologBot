@@ -258,9 +258,24 @@ class AstrologyCalculator:
         else:
             data = model_data.__dict__
 
-        # ---- FIXED: Извлечение углов ----
-        asc = data.get('ascendant', 0.0)
-        mc = data.get('midheaven', 0.0)
+        # ---- FIXED: Извлечение углов с проверкой типа ----
+        asc_raw = data.get('ascendant')
+        mc_raw = data.get('midheaven')
+
+        if hasattr(asc_raw, 'position'):
+            asc = asc_raw.position
+        elif isinstance(asc_raw, (int, float)):
+            asc = float(asc_raw)
+        else:
+            asc = 0.0
+
+        if hasattr(mc_raw, 'position'):
+            mc = mc_raw.position
+        elif isinstance(mc_raw, (int, float)):
+            mc = float(mc_raw)
+        else:
+            mc = 0.0
+
         dsc = (asc + 180) % 360
         ic = (mc + 180) % 360
         self._angles = {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
@@ -319,7 +334,7 @@ class AstrologyCalculator:
                 if isinstance(obj, dict):
                     if 'sign' in obj and 'position' in obj:
                         degree = obj.get('position', 0.0)
-                        house = self._get_house_for_longitude(degree, house_cusps)  # FIXED
+                        house = self._get_house_for_longitude(degree, house_cusps)
                         planets.append({
                             "name": key.capitalize(),
                             "sign": obj.get('sign', 'unknown'),
@@ -332,7 +347,7 @@ class AstrologyCalculator:
                 else:
                     if hasattr(obj, 'sign') and hasattr(obj, 'position'):
                         degree = getattr(obj, 'position', 0.0)
-                        house = self._get_house_for_longitude(degree, house_cusps)  # FIXED
+                        house = self._get_house_for_longitude(degree, house_cusps)
                         planets.append({
                             "name": key.capitalize(),
                             "sign": getattr(obj, 'sign', 'unknown'),
@@ -396,7 +411,7 @@ class AstrologyCalculator:
             "houses": houses,
             "aspects": aspects,
             "utc_datetime": utc_datetime,
-            "angles": self._angles,  # FIXED: добавлены углы
+            "angles": self._angles,
         }
 
         self._chart_data = result
