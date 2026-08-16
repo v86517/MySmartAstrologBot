@@ -585,8 +585,12 @@ class AstrologyDataBuilder:
         }
         angle_names = ['ASC', 'MC', 'DSC', 'IC']
         for p in planets:
-            planet_name = p['name']
-            deg = p['longitude']
+            planet_name = p.get('name')
+            if not planet_name:
+                continue
+            deg = p.get('longitude')
+            if deg is None:
+                continue
             for angle_name in angle_names:
                 angle_deg = angles.get(angle_name, 0)
                 if angle_deg == 0:
@@ -606,7 +610,8 @@ class AstrologyDataBuilder:
                             "orb": round(abs(diff - target_angle), 2),
                             "exact_angle": target_angle,
                             "actual_angle": diff,
-                            "score": self._get_aspect_weight(planet_name, angle_name, aspect_name, abs(diff - target_angle)),
+                            "score": self._get_aspect_weight(planet_name, angle_name, aspect_name,
+                                                             abs(diff - target_angle)),
                             "themes": self._get_planet_themes(planet_name, 0, '')
                         })
         return aspects
