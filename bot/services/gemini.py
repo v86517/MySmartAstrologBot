@@ -2,6 +2,7 @@ import os
 import requests
 import json
 import logging
+import traceback
 from typing import Optional, Dict, Any
 from datetime import datetime
 from bot.calculators.base_calculator import BaseCalculator
@@ -190,12 +191,19 @@ class GeminiService:
         self.user_data = user_data
         self.lang = lang
 
-        from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-        builder = AstrologyDataBuilder(user_data, lang)
-        json_data = builder.build()
+        try:
+            from bot.calculators.astrology_data_builder import AstrologyDataBuilder
+            builder = AstrologyDataBuilder(user_data, lang)
+            json_data = builder.build()
 
-        prompt = self._build_astrology_prompt(json_data, lang)
-        return self._send_prompt(prompt, lang)
+            prompt = self._build_astrology_prompt(json_data, lang)
+            return self._send_prompt(prompt, lang)
+        except Exception as e:
+            # Логируем полный traceback
+            logger.error(f"❌ Ошибка в generate_astrology_v2: {e}")
+            logger.error(traceback.format_exc())
+            # Возвращаем сообщение об ошибке пользователю
+            return f"❌ Произошла ошибка при построении натальной карты: {str(e)}"
 
     def _build_astrology_prompt(self, json_data: Dict[str, Any], lang: str) -> str:
         """Строит промпт для натальной карты из JSON v2."""

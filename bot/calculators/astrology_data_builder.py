@@ -888,24 +888,30 @@ class AstrologyDataBuilder:
         core_themes = sorted(themes_data.items(), key=lambda x: x[1]['score'], reverse=True)[:5]
         core_themes = [{"theme": t[0], "score": t[1]['score']} for t in core_themes]
 
-        # Сильные аспекты с преобразованием веса
-        strong_aspects = []
+        # --- Сильные аспекты с безопасным приведением ---
+        strong_list = []
         for a in aspects:
             weight = a.get('weight', 0)
             try:
                 weight = float(weight)
             except (ValueError, TypeError):
                 weight = 0
-            strong_aspects.append((a, weight))
-        strong_aspects = sorted(strong_aspects, key=lambda x: x[1], reverse=True)[:3]
-        strong_aspects = [{"p1": a['p1'], "p2": a['p2'], "aspect": a['aspect'], "orb": a['orb']} for a, _ in
-                          strong_aspects]
+            strong_list.append((a, weight))
+        strong_list.sort(key=lambda x: x[1], reverse=True)
+        strong_aspects = []
+        for a, _ in strong_list[:3]:
+            strong_aspects.append({
+                "p1": a.get('p1', ''),
+                "p2": a.get('p2', ''),
+                "aspect": a.get('aspect', ''),
+                "orb": a.get('orb', 0)
+            })
 
-        # Напряжения (квадраты и оппозиции с орбисом < 5)
-        tensions = []
+        # --- Напряжения (квадраты, оппозиции) ---
+        tension_list = []
         for a in aspects:
             aspect = a.get('aspect', '').lower()
-            if aspect in ['square', 'opposition']:
+            if aspect in ('square', 'opposition'):
                 orb_val = a.get('orb', 10)
                 try:
                     orb_val = float(orb_val)
@@ -917,16 +923,22 @@ class AstrologyDataBuilder:
                         weight = float(weight)
                     except (ValueError, TypeError):
                         weight = 0
-                    tensions.append((a, weight))
-        major_tensions = sorted(tensions, key=lambda x: x[1], reverse=True)[:3]
-        major_tensions = [{"p1": a['p1'], "p2": a['p2'], "aspect": a['aspect'], "orb": a['orb']} for a, _ in
-                          major_tensions]
+                    tension_list.append((a, weight))
+        tension_list.sort(key=lambda x: x[1], reverse=True)
+        major_tensions = []
+        for a, _ in tension_list[:3]:
+            major_tensions.append({
+                "p1": a.get('p1', ''),
+                "p2": a.get('p2', ''),
+                "aspect": a.get('aspect', ''),
+                "orb": a.get('orb', 0)
+            })
 
-        # Ресурсы (трины и секстили с орбисом < 5)
-        resources = []
+        # --- Ресурсы (трины, секстили) ---
+        resource_list = []
         for a in aspects:
             aspect = a.get('aspect', '').lower()
-            if aspect in ['trine', 'sextile']:
+            if aspect in ('trine', 'sextile'):
                 orb_val = a.get('orb', 10)
                 try:
                     orb_val = float(orb_val)
@@ -938,10 +950,16 @@ class AstrologyDataBuilder:
                         weight = float(weight)
                     except (ValueError, TypeError):
                         weight = 0
-                    resources.append((a, weight))
-        major_resources = sorted(resources, key=lambda x: x[1], reverse=True)[:3]
-        major_resources = [{"p1": a['p1'], "p2": a['p2'], "aspect": a['aspect'], "orb": a['orb']} for a, _ in
-                           major_resources]
+                    resource_list.append((a, weight))
+        resource_list.sort(key=lambda x: x[1], reverse=True)
+        major_resources = []
+        for a, _ in resource_list[:3]:
+            major_resources.append({
+                "p1": a.get('p1', ''),
+                "p2": a.get('p2', ''),
+                "aspect": a.get('aspect', ''),
+                "orb": a.get('orb', 0)
+            })
 
         return {
             "dominant_planets": dominant_planets,
@@ -1028,6 +1046,8 @@ class AstrologyDataBuilder:
 
             score = self._calculate_transit_score(transit_planet, natal_planet, aspect, orb)
             confidence = self._calculate_confidence(score, orb)
+            score = float(score)
+            confidence = float(confidence)
             passes = self._calculate_passes(transit_planet, natal_planet, aspect)
 
             aspects.append({
@@ -1172,8 +1192,26 @@ class AstrologyDataBuilder:
         for theme, aspects in themes.items():
             if not aspects:
                 continue
-            avg_score = sum(a['score'] for a in aspects) / len(aspects)
-            avg_conf = sum(a['confidence'] for a in aspects) / len(aspects)
+            # Приводим score и confidence к float
+            scores = []
+            confs = []
+            for a in aspects:
+                sc = a.get('score', 0)
+                try:
+                    sc = float(sc)
+                except (ValueError, TypeError):
+                    sc = 0
+                conf = a.get('confidence', 0)
+                try:
+                    conf = float(conf)
+                except (ValueError, TypeError):
+                    conf = 0
+                scores.append(sc)
+                confs.append(conf)
+
+            avg_score = sum(scores) / len(scores) if scores else 0
+            avg_conf = sum(confs) / len(confs) if confs else 0
+
             dates = [a.get('exact_date') for a in aspects if a.get('exact_date')]
             if dates:
                 start = min(dates)
@@ -1185,17 +1223,33 @@ class AstrologyDataBuilder:
             # Собираем детальные подтверждения
             evidence = []
             for a in aspects[:5]:
+                orb_val = a.get('orb', 0)
+                try:
+                    orb_val = float(orb_val)
+                except (ValueError, TypeError):
+                    orb_val = 0
+                score_val = a.get('score', 0)
+                try:
+                    score_val = float(score_val)
+                except (ValueError, TypeError):
+                    score_val = 0
+                conf_val = a.get('confidence', 0)
+                try:
+                    conf_val = float(conf_val)
+                except (ValueError, TypeError):
+                    conf_val = 0
+
                 evidence.append({
-                    "transit": a['transit_planet_local'],
-                    "natal": a['natal_planet_local'],
-                    "aspect": a['aspect_local'],
-                    "orb": a['orb'],
-                    "phase": a['phase'],
+                    "transit": a.get('transit_planet_local', a.get('transit_planet', '')),
+                    "natal": a.get('natal_planet_local', a.get('natal_planet', '')),
+                    "aspect": a.get('aspect_local', a.get('aspect', '')),
+                    "orb": orb_val,
+                    "phase": a.get('phase', ''),
                     "exact_date": a.get('exact_date'),
-                    "transit_house": a['transit_house'],
-                    "natal_house": a['natal_house'],
-                    "score": a['score'],
-                    "confidence": a['confidence']
+                    "transit_house": a.get('transit_house', 0),
+                    "natal_house": a.get('natal_house', 0),
+                    "score": score_val,
+                    "confidence": conf_val
                 })
 
             periods.append({
@@ -1265,7 +1319,6 @@ class AstrologyDataBuilder:
     # ==================== THEMES (advanced) ====================
 
     def _build_themes(self) -> Dict[str, Any]:
-        """Строит темы с улучшенными метриками и преобразованием типов."""
         themes = {}
 
         # 1. Натальные планеты
@@ -1285,7 +1338,7 @@ class AstrologyDataBuilder:
                 for theme in self._get_planet_themes(ruler_name, 0, ''):
                     self._add_evidence(themes, theme, 'house_ruler', f"House {house}", f"ruler {ruler_name}", 6)
 
-        # 3. Натальные аспекты (с преобразованием типов)
+        # 3. Натальные аспекты
         for a in self.chart.get('aspects', []):
             orb_val = a.get('orb', 10)
             try:
@@ -1300,8 +1353,8 @@ class AstrologyDataBuilder:
                     weight = 5
                 p1, p2 = a['p1'], a['p2']
                 for theme in self._get_aspect_themes(p1, p2, a['aspect']):
-                    self._add_evidence(themes, theme, 'natal_aspect', f"{p1} {a['aspect']} {p2}",
-                                       f"orb {a['orb']:.2f}°", weight)
+                    self._add_evidence(themes, theme, 'natal_aspect', f"{p1} {a['aspect']} {p2}", f"orb {orb_val:.2f}°",
+                                       weight)
 
         # 4. Аспекты к углам
         for angle_aspect in self._build_angle_aspects():
@@ -1313,7 +1366,7 @@ class AstrologyDataBuilder:
             theme = angle_aspect.get('themes', ['unknown'])[0]
             self._add_evidence(themes, theme, 'angle_aspect',
                                f"{angle_aspect['planet']} {angle_aspect['aspect']} {angle_aspect['angle']}",
-                               f"orb {angle_aspect['orb']:.2f}°", weight)
+                               f"orb {angle_aspect.get('orb', 0):.2f}°", weight)
 
         # 5. Паттерны
         for pat in self._build_patterns():
@@ -1325,7 +1378,7 @@ class AstrologyDataBuilder:
             for theme in pat.get('themes', []):
                 self._add_evidence(themes, theme, 'pattern', pat['type'], f"strength {strength}", strength)
 
-        # 6. Транзиты (с преобразованием типов)
+        # 6. Транзиты
         transit_data = self._build_transits()
         for ta in transit_data.get('aspects', []):
             score_val = ta.get('score', 0)
@@ -1337,9 +1390,9 @@ class AstrologyDataBuilder:
                 for theme in ta.get('themes', []):
                     self._add_evidence(themes, theme, 'transit',
                                        f"{ta['transit_planet']} {ta['aspect']} {ta['natal_planet']}",
-                                       f"score {ta['score']}", ta['score'])
+                                       f"score {score_val}", score_val)
 
-        # 7. Прогрессии (с преобразованием типов)
+        # 7. Прогрессии
         prog_data = self._build_progressions()
         for pa in prog_data.get('aspects', []):
             score_val = pa.get('score', 0)
@@ -1351,9 +1404,9 @@ class AstrologyDataBuilder:
                 for theme in pa.get('themes', []):
                     self._add_evidence(themes, theme, 'progression',
                                        f"{pa['progressed_planet']} {pa['aspect']} {pa['natal_planet']}",
-                                       f"score {pa['score']}", pa['score'])
+                                       f"score {score_val}", score_val)
 
-        # Вычисляем финальные показатели
+        # Финальный расчёт
         result = {}
         for theme, data in themes.items():
             ev = data['evidence']
@@ -1393,21 +1446,31 @@ class AstrologyDataBuilder:
         transit_data = self._build_transits()
         for ta in transit_data.get('aspects', []):
             if ta.get('exact_date'):
+                score_val = ta.get('score', 0)
+                try:
+                    score_val = float(score_val)
+                except (ValueError, TypeError):
+                    score_val = 0
                 timeline.append({
                     "date": ta['exact_date'],
                     "event_type": "transit",
-                    "description": f"{ta['transit_planet']} {ta['aspect']} {ta['natal_planet']}",
-                    "score": ta.get('score', 0),
+                    "description": f"{ta.get('transit_planet_local', ta.get('transit_planet', ''))} {ta.get('aspect_local', ta.get('aspect', ''))} {ta.get('natal_planet_local', ta.get('natal_planet', ''))}",
+                    "score": score_val,
                     "theme": ta.get('themes', ['unknown'])[0] if ta.get('themes') else 'unknown'
                 })
         prog_data = self._build_progressions()
         for pa in prog_data.get('aspects', []):
             if pa.get('exact_date'):
+                score_val = pa.get('score', 0)
+                try:
+                    score_val = float(score_val)
+                except (ValueError, TypeError):
+                    score_val = 0
                 timeline.append({
                     "date": pa['exact_date'],
                     "event_type": "progression",
-                    "description": f"{pa['progressed_planet']} {pa['aspect']} {pa['natal_planet']}",
-                    "score": pa.get('score', 0),
+                    "description": f"{pa.get('progressed_planet_local', pa.get('progressed_planet', ''))} {pa.get('aspect_local', pa.get('aspect', ''))} {pa.get('natal_planet_local', pa.get('natal_planet', ''))}",
+                    "score": score_val,
                     "theme": pa.get('themes', ['unknown'])[0] if pa.get('themes') else 'unknown'
                 })
         timeline.sort(key=lambda x: x['date'])
