@@ -52,6 +52,7 @@ class AstrologyDataBuilder:
                 "dominant_houses": self._calculate_dominant_houses(),
                 "dominant_planets": self._calculate_dominant_planets(),
                 "dominant_signs": self._calculate_dominant_signs(),
+                "angles": self._get_angles(self.natal_calc._get_natal_subject()),
                 "angle_aspects": self._build_angle_aspects(),
                 "patterns": self._build_patterns(),
                 "summary": self._build_summary(),
@@ -522,10 +523,8 @@ class AstrologyDataBuilder:
 
     def _get_angles(self, subject) -> Dict[str, float]:
         try:
-            model = subject.model() if callable(subject.model) else subject.model
-            data = model.dict() if hasattr(model, 'dict') else model.__dict__
-            asc = data.get('ascendant', 0.0)
-            mc = data.get('midheaven', 0.0)
+            asc = subject.ascendant if hasattr(subject, 'ascendant') else 0.0
+            mc = subject.midheaven if hasattr(subject, 'midheaven') else 0.0
             dsc = (asc + 180) % 360
             ic = (mc + 180) % 360
             return {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
@@ -1103,6 +1102,14 @@ class AstrologyDataBuilder:
         exact_date = datetime.now() + timedelta(days=days_to_exact)
         return exact_date.strftime('%Y-%m-%d')
 
+    AVERAGE_SPEEDS = {
+        'Sun': 0.9856, 'Moon': 13.1764, 'Mercury': 1.383,
+        'Venus': 1.2, 'Mars': 0.524, 'Jupiter': 0.083,
+        'Saturn': 0.033, 'Uranus': 0.012, 'Neptune': 0.006,
+        'Pluto': 0.004, 'Chiron': 0.02, 'Mean_Lilith': 0.1,
+        'True_North_Lunar_Node': -0.05, 'True_South_Lunar_Node': 0.05,
+    }
+
     def _get_planet_speed(self, planet: str, is_transit: bool = False, transit_calc=None) -> float:
         try:
             if is_transit and transit_calc is not None:
@@ -1110,16 +1117,16 @@ class AstrologyDataBuilder:
                 if hasattr(transit_subject, 'planets'):
                     for p in transit_subject.planets:
                         if p.name.lower() == planet.lower():
-                            return p.speed if hasattr(p, 'speed') else 0.0
+                            return p.speed if hasattr(p, 'speed') else self.AVERAGE_SPEEDS.get(planet, 0.0)
             else:
                 subject = self.natal_calc._get_natal_subject()
                 if hasattr(subject, 'planets'):
                     for p in subject.planets:
                         if p.name.lower() == planet.lower():
-                            return p.speed if hasattr(p, 'speed') else 0.0
+                            return p.speed if hasattr(p, 'speed') else self.AVERAGE_SPEEDS.get(planet, 0.0)
         except:
             pass
-        return 0.0
+        return self.AVERAGE_SPEEDS.get(planet, 0.0)
 
     def _get_transit_planet_house(self, planet: str, transit_calc) -> int:
         try:

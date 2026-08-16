@@ -273,7 +273,13 @@ class GeminiService:
                     f"| {p.get('weight', 0)} |\n"
                 )
 
-            angles = "ASC: {:.2f}°\nMC: {:.2f}°\nDSC: {:.2f}°\nIC: {:.2f}°".format(0, 0, 0, 0)
+            # ---- Исправлено: берём углы из данных ----
+            angles_dict = natal.get('angles', {})
+            asc = angles_dict.get('ASC', 0.0)
+            mc = angles_dict.get('MC', 0.0)
+            dsc = angles_dict.get('DSC', 0.0)
+            ic = angles_dict.get('IC', 0.0)
+            angles = f"ASC: {asc:.2f}°\nMC: {mc:.2f}°\nDSC: {dsc:.2f}°\nIC: {ic:.2f}°"
 
             houses = natal.get('houses', [])
             cusps = "\n".join([f"Дом {h['number']}: {h['cusp']} ({h['cusp_degree']:.2f}°)" for h in houses])
