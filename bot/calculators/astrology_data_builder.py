@@ -118,10 +118,16 @@ class AstrologyDataBuilder:
     # ==================== NATAL PLANETS ====================
 
     def _build_natal_planets(self) -> List[Dict[str, Any]]:
-        """Собирает данные по планетам с новыми полями и приведением типов."""
+        """Собирает данные по планетам с новыми полями, используя субъект для получения дома."""
         planets = []
         planet_data = self.chart.get('planets', [])
         subject = self.natal_calc._get_natal_subject()
+
+        # Создаем словарь для быстрого поиска планеты в субъекте по имени
+        subject_planets = {}
+        if hasattr(subject, 'planets') and subject.planets:
+            for sp in subject.planets:
+                subject_planets[sp.name] = sp
 
         for p in planet_data:
             planet_name = p.get('name', 'Unknown')
@@ -134,12 +140,31 @@ class AstrologyDataBuilder:
             except (ValueError, TypeError):
                 degree = 0.0
 
-            house = p.get('house', 0)
-            try:
-                house = int(house)
-            except (ValueError, TypeError):
-                house = 0
+            # ---- Получаем дом из субъекта, если доступно ----
+            house = 0
+            if planet_name in subject_planets:
+                sp = subject_planets[planet_name]
+                if hasattr(sp, 'house'):
+                    house = sp.house
+                elif isinstance(sp, dict) and 'house' in sp:
+                    house = sp['house']
+                # Если это не число, преобразуем
+                try:
+                    house = int(house)
+                except (ValueError, TypeError):
+                    house = 0
+            else:
+                # Fallback: использовать значение из chart
+                house = p.get('house', 0)
+                try:
+                    house = int(house)
+                except (ValueError, TypeError):
+                    house = 0
 
+            # Если дом всё ещё 0, можно попробовать вычислить его по долготе, но это сложно,
+            # поэтому оставляем как есть (будет 0, но это лучше, чем неправильный дом).
+
+            # ---- Скорость и ретроградность ----
             speed = 0.0
             retrograde = False
 
@@ -299,13 +324,20 @@ class AstrologyDataBuilder:
         return houses
 
     def _get_house_ruler(self, sign: str) -> str:
+        sign_abbr_to_full = {
+            'Ari': 'Aries', 'Tau': 'Taurus', 'Gem': 'Gemini',
+            'Can': 'Cancer', 'Leo': 'Leo', 'Vir': 'Virgo',
+            'Lib': 'Libra', 'Sco': 'Scorpio', 'Sag': 'Sagittarius',
+            'Cap': 'Capricorn', 'Aqu': 'Aquarius', 'Pis': 'Pisces'
+        }
+        full_sign = sign_abbr_to_full.get(sign, sign)
         sign_rulers = {
             'Aries': 'Mars', 'Taurus': 'Venus', 'Gemini': 'Mercury',
             'Cancer': 'Moon', 'Leo': 'Sun', 'Virgo': 'Mercury',
             'Libra': 'Venus', 'Scorpio': 'Pluto', 'Sagittarius': 'Jupiter',
             'Capricorn': 'Saturn', 'Aquarius': 'Uranus', 'Pisces': 'Neptune',
         }
-        return sign_rulers.get(sign, 'unknown')
+        return sign_rulers.get(full_sign, 'unknown')
 
     def _get_planet_sign(self, planet_name: str) -> str:
         for p in self.chart.get('planets', []):
@@ -556,19 +588,16 @@ class AstrologyDataBuilder:
     # ==================== ANGLE ASPECTS ====================
 
     def _get_angles(self, subject) -> Dict[str, float]:
-        """Возвращает углы ASC, MC, DSC, IC."""
-        asc = 0.0
-        mc = 0.0
         try:
-            if hasattr(subject, 'first_house') and subject.first_house:
-                asc = subject.first_house.position
-            if hasattr(subject, 'tenth_house') and subject.tenth_house:
-                mc = subject.tenth_house.position
+            model = subject.model() if callable(subject.model) else subject.model
+            data = model.dict() if hasattr(model, 'dict') else model.__dict__
+            asc = data.get('ascendant', 0.0)
+            mc = data.get('midheaven', 0.0)
+            dsc = (asc + 180) % 360
+            ic = (mc + 180) % 360
+            return {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
         except:
-            pass
-        dsc = (asc + 180) % 360
-        ic = (mc + 180) % 360
-        return {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
+            return {"ASC": 0.0, "MC": 0.0, "DSC": 0.0, "IC": 0.0}
 
     def _build_angle_aspects(self) -> List[Dict[str, Any]]:
         """Рассчитывает аспекты планет к углам (ASC, MC, DSC, IC)."""
