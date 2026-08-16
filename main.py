@@ -1437,11 +1437,23 @@ async def process_astrology_gender(message: Message, state: FSMContext):
 
         if gemini_service:
             interpretation = gemini_service.generate_astrology_v2(user_data_for_calc, lang)
-            await save_message_to_archive(user_id, 'astrology', interpretation)
+
+            # Получаем параметры для отображения
+            allowed_ids = [8790509202]  # список админов
+            display_data = gemini_service.get_astrology_display_data(
+                user_data_for_calc, lang, is_admin=(user_id in allowed_ids)
+            )
+
+            if user_id in allowed_ids:
+                final_message = display_data['full'] + "\n\n" + interpretation
+            else:
+                final_message = display_data['basic'] + "\n\n" + interpretation
+
+            await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
 
             await status_msg.delete()
-            await send_long_message(message, interpretation, reply_markup=get_main_menu_button(lang))
+            await send_long_message(message, final_message, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -2565,11 +2577,22 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
 
         if gemini_service:
             interpretation = gemini_service.generate_astrology_v2(user_data_from_db, lang)
-            await save_message_to_archive(user_id, 'astrology', interpretation)
+
+            allowed_ids = [8790509202]
+            display_data = gemini_service.get_astrology_display_data(
+                user_data_from_db, lang, is_admin=(user_id in allowed_ids)
+            )
+
+            if user_id in allowed_ids:
+                final_message = display_data['full'] + "\n\n" + interpretation
+            else:
+                final_message = display_data['basic'] + "\n\n" + interpretation
+
+            await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
 
             await status_msg.delete()
-            await send_long_message(callback.message, interpretation, reply_markup=get_main_menu_button(lang))
+            await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -2684,11 +2707,22 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
 
         if gemini_service:
             interpretation = gemini_service.generate_astrology_v2(user_data, lang)
-            await save_message_to_archive(user_id, 'astrology', interpretation)
+
+            allowed_ids = [8790509202]
+            display_data = gemini_service.get_astrology_display_data(
+                user_data, lang, is_admin=(user_id in allowed_ids)
+            )
+
+            if user_id in allowed_ids:
+                final_message = display_data['full'] + "\n\n" + interpretation
+            else:
+                final_message = display_data['basic'] + "\n\n" + interpretation
+
+            await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
 
             await status_msg.delete()
-            await send_long_message(callback.message, interpretation, reply_markup=get_main_menu_button(lang))
+            await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
