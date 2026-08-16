@@ -1220,9 +1220,8 @@ class AstrologyDataBuilder:
     # ==================== THEMES (advanced) ====================
 
     def _build_themes(self) -> Dict[str, Any]:
-        """Строит темы с улучшенными метриками score, confidence, evidence_count, и т.д."""
+        """Строит темы с улучшенными метриками и преобразованием типов."""
         themes = {}
-        # Сбор доказательств из разных источников
 
         # 1. Натальные планеты
         for p in self.chart.get('planets', []):
@@ -1241,17 +1240,31 @@ class AstrologyDataBuilder:
                 for theme in self._get_planet_themes(ruler_name, 0, ''):
                     self._add_evidence(themes, theme, 'house_ruler', f"House {house}", f"ruler {ruler_name}", 6)
 
-        # 3. Натальные аспекты (сильные)
+        # 3. Натальные аспекты (с преобразованием типов)
         for a in self.chart.get('aspects', []):
-            if a.get('orb', 10) <= 3:
+            orb_val = a.get('orb', 10)
+            try:
+                orb_val = float(orb_val)
+            except (ValueError, TypeError):
+                orb_val = 10
+            if orb_val <= 3:
                 weight = a.get('weight', 5)
+                try:
+                    weight = float(weight)
+                except (ValueError, TypeError):
+                    weight = 5
                 p1, p2 = a['p1'], a['p2']
                 for theme in self._get_aspect_themes(p1, p2, a['aspect']):
-                    self._add_evidence(themes, theme, 'natal_aspect', f"{p1} {a['aspect']} {p2}", f"orb {a['orb']:.2f}°", weight)
+                    self._add_evidence(themes, theme, 'natal_aspect', f"{p1} {a['aspect']} {p2}",
+                                       f"orb {a['orb']:.2f}°", weight)
 
         # 4. Аспекты к углам
         for angle_aspect in self._build_angle_aspects():
             weight = angle_aspect.get('score', 5)
+            try:
+                weight = float(weight)
+            except (ValueError, TypeError):
+                weight = 5
             theme = angle_aspect.get('themes', ['unknown'])[0]
             self._add_evidence(themes, theme, 'angle_aspect',
                                f"{angle_aspect['planet']} {angle_aspect['aspect']} {angle_aspect['angle']}",
@@ -1260,22 +1273,36 @@ class AstrologyDataBuilder:
         # 5. Паттерны
         for pat in self._build_patterns():
             strength = pat.get('strength', 5)
+            try:
+                strength = float(strength)
+            except (ValueError, TypeError):
+                strength = 5
             for theme in pat.get('themes', []):
                 self._add_evidence(themes, theme, 'pattern', pat['type'], f"strength {strength}", strength)
 
-        # 6. Транзиты (если есть)
+        # 6. Транзиты (с преобразованием типов)
         transit_data = self._build_transits()
         for ta in transit_data.get('aspects', []):
-            if ta.get('score', 0) > 6:
+            score_val = ta.get('score', 0)
+            try:
+                score_val = float(score_val)
+            except (ValueError, TypeError):
+                score_val = 0
+            if score_val > 6:
                 for theme in ta.get('themes', []):
                     self._add_evidence(themes, theme, 'transit',
                                        f"{ta['transit_planet']} {ta['aspect']} {ta['natal_planet']}",
                                        f"score {ta['score']}", ta['score'])
 
-        # 7. Прогрессии
+        # 7. Прогрессии (с преобразованием типов)
         prog_data = self._build_progressions()
         for pa in prog_data.get('aspects', []):
-            if pa.get('score', 0) > 6:
+            score_val = pa.get('score', 0)
+            try:
+                score_val = float(score_val)
+            except (ValueError, TypeError):
+                score_val = 0
+            if score_val > 6:
                 for theme in pa.get('themes', []):
                     self._add_evidence(themes, theme, 'progression',
                                        f"{pa['progressed_planet']} {pa['aspect']} {pa['natal_planet']}",

@@ -1423,7 +1423,6 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         zodiac=zodiac_name
     )
 
-    # Скрываем клавиатуру
     await message.answer(await get_text(user_id, 'astrology_status_building'), reply_markup=ReplyKeyboardRemove())
 
     status_msg = await message.answer(profile_text)
@@ -1437,7 +1436,6 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            # Новая генерация через JSON v2
             interpretation = gemini_service.generate_astrology_v2(user_data_for_calc, lang)
             await save_message_to_archive(user_id, 'astrology', interpretation)
             await add_astrology_count(user_id, -1)
@@ -2550,7 +2548,6 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         zodiac=zodiac_name
     )
 
-    # Скрываем клавиатуру
     await callback.message.answer(
         await get_text(user_id, 'astrology_status_building'),
         reply_markup=ReplyKeyboardRemove()
@@ -2567,7 +2564,6 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            # Новая генерация через JSON v2
             interpretation = gemini_service.generate_astrology_v2(user_data_from_db, lang)
             await save_message_to_archive(user_id, 'astrology', interpretation)
             await add_astrology_count(user_id, -1)
@@ -2671,7 +2667,6 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         user_data = user_data_from_db
         astrology_data.pop(user_id, None)
 
-    # Скрываем клавиатуру
     await callback.message.answer(
         await get_text(user_id, 'astrology_status_building'),
         reply_markup=ReplyKeyboardRemove()
@@ -2688,7 +2683,6 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            # Новая генерация через JSON v2
             interpretation = gemini_service.generate_astrology_v2(user_data, lang)
             await save_message_to_archive(user_id, 'astrology', interpretation)
             await add_astrology_count(user_id, -1)
