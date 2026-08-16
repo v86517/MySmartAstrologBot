@@ -268,7 +268,7 @@ def get_archive_keyboard(messages, lang: str = 'ru'):
         builder.button(text=button_text, callback_data=f"archive_{msg.id}")
 
     builder.button(text=texts['kb_refresh'], callback_data="archive_refresh")
-    builder.button(text=texts['kb_main_menu'], callback_data="main_menu")
+    #builder.button(text=texts['kb_main_menu'], callback_data="main_menu")
     builder.adjust(1)
     return builder.as_markup()
 

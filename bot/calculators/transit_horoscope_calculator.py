@@ -234,7 +234,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
         for a in transit_aspects:
             if 'Moon' in a['transit_planet'] or 'Moon' in a['natal_planet']:
                 moon_aspects.append(
-                    f"{a['transit_planet']} {a['aspect']} {a['natal_planet']} (орбис: {a['orb']:.2f}°)"
+                    f"Transit {a['transit_planet']} → Natal {a['natal_planet']} → {a['aspect']} → {a['orb']:.2f}°"
                 )
         transit_moon_aspects = "\n".join(moon_aspects) if moon_aspects else "Нет значимых аспектов"
 
@@ -303,7 +303,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
             "transit_moon_aspects": transit_moon_aspects,
             "retrograde_planets": retrograde_planets,
             "transit_aspects": "\n".join(
-                f"- {a['transit_planet']} {a['aspect']} {a['natal_planet']} (орбис: {a['orb']:.2f}°)" for a in
+                f"Transit {a['transit_planet']} → Natal {a['natal_planet']} → {a['aspect']} → {a['orb']:.2f}°" for a in
                 transit_aspects
             ) if transit_aspects else "Нет значимых транзитных аспектов",
             "pronoun": "он" if self.gender == 'M' else "она",

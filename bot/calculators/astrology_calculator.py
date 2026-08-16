@@ -455,7 +455,7 @@ class AstrologyCalculator:
             # Форматируем
             lines = []
             for a in aspects:
-                lines.append(f"{a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)")
+                lines.append(f"Progressed {a['p1']} → Natal {a['p2']} → {a['aspect']} → {a['orb']:.2f}°")
             return "\n".join(lines)
 
         except Exception as e:
