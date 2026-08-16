@@ -20,46 +20,25 @@ class AstrologyDataBuilder:
         self.natal_calc = AstrologyCalculator(user_data)
         self.chart = self.natal_calc._calculate_chart()
 
-        # Веса планет для скоринга
         self.planet_weights = {
-            'Sun': 10,
-            'Moon': 10,
-            'ASC': 10,
-            'MC': 10,
-            'Mercury': 7,
-            'Venus': 7,
-            'Mars': 7,
-            'Jupiter': 6,
-            'Saturn': 8,
-            'Uranus': 5,
-            'Neptune': 5,
-            'Pluto': 6,
-            'Chiron': 3,
-            'True_North_Lunar_Node': 5,
-            'True_South_Lunar_Node': 5,
+            'Sun': 10, 'Moon': 10, 'ASC': 10, 'MC': 10,
+            'Mercury': 7, 'Venus': 7, 'Mars': 7, 'Jupiter': 6,
+            'Saturn': 8, 'Uranus': 5, 'Neptune': 5, 'Pluto': 6,
+            'Chiron': 3, 'True_North_Lunar_Node': 5, 'True_South_Lunar_Node': 5,
             'Mean_Lilith': 2,
         }
 
-        # Названия планет на русском (для локализации)
         self.planet_names_ru = {
-            'Sun': 'Солнце',
-            'Moon': 'Луна',
-            'Mercury': 'Меркурий',
-            'Venus': 'Венера',
-            'Mars': 'Марс',
-            'Jupiter': 'Юпитер',
-            'Saturn': 'Сатурн',
-            'Uranus': 'Уран',
-            'Neptune': 'Нептун',
-            'Pluto': 'Плутон',
-            'Chiron': 'Хирон',
+            'Sun': 'Солнце', 'Moon': 'Луна', 'Mercury': 'Меркурий',
+            'Venus': 'Венера', 'Mars': 'Марс', 'Jupiter': 'Юпитер',
+            'Saturn': 'Сатурн', 'Uranus': 'Уран', 'Neptune': 'Нептун',
+            'Pluto': 'Плутон', 'Chiron': 'Хирон',
             'True_North_Lunar_Node': 'Северный узел',
             'True_South_Lunar_Node': 'Южный узел',
             'Mean_Lilith': 'Лилит',
         }
 
     def build(self) -> Dict[str, Any]:
-        """Собирает полную структуру JSON v2."""
         return {
             "metadata": self._build_metadata(),
             "natal": {
@@ -83,10 +62,8 @@ class AstrologyDataBuilder:
             "timeline": self._build_timeline()
         }
 
-    # ==================== METADATA ====================
-
+    # ---------- METADATA ----------
     def _build_metadata(self) -> Dict[str, Any]:
-        """Собирает метаданные расчёта."""
         return {
             "calculation_date": datetime.now().isoformat(),
             "calculation_type": "natal",
@@ -99,35 +76,25 @@ class AstrologyDataBuilder:
                 "coordinate_system": "geocentric",
                 "progression_type": "secondary",
                 "major_aspects": {
-                    "conjunction": 0,
-                    "opposition": 180,
-                    "trine": 120,
-                    "square": 90,
-                    "sextile": 60,
+                    "conjunction": 0, "opposition": 180, "trine": 120,
+                    "square": 90, "sextile": 60,
                 },
                 "aspect_orb": {
-                    "conjunction": 8,
-                    "opposition": 8,
-                    "trine": 6,
-                    "square": 6,
-                    "sextile": 5,
+                    "conjunction": 8, "opposition": 8, "trine": 6,
+                    "square": 6, "sextile": 5,
                 }
             }
         }
 
-    # ==================== NATAL PLANETS ====================
-
+    # ---------- NATAL PLANETS (упрощено) ----------
     def _build_natal_planets(self) -> List[Dict[str, Any]]:
-        """Собирает данные по планетам с новыми полями, используя субъект для получения дома."""
+        """Собирает данные по планетам, используя уже рассчитанные дома из chart."""
         planets = []
         planet_data = self.chart.get('planets', [])
         subject = self.natal_calc._get_natal_subject()
 
-        # Создаем словарь для быстрого поиска планеты в субъекте по имени
-        subject_planets = {}
-        if hasattr(subject, 'planets') and subject.planets:
-            for sp in subject.planets:
-                subject_planets[sp.name] = sp
+        # Получаем углы для angularity
+        angles = self._get_angles(subject)
 
         for p in planet_data:
             planet_name = p.get('name', 'Unknown')
@@ -140,68 +107,26 @@ class AstrologyDataBuilder:
             except (ValueError, TypeError):
                 degree = 0.0
 
-            # ---- Получаем дом из субъекта, если доступно ----
-            house = 0
-            if planet_name in subject_planets:
-                sp = subject_planets[planet_name]
-                if hasattr(sp, 'house'):
-                    house = sp.house
-                elif isinstance(sp, dict) and 'house' in sp:
-                    house = sp['house']
-                # Если это не число, преобразуем
-                try:
-                    house = int(house)
-                except (ValueError, TypeError):
-                    house = 0
-            else:
-                # Fallback: использовать значение из chart
-                house = p.get('house', 0)
-                try:
-                    house = int(house)
-                except (ValueError, TypeError):
-                    house = 0
-
-            # Если дом всё ещё 0, можно попробовать вычислить его по долготе, но это сложно,
-            # поэтому оставляем как есть (будет 0, но это лучше, чем неправильный дом).
-
-            # ---- Скорость и ретроградность ----
-            speed = 0.0
-            retrograde = False
-
+            # Дом уже рассчитан в _calculate_chart
+            house = p.get('house', 0)
             try:
-                if hasattr(subject, 'planets') and subject.planets:
-                    for sp in subject.planets:
-                        if sp.name == planet_name:
-                            if hasattr(sp, 'speed'):
-                                speed = sp.speed
-                            if hasattr(sp, 'retrograde'):
-                                retrograde = sp.retrograde
-                            break
-            except:
-                pass
+                house = int(house)
+            except (ValueError, TypeError):
+                house = 0
 
-            if speed == 0.0:
-                try:
-                    model = subject.model() if callable(subject.model) else subject.model
-                    data = model.dict() if hasattr(model, 'dict') else model.__dict__
-                    key = planet_name.lower()
-                    if key in data:
-                        obj = data[key]
-                        if isinstance(obj, dict):
-                            speed = obj.get('speed', 0.0)
-                            retrograde = obj.get('retrograde', False)
-                except:
-                    pass
+            speed = p.get('speed', 0.0)
+            retrograde = p.get('retrograde', False)
+            latitude = p.get('latitude', 0.0)
 
             weight = self.planet_weights.get(planet_name, 5)
-            angularity = self._calculate_angularity(subject, planet_name, degree)
+            angularity = self._calculate_angularity(subject, planet_name, degree, angles)
             dispositor_info = self._find_dispositor(planet_name, p.get('sign', ''))
 
             planets.append({
                 "name": planet_name,
                 "name_local": self.planet_names_ru.get(planet_name, planet_name),
                 "longitude": degree,
-                "latitude": p.get('latitude', 0.0),
+                "latitude": latitude,
                 "speed": round(speed, 3),
                 "retrograde": retrograde,
                 "sign": p.get('sign', 'unknown'),
@@ -217,18 +142,26 @@ class AstrologyDataBuilder:
 
         return planets
 
-    # ==================== ANGULARITY ====================
-
-    def _calculate_angularity(self, subject, planet_name: str, degree: float) -> Dict[str, Any]:
-        """Рассчитывает угловое расстояние до ASC и MC."""
+    # ---------- УГЛЫ ----------
+    def _get_angles(self, subject) -> Dict[str, float]:
+        """Возвращает углы ASC, MC, DSC, IC из модели."""
         try:
-            asc_degree = 0.0
-            mc_degree = 0.0
+            model = subject.model() if callable(subject.model) else subject.model
+            data = model.dict() if hasattr(model, 'dict') else model.__dict__
+            asc = data.get('ascendant', 0.0)
+            mc = data.get('midheaven', 0.0)
+            dsc = (asc + 180) % 360
+            ic = (mc + 180) % 360
+            return {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
+        except:
+            return {"ASC": 0.0, "MC": 0.0, "DSC": 0.0, "IC": 0.0}
 
-            if hasattr(subject, 'first_house') and subject.first_house:
-                asc_degree = subject.first_house.position
-            if hasattr(subject, 'tenth_house') and subject.tenth_house:
-                mc_degree = subject.tenth_house.position
+    # ---------- ANGULARITY (исправлено для использования углов) ----------
+    def _calculate_angularity(self, subject, planet_name: str, degree: float, angles: Dict[str, float]) -> Dict[str, Any]:
+        """Рассчитывает угловое расстояние до ASC и MC с использованием переданных углов."""
+        try:
+            asc_degree = angles.get('ASC', 0.0)
+            mc_degree = angles.get('MC', 0.0)
 
             asc_diff = abs(degree - asc_degree) % 360
             if asc_diff > 180:
@@ -1508,3 +1441,19 @@ class AstrologyDataBuilder:
                 })
         timeline.sort(key=lambda x: x['date'])
         return timeline[:20]
+
+    def _get_house_for_longitude(self, longitude: float, houses: List[Dict]) -> int:
+        if not houses:
+            return 0
+        sorted_houses = sorted(houses, key=lambda h: h['degree'])
+        for i, h in enumerate(sorted_houses):
+            next_house = sorted_houses[(i + 1) % len(sorted_houses)]
+            start = h['degree']
+            end = next_house['degree']
+            if end < start:
+                if longitude >= start or longitude < end:
+                    return h['number']
+            else:
+                if start <= longitude < end:
+                    return h['number']
+        return 0

@@ -42,9 +42,10 @@ class AstrologyCalculator:
         self._chart_data = None
         self._timezone = None
         self._tf = TimezoneFinder()
-        self._progression_data = None  # НОВОЕ: кеш прогрессий
-        self._cached_coords = None  # будет хранить (lat, lng)
+        self._progression_data = None
+        self._cached_coords = None
         self._cached_timezone = None
+        self._angles = None  # FIXED: кеш углов
 
     def _parse_birth_datetime(self) -> Tuple[int, int, int, int, int]:
         date_str = self.birth_date_str or "01.01.2000"
@@ -66,7 +67,6 @@ class AstrologyCalculator:
         return city, country
 
     def _get_coordinates_and_timezone(self) -> Tuple[float, float, str]:
-        """Возвращает координаты и часовой пояс с кешированием."""
         if self._cached_coords is not None and self._cached_timezone is not None:
             return self._cached_coords[0], self._cached_coords[1], self._cached_timezone
 
@@ -121,7 +121,6 @@ class AstrologyCalculator:
         return lat, lng, tz_str
 
     def _get_coordinates_geocoder(self, city: str, country: str = None) -> Optional[Dict[str, float]]:
-        """Пытается получить координаты через Nominatim и Open-Meteo."""
         try:
             geolocator = Nominatim(user_agent="my_astrolog_bot")
             query = f"{city}, {country}" if country else city
@@ -156,7 +155,6 @@ class AstrologyCalculator:
         return None
 
     def _get_capital_coords(self, country: str) -> Optional[Dict[str, float]]:
-        """Пытается найти координаты столицы страны через Nominatim."""
         try:
             geolocator = Nominatim(user_agent="my_astrolog_bot")
             query = f"capital of {country}"
@@ -209,6 +207,26 @@ class AstrologyCalculator:
 
         return None
 
+    def _get_house_for_longitude(self, longitude: float, houses: List[Dict]) -> int:
+        """
+        Определяет номер дома по долготе планеты на основе куспидов домов.
+        houses — список словарей с ключами 'number' и 'degree'.
+        """
+        if not houses:
+            return 0
+        sorted_houses = sorted(houses, key=lambda h: h['degree'])
+        for i, h in enumerate(sorted_houses):
+            next_house = sorted_houses[(i + 1) % len(sorted_houses)]
+            start = h['degree']
+            end = next_house['degree']
+            if end < start:  # переход через 0°
+                if longitude >= start or longitude < end:
+                    return h['number']
+            else:
+                if start <= longitude < end:
+                    return h['number']
+        return 0
+
     def _calculate_chart(self) -> Dict[str, Any]:
         if self._chart_data is not None:
             return self._chart_data
@@ -240,7 +258,44 @@ class AstrologyCalculator:
         else:
             data = model_data.__dict__
 
-        # Добавляем астероид Гигиея
+        # ---- FIXED: Извлечение углов ----
+        asc = data.get('ascendant', 0.0)
+        mc = data.get('midheaven', 0.0)
+        dsc = (asc + 180) % 360
+        ic = (mc + 180) % 360
+        self._angles = {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
+
+        # ---- Извлечение куспидов домов ----
+        house_keys = [
+            'first_house', 'second_house', 'third_house', 'fourth_house',
+            'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
+            'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house'
+        ]
+        houses = []
+        house_cusps = []
+        for i, key in enumerate(house_keys, 1):
+            if key in data:
+                obj = data[key]
+                if isinstance(obj, dict):
+                    if 'sign' in obj and 'position' in obj:
+                        degree = obj.get('position', 0.0)
+                        houses.append({
+                            "number": i,
+                            "sign": obj.get('sign', 'unknown'),
+                            "degree": degree,
+                        })
+                        house_cusps.append({"number": i, "degree": degree})
+                else:
+                    if hasattr(obj, 'sign') and hasattr(obj, 'position'):
+                        degree = getattr(obj, 'position', 0.0)
+                        houses.append({
+                            "number": i,
+                            "sign": getattr(obj, 'sign', 'unknown'),
+                            "degree": degree,
+                        })
+                        house_cusps.append({"number": i, "degree": degree})
+
+        # ---- Формирование планет с вычислением домов ----
         planet_keys = [
             'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
             'uranus', 'neptune', 'pluto', 'chiron', 'pholus',
@@ -254,7 +309,7 @@ class AstrologyCalculator:
             'alcyone', 'alphecca', 'algorab', 'deneb_algedi', 'alkaid',
             'pars_fortunae', 'pars_spiritus', 'pars_amoris', 'pars_fidei',
             'vertex', 'anti_vertex',
-            'hygeia'  # астероид здоровья
+            'hygeia'
         ]
 
         planets = []
@@ -263,45 +318,32 @@ class AstrologyCalculator:
                 obj = data[key]
                 if isinstance(obj, dict):
                     if 'sign' in obj and 'position' in obj:
+                        degree = obj.get('position', 0.0)
+                        house = self._get_house_for_longitude(degree, house_cusps)  # FIXED
                         planets.append({
                             "name": key.capitalize(),
                             "sign": obj.get('sign', 'unknown'),
-                            "degree": obj.get('position', 0.0),
-                            "house": obj.get('house', 0),
+                            "degree": degree,
+                            "house": house,
+                            "latitude": obj.get('latitude', 0.0),
+                            "retrograde": obj.get('retrograde', False),
+                            "speed": obj.get('speed', 0.0),
                         })
                 else:
                     if hasattr(obj, 'sign') and hasattr(obj, 'position'):
+                        degree = getattr(obj, 'position', 0.0)
+                        house = self._get_house_for_longitude(degree, house_cusps)  # FIXED
                         planets.append({
                             "name": key.capitalize(),
                             "sign": getattr(obj, 'sign', 'unknown'),
-                            "degree": getattr(obj, 'position', 0.0),
-                            "house": getattr(obj, 'house', 0),
+                            "degree": degree,
+                            "house": house,
+                            "latitude": getattr(obj, 'latitude', 0.0),
+                            "retrograde": getattr(obj, 'retrograde', False),
+                            "speed": getattr(obj, 'speed', 0.0),
                         })
 
-        houses = []
-        house_keys = [
-            'first_house', 'second_house', 'third_house', 'fourth_house',
-            'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
-            'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house'
-        ]
-        for i, key in enumerate(house_keys, 1):
-            if key in data:
-                obj = data[key]
-                if isinstance(obj, dict):
-                    if 'sign' in obj and 'position' in obj:
-                        houses.append({
-                            "number": i,
-                            "sign": obj.get('sign', 'unknown'),
-                            "degree": obj.get('position', 0.0),
-                        })
-                else:
-                    if hasattr(obj, 'sign') and hasattr(obj, 'position'):
-                        houses.append({
-                            "number": i,
-                            "sign": getattr(obj, 'sign', 'unknown'),
-                            "degree": getattr(obj, 'position', 0.0),
-                        })
-
+        # ---- Аспекты (без изменений) ----
         aspects = []
         try:
             from kerykeion import AspectsFactory
@@ -354,6 +396,7 @@ class AstrologyCalculator:
             "houses": houses,
             "aspects": aspects,
             "utc_datetime": utc_datetime,
+            "angles": self._angles,  # FIXED: добавлены углы
         }
 
         self._chart_data = result
@@ -364,13 +407,10 @@ class AstrologyCalculator:
     def _get_progression_subject(self) -> AstrologicalSubject:
         """Создаёт субъект для вторичных прогрессий (день за год)."""
         year, month, day, hour, minute = self._parse_birth_datetime()
-        # Вычисляем возраст в днях (приблизительно)
         birth_date = datetime(year, month, day, hour, minute)
         now = datetime.now()
         age_in_days = (now - birth_date).days
-        # Прогрессивная дата = дата рождения + возраст в днях
         prog_date = birth_date + timedelta(days=age_in_days)
-        # Координаты и таймзона берём те же, что и для натальной карты
         lat, lng, tz_str = self._get_coordinates_and_timezone()
         return AstrologicalSubject(
             name=f"Progressed_{self.name}",
@@ -431,25 +471,6 @@ class AstrologyCalculator:
             logger.warning(f"Не удалось извлечь планеты из субъекта: {e}")
         return planets
 
-    def _get_progression_subject(self) -> AstrologicalSubject:
-        """Создаёт субъект для вторичных прогрессий (день за год)."""
-        year, month, day, hour, minute = self._parse_birth_datetime()
-        birth_date = datetime(year, month, day, hour, minute)
-        now = datetime.now()
-        age_in_days = (now - birth_date).days
-        prog_date = birth_date + timedelta(days=age_in_days)
-        lat, lng, tz_str = self._get_coordinates_and_timezone()
-        return AstrologicalSubject(
-            name=f"Progressed_{self.name}",
-            year=prog_date.year,
-            month=prog_date.month,
-            day=prog_date.day,
-            hour=prog_date.hour,
-            minute=prog_date.minute,
-            lat=lat,
-            lng=lng,
-            tz_str=tz_str,
-        )
 
     def _get_progression_aspects_string(self, lang: str = 'ru') -> str:
         """Возвращает строку с аспектами прогрессивных планет к натальным."""
@@ -1104,3 +1125,26 @@ class AstrologyCalculator:
             lng=lng,
             tz_str=tz_str,
         )
+
+    def _get_house_for_longitude(self, longitude: float, houses: List[Dict]) -> int:
+        """
+        Определяет номер дома по долготе планеты на основе куспидов домов.
+        houses — список словарей с ключами 'number' и 'degree'.
+        """
+        if not houses:
+            return 0
+        # Сортируем дома по градусу
+        sorted_houses = sorted(houses, key=lambda h: h['degree'])
+        # Первый дом начинается с ASC, но для простоты используем цикл
+        for i, h in enumerate(sorted_houses):
+            next_house = sorted_houses[(i + 1) % len(sorted_houses)]
+            # Проверяем, попадает ли долгота в интервал между куспидами
+            start = h['degree']
+            end = next_house['degree']
+            if end < start:  # переход через 0°
+                if longitude >= start or longitude < end:
+                    return h['number']
+            else:
+                if start <= longitude < end:
+                    return h['number']
+        return 0

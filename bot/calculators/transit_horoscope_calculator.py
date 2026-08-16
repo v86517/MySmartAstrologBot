@@ -21,6 +21,24 @@ class TransitHoroscopeCalculator(BaseCalculator):
     Класс для расчёта гороскопа на сегодня с учётом транзитов.
     """
 
+    # FIXED: добавлены средние скорости планет (градусов в день)
+    AVERAGE_SPEEDS = {
+        'Sun': 0.9856,
+        'Moon': 13.1764,
+        'Mercury': 1.383,
+        'Venus': 1.2,
+        'Mars': 0.524,
+        'Jupiter': 0.083,
+        'Saturn': 0.033,
+        'Uranus': 0.012,
+        'Neptune': 0.006,
+        'Pluto': 0.004,
+        'Chiron': 0.02,
+        'Mean_Lilith': 0.1,
+        'True_North_Lunar_Node': -0.05,
+        'True_South_Lunar_Node': 0.05,
+    }
+
     def __init__(self, user_data: Dict[str, Any], lang: str = 'ru', natal_calc: Optional[AstrologyCalculator] = None):
         self.user_data = user_data
         self.lang = lang
@@ -94,6 +112,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
                 data = model.__dict__
             self.transit_chart = data
         return self.transit_chart
+
 
     def _extract_planets_from_chart(self, chart_data: Dict[str, Any]) -> List[Dict]:
         """Извлекает планеты из словаря карты (для транзитной карты)."""
@@ -189,6 +208,25 @@ class TransitHoroscopeCalculator(BaseCalculator):
                         break
 
         return aspects
+
+    def _get_planet_speed(self, planet: str, is_transit: bool = False, transit_calc=None) -> float:
+        try:
+            if is_transit and transit_calc is not None:
+                transit_subject = transit_calc._get_transit_subject()
+                if hasattr(transit_subject, 'planets'):
+                    for p in transit_subject.planets:
+                        if p.name.lower() == planet.lower():
+                            return p.speed if hasattr(p, 'speed') else self.AVERAGE_SPEEDS.get(planet, 0.0)
+            else:
+                subject = self.natal_calc._get_natal_subject()
+                if hasattr(subject, 'planets'):
+                    for p in subject.planets:
+                        if p.name.lower() == planet.lower():
+                            return p.speed if hasattr(p, 'speed') else self.AVERAGE_SPEEDS.get(planet, 0.0)
+        except:
+            pass
+        # Fallback на среднюю скорость
+        return self.AVERAGE_SPEEDS.get(planet, 0.0)
 
     def calculate(self) -> Dict[str, Any]:
         natal_chart = self._get_natal_chart()
