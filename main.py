@@ -1437,29 +1437,13 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            calculator = AstrologyCalculator(user_data_for_calc)
-
-            # Базовые параметры для всех пользователей
-            basic = calculator.get_basic_parameters(lang)
-
-            # Дополнительные данные (планеты, куспиды, аспекты) — только для разрешённых пользователей
-            allowed_ids = [8790509202]
-            if user_id in allowed_ids:
-                extra = calculator.get_extra_parameters(lang)
-                parameters_text = basic + "\n" + extra
-            else:
-                parameters_text = basic
-
-            prompt = calculator.build_prompt(lang)
-            interpretation = gemini_service.send_raw_prompt(prompt, lang)
-
-            template = await get_text(user_id, 'astrology_result')
-            final_message = template.format(parameters=parameters_text, interpretation=interpretation)
-            await save_message_to_archive(user_id, 'astrology', final_message)
+            # Новая генерация через JSON v2
+            interpretation = gemini_service.generate_astrology_v2(user_data_for_calc, lang)
+            await save_message_to_archive(user_id, 'astrology', interpretation)
             await add_astrology_count(user_id, -1)
 
             await status_msg.delete()
-            await send_long_message(message, final_message, reply_markup=get_main_menu_button(lang))
+            await send_long_message(message, interpretation, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -2583,27 +2567,13 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            calculator = AstrologyCalculator(user_data_from_db)
-
-            basic = calculator.get_basic_parameters(lang)
-            allowed_ids = [8790509202]
-            if user_id in allowed_ids:
-                extra = calculator.get_extra_parameters(lang)
-                parameters_text = basic + "\n" + extra
-            else:
-                parameters_text = basic
-
-            prompt = calculator.build_prompt(lang)
-            interpretation = gemini_service.send_raw_prompt(prompt, lang)
-
-            template = await get_text(user_id, 'astrology_result')
-            final_message = template.format(parameters=parameters_text, interpretation=interpretation)
-            await save_message_to_archive(user_id, 'astrology', final_message)
+            # Новая генерация через JSON v2
+            interpretation = gemini_service.generate_astrology_v2(user_data_from_db, lang)
+            await save_message_to_archive(user_id, 'astrology', interpretation)
             await add_astrology_count(user_id, -1)
 
-            # Сначала результат, потом статус
-            await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
             await status_msg.delete()
+            await send_long_message(callback.message, interpretation, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
@@ -2718,26 +2688,13 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            calculator = AstrologyCalculator(user_data)
-            basic = calculator.get_basic_parameters(lang)
-            allowed_ids = [8790509202]
-            if user_id in allowed_ids:
-                extra = calculator.get_extra_parameters(lang)
-                parameters_text = basic + "\n" + extra
-            else:
-                parameters_text = basic
-
-            prompt = calculator.build_prompt(lang)
-            interpretation = gemini_service.send_raw_prompt(prompt, lang)
-
-            template = await get_text(user_id, 'astrology_result')
-            final_message = template.format(parameters=parameters_text, interpretation=interpretation)
-            await save_message_to_archive(user_id, 'astrology', final_message)
+            # Новая генерация через JSON v2
+            interpretation = gemini_service.generate_astrology_v2(user_data, lang)
+            await save_message_to_archive(user_id, 'astrology', interpretation)
             await add_astrology_count(user_id, -1)
 
-            # Сначала результат, потом статус
-            await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
             await status_msg.delete()
+            await send_long_message(callback.message, interpretation, reply_markup=get_main_menu_button(lang))
         else:
             await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
     except Exception as e:
