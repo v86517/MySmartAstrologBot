@@ -1021,7 +1021,7 @@ class AstrologyDataBuilder:
     # ==================== TRANSITS ====================
 
     def _build_transits(self) -> Dict[str, Any]:
-        transit_calc = TransitHoroscopeCalculator(self.user_data, self.lang)
+        transit_calc = TransitHoroscopeCalculator(self.user_data, self.lang, natal_calc=self.natal_calc)
         transit_data = transit_calc.calculate()
 
         transit_planets = self._build_transit_planets(transit_calc)

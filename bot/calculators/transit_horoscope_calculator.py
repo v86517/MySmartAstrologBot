@@ -21,7 +21,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
     Класс для расчёта гороскопа на сегодня с учётом транзитов.
     """
 
-    def __init__(self, user_data: Dict[str, Any], lang: str = 'ru'):
+    def __init__(self, user_data: Dict[str, Any], lang: str = 'ru', natal_calc: Optional[AstrologyCalculator] = None):
         self.user_data = user_data
         self.lang = lang
         self.birth_date = user_data.get('birth_date')
@@ -36,7 +36,10 @@ class TransitHoroscopeCalculator(BaseCalculator):
         self.transit_lng = tz_info["lng"]
         self.transit_tz_str = tz_info["tz"]
 
-        self.natal_calc = AstrologyCalculator(user_data)
+        if natal_calc is not None:
+            self.natal_calc = natal_calc
+        else:
+            self.natal_calc = AstrologyCalculator(user_data)
         self.natal_chart = None
         self.transit_subject = None
         self.transit_chart = None

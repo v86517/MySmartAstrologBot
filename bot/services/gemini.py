@@ -229,228 +229,216 @@ class GeminiService:
 
     def _prepare_astrology_replacements(self, data: Dict[str, Any], lang: str) -> Dict[str, str]:
         """Извлекает и форматирует данные из JSON v2 для подстановки в промпт."""
-        natal = data.get('natal', {})
-        transits = data.get('transits', {})
-        progressions = data.get('progressions', {})
-        themes = data.get('themes', {})
-        timeline = data.get('timeline', [])
-        metadata = data.get('metadata', {})
+        logger.info("Начало подготовки замен для астрологии")
+        try:
+            natal = data.get('natal', {})
+            transits = data.get('transits', {})
+            progressions = data.get('progressions', {})
+            themes = data.get('themes', {})
+            timeline = data.get('timeline', [])
+            metadata = data.get('metadata', {})
 
-        user_data = self.user_data or {}
+            user_data = self.user_data or {}
 
-        # Базовые данные
-        name = user_data.get('name', 'Человек')
-        gender = user_data.get('gender', 'M')
-        gender_text = "Мужчина" if gender == 'M' else "Женщина"
-        birth_date = user_data.get('birth_date', 'не указана')
-        birth_time = user_data.get('birth_time', 'не указано')
-        birth_place = user_data.get('birth_place', 'не указано')
-        analysis_date = datetime.now().strftime('%d.%m.%Y')
+            name = user_data.get('name', 'Человек')
+            gender = user_data.get('gender', 'M')
+            gender_text = "Мужчина" if gender == 'M' else "Женщина"
+            birth_date = user_data.get('birth_date', 'не указана')
+            birth_time = user_data.get('birth_time', 'не указано')
+            birth_place = user_data.get('birth_place', 'не указано')
+            analysis_date = datetime.now().strftime('%d.%m.%Y')
 
-        # Стандарт расчёта
-        settings = metadata.get('settings', {})
-        metadata_settings = (
-            f"Зодиак: {settings.get('zodiac', 'tropical')}\n"
-            f"Система домов: {settings.get('house_system', 'Placidus')}\n"
-            f"Эфемериды: {settings.get('ephemeris', 'kerykeion')}\n"
-            f"Лунный узел: {settings.get('lunar_node', 'true')}\n"
-            f"Система координат: {settings.get('coordinate_system', 'geocentric')}\n"
-            f"Тип прогрессий: {settings.get('progression_type', 'secondary')}\n"
-            f"Орбы аспектов: {settings.get('aspect_orb', {})}"
-        )
-
-        # Планеты (таблица)
-        planets = natal.get('planets', [])
-        planets_table = "| Планета | Знак | Градус | Дом | Ретроград | Скорость | Вес |\n"
-        planets_table += "|---------|------|--------|-----|-----------|----------|-----|\n"
-        for p in planets:
-            planets_table += (
-                f"| {p.get('name_local', p.get('name', ''))} "
-                f"| {p.get('sign', '')} "
-                f"| {p.get('degree', 0):.2f}° "
-                f"| {p.get('house', 0)} "
-                f"| {'Да' if p.get('retrograde') else 'Нет'} "
-                f"| {p.get('speed', 0):.3f} "
-                f"| {p.get('weight', 0)} |\n"
+            settings = metadata.get('settings', {})
+            metadata_settings = (
+                f"Зодиак: {settings.get('zodiac', 'tropical')}\n"
+                f"Система домов: {settings.get('house_system', 'Placidus')}\n"
+                f"Эфемериды: {settings.get('ephemeris', 'kerykeion')}\n"
+                f"Лунный узел: {settings.get('lunar_node', 'true')}\n"
+                f"Система координат: {settings.get('coordinate_system', 'geocentric')}\n"
+                f"Тип прогрессий: {settings.get('progression_type', 'secondary')}\n"
+                f"Орбы аспектов: {settings.get('aspect_orb', {})}"
             )
 
-        # Углы
-        # Попробуем извлечь из данных или построить через расчёт
-        angles = "ASC: {:.2f}°\nMC: {:.2f}°\nDSC: {:.2f}°\nIC: {:.2f}°".format(0, 0, 0, 0)
-        # В будущем можно добавить реальные углы из builder
-
-        # Куспиды домов
-        houses = natal.get('houses', [])
-        cusps = "\n".join([f"Дом {h['number']}: {h['cusp']} ({h['cusp_degree']:.2f}°)" for h in houses])
-
-        # Управители домов
-        rulers = natal.get('house_rulers', [])
-        house_rulers_list = "\n".join([
-            f"Дом {r['house']}: {r['cusp']} -> управитель {r['ruler']} (в {r['ruler_sign']}, {r['ruler_house']} доме)"
-            for r in rulers
-        ])
-
-        # Диспозиторы
-        dispositors = natal.get('dispositors', [])
-        dispositors_list = "\n".join([
-            f"{d['planet']} -> {d['dispositor']} (цепь: {' -> '.join(d['chain'])}, финал: {d['final_dispositor']})"
-            for d in dispositors
-        ])
-
-        # Натальные аспекты
-        aspects = natal.get('aspects', [])
-        natal_aspects_list = "\n".join([
-            f"{a['p1_name_local']} {a['aspect_local']} {a['p2_name_local']} (орб: {a['orb']}°, вес: {a['weight']})"
-            for a in aspects
-        ])
-
-        # Аспекты к углам
-        angle_aspects = natal.get('angle_aspects', [])
-        angle_aspects_list = "\n".join([
-            f"{a['planet_local']} {a['aspect_local']} {a['angle']} (орб: {a['orb']}°, скор: {a['score']})"
-            for a in angle_aspects
-        ])
-
-        # Доминанты
-        elements = natal.get('dominant_elements', {})
-        modalities = natal.get('dominant_modalities', {})
-        signs = natal.get('dominant_signs', {})
-        houses_dom = natal.get('dominant_houses', {})
-        dominants = (
-            f"Элементы: {elements}\n"
-            f"Модальности: {modalities}\n"
-            f"Знаки: {signs}\n"
-            f"Дома: {houses_dom}"
-        )
-
-        # Стеллиумы и конфигурации
-        patterns = natal.get('patterns', [])
-        patterns_list = "\n".join([
-            f"{p['type']}: {', '.join(p.get('planets', p.get('objects', [])))} (сила: {p.get('strength', 0)})"
-            for p in patterns
-        ])
-
-        # Ретроградные планеты
-        retrograde_planets = ", ".join([p['name_local'] for p in planets if p.get('retrograde')])
-
-        # Сводка
-        summary_data = natal.get('summary', {})
-        summary = (
-            f"Доминирующие планеты: {summary_data.get('dominant_planets', [])}\n"
-            f"Доминирующие элементы: {summary_data.get('dominant_elements', [])}\n"
-            f"Доминирующие модальности: {summary_data.get('dominant_modalities', [])}\n"
-            f"Доминирующие знаки: {summary_data.get('dominant_signs', [])}\n"
-            f"Доминирующие дома: {summary_data.get('dominant_houses', [])}\n"
-            f"Ключевые темы: {summary_data.get('core_themes', [])}\n"
-            f"Сильнейшие аспекты: {summary_data.get('strongest_aspects', [])}\n"
-            f"Основные напряжения: {summary_data.get('major_tensions', [])}\n"
-            f"Основные ресурсы: {summary_data.get('major_resources', [])}"
-        )
-
-        # Темы с доказательствами
-        themes_with_evidence = ""
-        for theme, tdata in themes.items():
-            ev = tdata.get('evidence', [])
-            ev_str = "; ".join([f"{e['source']} ({e['type']})" for e in ev[:3]])
-            themes_with_evidence += (
-                f"{theme}: score={tdata['score']}, confidence={tdata['confidence']}, "
-                f"evidence_count={tdata['evidence_count']}, repeating={tdata['repeating_theme']}\n"
-                f"  Доказательства: {ev_str}\n"
-            )
-
-        # ---- Транзиты (подробно) ----
-        transit_aspects = transits.get('aspects', [])
-        transit_lines = []
-        for ta in transit_aspects[:10]:
-            line = (
-                f"**{ta['transit_planet_local']} → {ta['natal_planet_local']}**\n"
-                f"  Аспект: {ta['aspect_local']}\n"
-                f"  Орбис: {ta['orb']}°\n"
-                f"  Фаза: {ta['phase']}\n"
-                f"  Точная дата: {ta['exact_date'] or 'не определена'}\n"
-                f"  Транзитный дом: {ta['transit_house']}\n"
-                f"  Натальный дом: {ta['natal_house']}\n"
-                f"  Score: {ta['score']}\n"
-                f"  Confidence: {ta['confidence']}\n"
-                f"  Темы: {', '.join(ta.get('themes', []))}"
-            )
-            transit_lines.append(line)
-        transits_str = "\n\n".join(transit_lines) if transit_lines else "Нет значимых транзитных аспектов."
-
-        # ---- Прогрессии (подробно) ----
-        prog_aspects = progressions.get('aspects', [])
-        prog_lines = []
-        for pa in prog_aspects[:10]:
-            line = (
-                f"**{pa['progressed_planet_local']} → {pa['natal_planet_local']}**\n"
-                f"  Аспект: {pa['aspect_local']}\n"
-                f"  Орбис: {pa['orb']}°\n"
-                f"  Фаза: {pa['phase']}\n"
-                f"  Точная дата: {pa['exact_date'] or 'не определена'}\n"
-                f"  Натальный дом: {pa.get('natal_house', 'не указан')}\n"
-                f"  Score: {pa['score']}\n"
-                f"  Confidence: {pa['confidence']}\n"
-                f"  Темы: {', '.join(pa.get('themes', []))}"
-            )
-            prog_lines.append(line)
-        progressions_str = "\n\n".join(prog_lines) if prog_lines else "Нет значимых прогрессивных аспектов."
-
-        # Общий блок транзитов и прогрессий
-        transits_and_progressions = "**Транзитные аспекты:**\n\n" + transits_str
-        if progressions_str:
-            transits_and_progressions += "\n\n**Прогрессивные аспекты:**\n\n" + progressions_str
-
-        # ---- Активные периоды (таймлайн) ----
-        active_periods = transits.get('active_periods', [])
-        timeline_lines = []
-        for period in active_periods[:5]:
-            start = period.get('start', '')
-            end = period.get('end', '')
-            theme = period.get('theme', '')
-            intensity = period.get('intensity', 0)
-            confidence = period.get('confidence', 0)
-            evidence = period.get('evidence', [])
-            evidence_str = ""
-            for ev in evidence[:3]:
-                evidence_str += (
-                    f"    - {ev['transit']} {ev['aspect']} {ev['natal']} "
-                    f"(орб: {ev['orb']}°, фаза: {ev['phase']}, точная дата: {ev.get('exact_date', 'не опр.')})\n"
-                    f"      Score: {ev['score']}, Confidence: {ev['confidence']}\n"
+            planets = natal.get('planets', [])
+            planets_table = "| Планета | Знак | Градус | Дом | Ретроград | Скорость | Вес |\n"
+            planets_table += "|---------|------|--------|-----|-----------|----------|-----|\n"
+            for p in planets:
+                planets_table += (
+                    f"| {p.get('name_local', p.get('name', ''))} "
+                    f"| {p.get('sign', '')} "
+                    f"| {p.get('degree', 0):.2f}° "
+                    f"| {p.get('house', 0)} "
+                    f"| {'Да' if p.get('retrograde') else 'Нет'} "
+                    f"| {p.get('speed', 0):.3f} "
+                    f"| {p.get('weight', 0)} |\n"
                 )
-            timeline_lines.append(
-                f"**{start} — {end}**\n"
-                f"Тема: {theme}\n"
-                f"Интенсивность: {intensity}/10\n"
-                f"Confidence: {confidence}\n"
-                f"Подтверждения:\n{evidence_str}"
-            )
-        timeline_str = "\n\n".join(timeline_lines) if timeline_lines else "Нет активных периодов."
 
-        # Собираем словарь для подстановки
-        replacements = {
-            "person_name": name,
-            "person_gender": gender_text,
-            "birth_date": birth_date,
-            "birth_time": birth_time,
-            "birth_place": birth_place,
-            "analysis_date": analysis_date,
-            "metadata_settings": metadata_settings,
-            "planets_table": planets_table,
-            "angles": angles,
-            "cusps": cusps,
-            "house_rulers_list": house_rulers_list,
-            "dispositors_list": dispositors_list,
-            "natal_aspects_list": natal_aspects_list,
-            "angle_aspects_list": angle_aspects_list,
-            "dominants": dominants,
-            "patterns_list": patterns_list,
-            "retrograde_planets": retrograde_planets or "Нет ретроградных планет",
-            "summary": summary,
-            "themes_with_evidence": themes_with_evidence,
-            "transits_and_progressions": transits_and_progressions,
-            "timeline": timeline_str,
-        }
-        return replacements
+            angles = "ASC: {:.2f}°\nMC: {:.2f}°\nDSC: {:.2f}°\nIC: {:.2f}°".format(0, 0, 0, 0)
+
+            houses = natal.get('houses', [])
+            cusps = "\n".join([f"Дом {h['number']}: {h['cusp']} ({h['cusp_degree']:.2f}°)" for h in houses])
+
+            rulers = natal.get('house_rulers', [])
+            house_rulers_list = "\n".join([
+                f"Дом {r['house']}: {r['cusp']} -> управитель {r['ruler']} (в {r['ruler_sign']}, {r['ruler_house']} доме)"
+                for r in rulers
+            ])
+
+            dispositors = natal.get('dispositors', [])
+            dispositors_list = "\n".join([
+                f"{d['planet']} -> {d['dispositor']} (цепь: {' -> '.join(d['chain'])}, финал: {d['final_dispositor']})"
+                for d in dispositors
+            ])
+
+            aspects = natal.get('aspects', [])
+            natal_aspects_list = "\n".join([
+                f"{a['p1_name_local']} {a['aspect_local']} {a['p2_name_local']} (орб: {a['orb']}°, вес: {a['weight']})"
+                for a in aspects
+            ])
+
+            angle_aspects = natal.get('angle_aspects', [])
+            angle_aspects_list = "\n".join([
+                f"{a['planet_local']} {a['aspect_local']} {a['angle']} (орб: {a['orb']}°, скор: {a['score']})"
+                for a in angle_aspects
+            ])
+
+            elements = natal.get('dominant_elements', {})
+            modalities = natal.get('dominant_modalities', {})
+            signs = natal.get('dominant_signs', {})
+            houses_dom = natal.get('dominant_houses', {})
+            dominants = (
+                f"Элементы: {elements}\n"
+                f"Модальности: {modalities}\n"
+                f"Знаки: {signs}\n"
+                f"Дома: {houses_dom}"
+            )
+
+            patterns = natal.get('patterns', [])
+            patterns_list = "\n".join([
+                f"{p['type']}: {', '.join(p.get('planets', p.get('objects', [])))} (сила: {p.get('strength', 0)})"
+                for p in patterns
+            ])
+
+            retrograde_planets = ", ".join([p['name_local'] for p in planets if p.get('retrograde')])
+
+            summary_data = natal.get('summary', {})
+            summary = (
+                f"Доминирующие планеты: {summary_data.get('dominant_planets', [])}\n"
+                f"Доминирующие элементы: {summary_data.get('dominant_elements', [])}\n"
+                f"Доминирующие модальности: {summary_data.get('dominant_modalities', [])}\n"
+                f"Доминирующие знаки: {summary_data.get('dominant_signs', [])}\n"
+                f"Доминирующие дома: {summary_data.get('dominant_houses', [])}\n"
+                f"Ключевые темы: {summary_data.get('core_themes', [])}\n"
+                f"Сильнейшие аспекты: {summary_data.get('strongest_aspects', [])}\n"
+                f"Основные напряжения: {summary_data.get('major_tensions', [])}\n"
+                f"Основные ресурсы: {summary_data.get('major_resources', [])}"
+            )
+
+            themes_with_evidence = ""
+            for theme, tdata in themes.items():
+                ev = tdata.get('evidence', [])
+                ev_str = "; ".join([f"{e['source']} ({e['type']})" for e in ev[:3]])
+                themes_with_evidence += (
+                    f"{theme}: score={tdata['score']}, confidence={tdata['confidence']}, "
+                    f"evidence_count={tdata['evidence_count']}, repeating={tdata['repeating_theme']}\n"
+                    f"  Доказательства: {ev_str}\n"
+                )
+
+            # ---- Транзиты ----
+            transit_aspects = transits.get('aspects', [])
+            transit_lines = []
+            for ta in transit_aspects[:10]:
+                line = (
+                    f"**{ta['transit_planet_local']} → {ta['natal_planet_local']}**\n"
+                    f"  Аспект: {ta['aspect_local']}\n"
+                    f"  Орбис: {ta['orb']}°\n"
+                    f"  Фаза: {ta['phase']}\n"
+                    f"  Точная дата: {ta['exact_date'] or 'не определена'}\n"
+                    f"  Транзитный дом: {ta['transit_house']}\n"
+                    f"  Натальный дом: {ta['natal_house']}\n"
+                    f"  Score: {ta['score']}\n"
+                    f"  Confidence: {ta['confidence']}\n"
+                    f"  Темы: {', '.join(ta.get('themes', []))}"
+                )
+                transit_lines.append(line)
+            transits_str = "\n\n".join(transit_lines) if transit_lines else "Нет значимых транзитных аспектов."
+
+            # ---- Прогрессии ----
+            prog_aspects = progressions.get('aspects', [])
+            prog_lines = []
+            for pa in prog_aspects[:10]:
+                line = (
+                    f"**{pa['progressed_planet_local']} → {pa['natal_planet_local']}**\n"
+                    f"  Аспект: {pa['aspect_local']}\n"
+                    f"  Орбис: {pa['orb']}°\n"
+                    f"  Фаза: {pa['phase']}\n"
+                    f"  Точная дата: {pa['exact_date'] or 'не определена'}\n"
+                    f"  Натальный дом: {pa.get('natal_house', 'не указан')}\n"
+                    f"  Score: {pa['score']}\n"
+                    f"  Confidence: {pa['confidence']}\n"
+                    f"  Темы: {', '.join(pa.get('themes', []))}"
+                )
+                prog_lines.append(line)
+            progressions_str = "\n\n".join(prog_lines) if prog_lines else "Нет значимых прогрессивных аспектов."
+
+            transits_and_progressions = "**Транзитные аспекты:**\n\n" + transits_str
+            if progressions_str:
+                transits_and_progressions += "\n\n**Прогрессивные аспекты:**\n\n" + progressions_str
+
+            # ---- Активные периоды ----
+            active_periods = transits.get('active_periods', [])
+            timeline_lines = []
+            for period in active_periods[:5]:
+                start = period.get('start', '')
+                end = period.get('end', '')
+                theme = period.get('theme', '')
+                intensity = period.get('intensity', 0)
+                confidence = period.get('confidence', 0)
+                evidence = period.get('evidence', [])
+                evidence_str = ""
+                for ev in evidence[:3]:
+                    evidence_str += (
+                        f"    - {ev['transit']} {ev['aspect']} {ev['natal']} "
+                        f"(орб: {ev['orb']}°, фаза: {ev['phase']}, точная дата: {ev.get('exact_date', 'не опр.')})\n"
+                        f"      Score: {ev['score']}, Confidence: {ev['confidence']}\n"
+                    )
+                timeline_lines.append(
+                    f"**{start} — {end}**\n"
+                    f"Тема: {theme}\n"
+                    f"Интенсивность: {intensity}/10\n"
+                    f"Confidence: {confidence}\n"
+                    f"Подтверждения:\n{evidence_str}"
+                )
+            timeline_str = "\n\n".join(timeline_lines) if timeline_lines else "Нет активных периодов."
+
+            replacements = {
+                "person_name": name,
+                "person_gender": gender_text,
+                "birth_date": birth_date,
+                "birth_time": birth_time,
+                "birth_place": birth_place,
+                "analysis_date": analysis_date,
+                "metadata_settings": metadata_settings,
+                "planets_table": planets_table,
+                "angles": angles,
+                "cusps": cusps,
+                "house_rulers_list": house_rulers_list,
+                "dispositors_list": dispositors_list,
+                "natal_aspects_list": natal_aspects_list,
+                "angle_aspects_list": angle_aspects_list,
+                "dominants": dominants,
+                "patterns_list": patterns_list,
+                "retrograde_planets": retrograde_planets or "Нет ретроградных планет",
+                "summary": summary,
+                "themes_with_evidence": themes_with_evidence,
+                "transits_and_progressions": transits_and_progressions,
+                "timeline": timeline_str,
+            }
+            logger.info("Подготовка замен завершена успешно")
+            return replacements
+        except Exception as e:
+            logger.error(f"Ошибка в _prepare_astrology_replacements: {e}", exc_info=True)
+            raise
 
     def _build_fallback_prompt(self, json_data: Dict, service_type: str) -> str:
         """Резервный метод для старых форматов."""
