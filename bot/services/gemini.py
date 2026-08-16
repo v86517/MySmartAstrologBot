@@ -462,117 +462,139 @@ class GeminiService:
         Возвращает отформатированные параметры для отображения пользователю.
         Возвращает словарь с ключами 'basic' и 'full'.
         """
-        from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-        from bot.locales import TEXTS
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            from bot.calculators.astrology_data_builder import AstrologyDataBuilder
+            from bot.locales import TEXTS
 
-        texts = TEXTS.get(lang, TEXTS['ru'])
-        builder = AstrologyDataBuilder(user_data, lang)
-        data = builder.build()
-        replacements = self._prepare_astrology_replacements(data, lang)
+            self.user_data = user_data
+            self.lang = lang
 
-        natal = data.get('natal', {})
-        planets = natal.get('planets', [])
-        metadata = data.get('metadata', {})
+            texts = TEXTS.get(lang, TEXTS['ru'])
+            builder = AstrologyDataBuilder(user_data, lang)
+            data = builder.build()
+            replacements = self._prepare_astrology_replacements(data, lang)
 
-        # ---- Базовые параметры (для всех пользователей) ----
-        sun = next((p for p in planets if p['name'] == 'Sun'), {})
-        moon = next((p for p in planets if p['name'] == 'Moon'), {})
-        houses = natal.get('houses', [])
-        asc = houses[0]['sign'] if houses else 'Unknown'
+            natal = data.get('natal', {})
+            planets = natal.get('planets', [])
+            metadata = data.get('metadata', {})
 
-        # Локализация пола
-        gender_text = user_data.get('gender', 'M')
-        if gender_text == 'M':
-            gender_display = texts.get('astro_gender_male', 'Male')
-        elif gender_text == 'F':
-            gender_display = texts.get('astro_gender_female', 'Female')
-        else:
-            gender_display = texts.get('astro_gender_unknown', 'Not specified')
+            # ---- Безопасное получение Солнца и Луны ----
+            sun = {}
+            moon = {}
+            for p in planets:
+                if p.get('name') == 'Sun':
+                    sun = p
+                elif p.get('name') == 'Moon':
+                    moon = p
 
-        # Координаты
-        location = metadata.get('location', {})
-        lat = location.get('lat', 0.0)
-        lng = location.get('lng', 0.0)
+            houses = natal.get('houses', [])
+            asc = houses[0].get('sign', 'Unknown') if houses else 'Unknown'
 
-        # Время
-        birth_date = user_data.get('birth_date', '')
-        birth_time = user_data.get('birth_time', '00:00')
-        local_time = f"{birth_date} {birth_time}" if birth_date else 'Unknown'
-        timezone = metadata.get('timezone', 'Unknown')
-        utc_time = metadata.get('utc_datetime', 'Unknown')
+            # ---- Локализация пола ----
+            gender_text = user_data.get('gender', 'M')
+            if gender_text == 'M':
+                gender_display = texts.get('astro_gender_male', 'Male')
+            elif gender_text == 'F':
+                gender_display = texts.get('astro_gender_female', 'Female')
+            else:
+                gender_display = texts.get('astro_gender_unknown', 'Not specified')
 
-        if lang == 'en':
-            basic_params = (
-                f"🌙 Your astrological analysis\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"{texts.get('astro_name', '👤 Name')}: {user_data.get('name', '')}\n"
-                f"{texts.get('astro_gender', '⚥ Gender')}: {gender_display}\n"
-                f"{texts.get('astro_local_time', '📅 Local time')}: {local_time}\n"
-                f"{texts.get('astro_timezone', '🕒 Timezone')}: {timezone}\n"
-                f"{texts.get('astro_utc_time', '🕒 UTC time')}: {utc_time}\n"
-                f"{texts.get('astro_place', '📍 Place')}: {user_data.get('birth_place', '')}\n"
-                f"{texts.get('astro_coordinates', '🌐 Coordinates')}: {lat:.4f}, {lng:.4f}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"{texts.get('astro_sun', '☀️ Sun')}: {sun.get('sign', 'Unknown')}\n"
-                f"{texts.get('astro_moon', '🌙 Moon')}: {moon.get('sign', 'Unknown')}\n"
-                f"{texts.get('astro_ascendant', '⬆️ Ascendant')}: {asc}"
-            )
-        else:
-            basic_params = (
-                f"🌙 Ваш астрологический разбор\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"{texts.get('astro_name', '👤 Имя')}: {user_data.get('name', '')}\n"
-                f"{texts.get('astro_gender', '⚥ Пол')}: {gender_display}\n"
-                f"{texts.get('astro_local_time', '📅 Локальное время')}: {local_time}\n"
-                f"{texts.get('astro_timezone', '🕒 Часовой пояс')}: {timezone}\n"
-                f"{texts.get('astro_utc_time', '🕒 Время UTC')}: {utc_time}\n"
-                f"{texts.get('astro_place', '📍 Место')}: {user_data.get('birth_place', '')}\n"
-                f"{texts.get('astro_coordinates', '🌐 Координаты')}: {lat:.4f}, {lng:.4f}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"{texts.get('astro_sun', '☀️ Солнце')}: {sun.get('sign', 'Неизвестно')}\n"
-                f"{texts.get('astro_moon', '🌙 Луна')}: {moon.get('sign', 'Неизвестно')}\n"
-                f"{texts.get('astro_ascendant', '⬆️ Асцендент')}: {asc}"
-            )
+            # ---- Координаты и время ----
+            location = metadata.get('location', {})
+            lat = location.get('lat', 0.0)
+            lng = location.get('lng', 0.0)
 
-        # ---- Полные параметры (только для администраторов) ----
-        if lang == 'en':
-            full_params = (
-                f"### Calculation Standard\n{replacements.get('metadata_settings', '')}\n\n"
-                f"### Planets\n{replacements.get('planets_table', '')}\n\n"
-                f"### Angles ASC, MC, DSC, IC\n{replacements.get('angles', '')}\n\n"
-                f"### House Cusps\n{replacements.get('cusps', '')}\n\n"
-                f"### House Rulers\n{replacements.get('house_rulers_list', '')}\n\n"
-                f"### Dispositors\n{replacements.get('dispositors_list', '')}\n\n"
-                f"### Natal Aspects\n{replacements.get('natal_aspects_list', '')}\n\n"
-                f"### Aspects to Angles\n{replacements.get('angle_aspects_list', '')}\n\n"
-                f"### Dominant Elements, Modalities, Signs and Houses\n{replacements.get('dominants', '')}\n\n"
-                f"### Stelliums and Configurations\n{replacements.get('patterns_list', '')}\n\n"
-                f"### Retrograde Planets\n{replacements.get('retrograde_planets', '')}\n\n"
-                f"### Chart Summary\n{replacements.get('summary', '')}\n\n"
-                f"### Themes with Evidence\n{replacements.get('themes_with_evidence', '')}\n\n"
-                f"### Transits and Progressions\n{replacements.get('transits_and_progressions', '')}\n\n"
-                f"### Timeline of Significant Periods\n{replacements.get('timeline', '')}"
-            )
-        else:
-            full_params = (
-                f"### Стандарт расчёта\n{replacements.get('metadata_settings', '')}\n\n"
-                f"### Планеты\n{replacements.get('planets_table', '')}\n\n"
-                f"### Углы ASC, MC, DSC, IC\n{replacements.get('angles', '')}\n\n"
-                f"### Куспиды домов\n{replacements.get('cusps', '')}\n\n"
-                f"### Управители домов\n{replacements.get('house_rulers_list', '')}\n\n"
-                f"### Диспозиторы\n{replacements.get('dispositors_list', '')}\n\n"
-                f"### Натальные аспекты\n{replacements.get('natal_aspects_list', '')}\n\n"
-                f"### Аспекты к углам\n{replacements.get('angle_aspects_list', '')}\n\n"
-                f"### Доминирующие элементы, модальности, знаки и дома\n{replacements.get('dominants', '')}\n\n"
-                f"### Стеллиумы и конфигурации\n{replacements.get('patterns_list', '')}\n\n"
-                f"### Ретроградные планеты\n{replacements.get('retrograde_planets', '')}\n\n"
-                f"### Сводка карты\n{replacements.get('summary', '')}\n\n"
-                f"### Темы с доказательствами\n{replacements.get('themes_with_evidence', '')}\n\n"
-                f"### Транзиты и прогрессии\n{replacements.get('transits_and_progressions', '')}\n\n"
-                f"### Таймлайн значимых периодов\n{replacements.get('timeline', '')}"
-            )
+            birth_date = user_data.get('birth_date', '')
+            birth_time = user_data.get('birth_time', '00:00')
+            local_time = f"{birth_date} {birth_time}" if birth_date else 'Unknown'
+            timezone = metadata.get('timezone', 'Unknown')
+            utc_time = metadata.get('utc_datetime', 'Unknown')
 
-        return {
-            'basic': basic_params,
-            'full': full_params
-        }
+            # ---- Базовые параметры (для всех пользователей) ----
+            if lang == 'en':
+                basic_params = (
+                    f"🌙 Your astrological analysis\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{texts.get('astro_name', '👤 Name')}: {user_data.get('name', '')}\n"
+                    f"{texts.get('astro_gender', '⚥ Gender')}: {gender_display}\n"
+                    f"{texts.get('astro_local_time', '📅 Local time')}: {local_time}\n"
+                    f"{texts.get('astro_timezone', '🕒 Timezone')}: {timezone}\n"
+                    f"{texts.get('astro_utc_time', '🕒 UTC time')}: {utc_time}\n"
+                    f"{texts.get('astro_place', '📍 Place')}: {user_data.get('birth_place', '')}\n"
+                    f"{texts.get('astro_coordinates', '🌐 Coordinates')}: {lat:.4f}, {lng:.4f}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{texts.get('astro_sun', '☀️ Sun')}: {sun.get('sign', 'Unknown')}\n"
+                    f"{texts.get('astro_moon', '🌙 Moon')}: {moon.get('sign', 'Unknown')}\n"
+                    f"{texts.get('astro_ascendant', '⬆️ Ascendant')}: {asc}"
+                )
+            else:
+                basic_params = (
+                    f"🌙 Ваш астрологический разбор\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{texts.get('astro_name', '👤 Имя')}: {user_data.get('name', '')}\n"
+                    f"{texts.get('astro_gender', '⚥ Пол')}: {gender_display}\n"
+                    f"{texts.get('astro_local_time', '📅 Локальное время')}: {local_time}\n"
+                    f"{texts.get('astro_timezone', '🕒 Часовой пояс')}: {timezone}\n"
+                    f"{texts.get('astro_utc_time', '🕒 Время UTC')}: {utc_time}\n"
+                    f"{texts.get('astro_place', '📍 Место')}: {user_data.get('birth_place', '')}\n"
+                    f"{texts.get('astro_coordinates', '🌐 Координаты')}: {lat:.4f}, {lng:.4f}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{texts.get('astro_sun', '☀️ Солнце')}: {sun.get('sign', 'Неизвестно')}\n"
+                    f"{texts.get('astro_moon', '🌙 Луна')}: {moon.get('sign', 'Неизвестно')}\n"
+                    f"{texts.get('astro_ascendant', '⬆️ Асцендент')}: {asc}"
+                )
+
+            # ---- Полные параметры (только для администраторов) ----
+            if is_admin:
+                if lang == 'en':
+                    full_params = (
+                        f"### Calculation Standard\n{replacements.get('metadata_settings', '')}\n\n"
+                        f"### Planets\n{replacements.get('planets_table', '')}\n\n"
+                        f"### Angles ASC, MC, DSC, IC\n{replacements.get('angles', '')}\n\n"
+                        f"### House Cusps\n{replacements.get('cusps', '')}\n\n"
+                        f"### House Rulers\n{replacements.get('house_rulers_list', '')}\n\n"
+                        f"### Dispositors\n{replacements.get('dispositors_list', '')}\n\n"
+                        f"### Natal Aspects\n{replacements.get('natal_aspects_list', '')}\n\n"
+                        f"### Aspects to Angles\n{replacements.get('angle_aspects_list', '')}\n\n"
+                        f"### Dominant Elements, Modalities, Signs and Houses\n{replacements.get('dominants', '')}\n\n"
+                        f"### Stelliums and Configurations\n{replacements.get('patterns_list', '')}\n\n"
+                        f"### Retrograde Planets\n{replacements.get('retrograde_planets', '')}\n\n"
+                        f"### Chart Summary\n{replacements.get('summary', '')}\n\n"
+                        f"### Themes with Evidence\n{replacements.get('themes_with_evidence', '')}\n\n"
+                        f"### Transits and Progressions\n{replacements.get('transits_and_progressions', '')}\n\n"
+                        f"### Timeline of Significant Periods\n{replacements.get('timeline', '')}"
+                    )
+                else:
+                    full_params = (
+                        f"### Стандарт расчёта\n{replacements.get('metadata_settings', '')}\n\n"
+                        f"### Планеты\n{replacements.get('planets_table', '')}\n\n"
+                        f"### Углы ASC, MC, DSC, IC\n{replacements.get('angles', '')}\n\n"
+                        f"### Куспиды домов\n{replacements.get('cusps', '')}\n\n"
+                        f"### Управители домов\n{replacements.get('house_rulers_list', '')}\n\n"
+                        f"### Диспозиторы\n{replacements.get('dispositors_list', '')}\n\n"
+                        f"### Натальные аспекты\n{replacements.get('natal_aspects_list', '')}\n\n"
+                        f"### Аспекты к углам\n{replacements.get('angle_aspects_list', '')}\n\n"
+                        f"### Доминирующие элементы, модальности, знаки и дома\n{replacements.get('dominants', '')}\n\n"
+                        f"### Стеллиумы и конфигурации\n{replacements.get('patterns_list', '')}\n\n"
+                        f"### Ретроградные планеты\n{replacements.get('retrograde_planets', '')}\n\n"
+                        f"### Сводка карты\n{replacements.get('summary', '')}\n\n"
+                        f"### Темы с доказательствами\n{replacements.get('themes_with_evidence', '')}\n\n"
+                        f"### Транзиты и прогрессии\n{replacements.get('transits_and_progressions', '')}\n\n"
+                        f"### Таймлайн значимых периодов\n{replacements.get('timeline', '')}"
+                    )
+            else:
+                full_params = ""
+
+            return {
+                'basic': basic_params,
+                'full': full_params
+            }
+        except Exception as e:
+            logger.error(f"❌ Ошибка в get_astrology_display_data: {e}", exc_info=True)
+            # Возвращаем заглушку, чтобы не прерывать выполнение
+            return {
+                'basic': f"❌ Ошибка при формировании данных: {e}",
+                'full': ""
+            }
