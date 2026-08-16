@@ -1016,21 +1016,19 @@ class AstrologyDataBuilder:
                 obj = transit_chart[key]
                 if isinstance(obj, dict):
                     planet_name = key.capitalize()
-                    house = obj.get('house', 0)
-                    try:
-                        house = int(house)
-                    except (ValueError, TypeError):
-                        house = 0
+                    longitude = obj.get('position', 0.0)
+                    # Получаем дом через метод транзитного калькулятора
+                    transit_house = transit_calc._get_transit_house_for_planet(longitude)
                     planets.append({
                         "name": planet_name,
                         "name_local": self.planet_names_ru.get(planet_name, planet_name),
-                        "longitude": obj.get('position', 0.0),
+                        "longitude": longitude,
                         "speed": obj.get('speed', 0.0),
                         "retrograde": obj.get('retrograde', False),
                         "sign": obj.get('sign', 'unknown'),
-                        "degree": obj.get('position', 0.0) % 30,
-                        "house": house,
-                        "themes": self._get_planet_themes(planet_name, house, obj.get('sign', ''))
+                        "degree": longitude % 30,
+                        "house": transit_house,
+                        "themes": self._get_planet_themes(planet_name, transit_house, obj.get('sign', ''))
                     })
         return planets
 

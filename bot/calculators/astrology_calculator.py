@@ -263,7 +263,6 @@ class AstrologyCalculator:
         asc_obj = subject.ascendant if hasattr(subject, 'ascendant') else None
         mc_obj = subject.midheaven if hasattr(subject, 'midheaven') else None
 
-        # Извлекаем значение position, если это объект, иначе пробуем преобразовать в float
         if hasattr(asc_obj, 'position'):
             asc = float(asc_obj.position)
         elif isinstance(asc_obj, (int, float)):

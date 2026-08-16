@@ -61,6 +61,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
         self.natal_chart = None
         self.transit_subject = None
         self.transit_chart = None
+        self.transit_houses = None  # для хранения куспидов домов транзита
 
     def _get_natal_chart(self) -> Dict[str, Any]:
         if self.natal_chart is None:
@@ -110,8 +111,45 @@ class TransitHoroscopeCalculator(BaseCalculator):
                 data = model.model_dump()
             else:
                 data = model.__dict__
+
+            # ---- Извлечение куспидов домов транзита ----
+            house_keys = [
+                'first_house', 'second_house', 'third_house', 'fourth_house',
+                'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
+                'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house'
+            ]
+            transit_houses = []
+            for i, key in enumerate(house_keys, 1):
+                if key in data:
+                    obj = data[key]
+                    if isinstance(obj, dict):
+                        if 'position' in obj:
+                            degree = obj.get('position', 0.0)
+                            transit_houses.append({"number": i, "degree": degree})
+                    else:
+                        if hasattr(obj, 'position'):
+                            degree = getattr(obj, 'position', 0.0)
+                            transit_houses.append({"number": i, "degree": degree})
+            self.transit_houses = transit_houses
             self.transit_chart = data
         return self.transit_chart
+
+    def _get_transit_house_for_planet(self, longitude: float) -> int:
+        """Определяет дом транзитной планеты по долготе и куспидам домов транзита."""
+        if not self.transit_houses:
+            return 0
+        sorted_houses = sorted(self.transit_houses, key=lambda h: h['degree'])
+        for i, h in enumerate(sorted_houses):
+            next_house = sorted_houses[(i + 1) % len(sorted_houses)]
+            start = h['degree']
+            end = next_house['degree']
+            if end < start:
+                if longitude >= start or longitude < end:
+                    return h['number']
+            else:
+                if start <= longitude < end:
+                    return h['number']
+        return 0
 
 
     def _extract_planets_from_chart(self, chart_data: Dict[str, Any]) -> List[Dict]:
