@@ -269,14 +269,26 @@ class TransitHoroscopeCalculator(BaseCalculator):
     def calculate(self) -> Dict[str, Any]:
         natal_chart = self._get_natal_chart()
 
-        # Используем готовый список планет из натальной карты (уже извлечены в AstrologyCalculator)
         natal_planets = natal_chart.get('planets', [])
         natal_houses = natal_chart.get('houses', [])
         natal_aspects = natal_chart.get('aspects', [])
 
-        # Для транзитной карты извлекаем планеты из модели
+        # Получаем транзитную карту (она же заполняет self.transit_houses)
         transit_chart = self._get_transit_chart()
-        transit_planets = self._extract_planets_from_chart(transit_chart)
+        transit_planets_raw = self._extract_planets_from_chart(transit_chart)
+
+        # ---- ИСПРАВЛЕНИЕ: пересобираем транзитные планеты с вычисленными домами ----
+        transit_planets = []
+        for p in transit_planets_raw:
+            # Вычисляем дом для транзитной планеты
+            transit_house = self._get_transit_house_for_planet(p['degree'])
+            transit_planets.append({
+                "name": p['name'],
+                "sign": p['sign'],
+                "degree": p['degree'],
+                "house": transit_house,  # <-- теперь дом вычислен
+                "retrograde": p.get('retrograde', False),
+            })
 
         # Рассчитываем транзитные аспекты
         transit_aspects = self._get_transit_aspects_manual(natal_planets, transit_planets)
@@ -287,6 +299,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
         moon = next((p for p in natal_planets if p['name'].lower() == 'moon'), None)
         logger.info(f"Найден Sun: {sun['sign'] if sun else None}")
         logger.info(f"Найден Moon: {moon['sign'] if moon else None}")
+        logger.info(f"🏠 Транзитные дома: {[p['house'] for p in transit_planets]}")  # <-- добавлено
 
         ascendant = natal_houses[0]['sign'] if natal_houses else 'не известно'
 

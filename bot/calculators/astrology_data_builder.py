@@ -1132,23 +1132,6 @@ class AstrologyDataBuilder:
     }
 
     def _get_planet_speed(self, planet: str, is_transit: bool = False, transit_calc=None) -> float:
-        # Средние скорости планет (градусов в день) для fallback
-        AVERAGE_SPEEDS = {
-            'Sun': 0.9856,
-            'Moon': 13.1764,
-            'Mercury': 1.383,
-            'Venus': 1.2,
-            'Mars': 0.524,
-            'Jupiter': 0.083,
-            'Saturn': 0.033,
-            'Uranus': 0.012,
-            'Neptune': 0.006,
-            'Pluto': 0.004,
-            'Chiron': 0.02,
-            'Mean_Lilith': 0.1,
-            'True_North_Lunar_Node': -0.05,
-            'True_South_Lunar_Node': 0.05,
-        }
         try:
             if is_transit and transit_calc is not None:
                 transit_subject = transit_calc._get_transit_subject()
@@ -1164,7 +1147,6 @@ class AstrologyDataBuilder:
                             return p.speed if hasattr(p, 'speed') else AVERAGE_SPEEDS.get(planet, 0.0)
         except:
             pass
-        # Fallback на среднюю скорость
         return AVERAGE_SPEEDS.get(planet, 0.0)
 
     def _get_transit_planet_house(self, planet: str, transit_calc) -> int:

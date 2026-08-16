@@ -229,14 +229,19 @@ class AstrologyCalculator:
 
     def _calculate_chart(self) -> Dict[str, Any]:
         if self._chart_data is not None:
+            logger.info("📊 _chart_data уже закешировано, возвращаем")
             return self._chart_data
+
+        logger.info("🔮 Начинаем расчёт натальной карты...")
 
         year, month, day, hour, minute = self._parse_birth_datetime()
         city, country = self._parse_birth_place()
+        logger.info(f"📅 Дата/время: {day}.{month}.{year} {hour:02d}:{minute:02d}, место: {city}, {country}")
 
         lat, lng, tz_str = self._get_coordinates_and_timezone()
         self._coords = {"lat": lat, "lng": lng}
         self._timezone = tz_str
+        logger.info(f"🌐 Координаты: {lat:.4f}, {lng:.4f}, часовой пояс: {tz_str}")
 
         subject = AstrologicalSubject(
             name=self.name,
@@ -249,6 +254,7 @@ class AstrologyCalculator:
             lng=lng,
             tz_str=tz_str,
         )
+        logger.info(f"👤 Субъект создан: {subject.name}")
 
         model_data = subject.model() if callable(subject.model) else subject.model
         if hasattr(model_data, 'dict'):
@@ -257,28 +263,62 @@ class AstrologyCalculator:
             data = model_data.model_dump()
         else:
             data = model_data.__dict__
+        logger.info(f"📦 Модель получена, количество ключей: {len(data)}")
 
-        # ---- ИЗВЛЕЧЕНИЕ УГЛОВ (исправлено: используем subject.ascendant и .midheaven) ----
-        asc_obj = subject.ascendant if hasattr(subject, 'ascendant') else None
-        mc_obj = subject.midheaven if hasattr(subject, 'midheaven') else None
+        # ---- ИЗВЛЕЧЕНИЕ УГЛОВ С ЛОГИРОВАНИЕМ ----
+        # Пробуем получить ascendant из data
+        asc_raw = data.get('ascendant')
+        mc_raw = data.get('midheaven')
 
-        if hasattr(asc_obj, 'position'):
-            asc = float(asc_obj.position)
-        elif isinstance(asc_obj, (int, float)):
-            asc = float(asc_obj)
-        else:
-            asc = 0.0
+        logger.info(f"🔍 asc_raw: {asc_raw} (тип: {type(asc_raw).__name__})")
+        logger.info(f"🔍 mc_raw: {mc_raw} (тип: {type(mc_raw).__name__})")
 
-        if hasattr(mc_obj, 'position'):
-            mc = float(mc_obj.position)
-        elif isinstance(mc_obj, (int, float)):
-            mc = float(mc_obj)
-        else:
-            mc = 0.0
+        # Универсальная функция для извлечения числового значения
+        def extract_value(obj):
+            if obj is None:
+                return 0.0
+            if isinstance(obj, (int, float)):
+                return float(obj)
+            if isinstance(obj, dict):
+                # может быть {'position': 123.45, ...}
+                if 'position' in obj:
+                    return float(obj['position'])
+                elif 'value' in obj:
+                    return float(obj['value'])
+                else:
+                    # попробуем взять первый числовой ключ
+                    for v in obj.values():
+                        if isinstance(v, (int, float)):
+                            return float(v)
+                    return 0.0
+            if hasattr(obj, 'position'):
+                return float(obj.position)
+            if hasattr(obj, 'value'):
+                return float(obj.value)
+            # если это что-то другое, попробуем преобразовать
+            try:
+                return float(obj)
+            except:
+                return 0.0
+
+        asc = extract_value(asc_raw)
+        mc = extract_value(mc_raw)
+
+        # Если всё ещё нулевые, попробуем получить из subject напрямую
+        if asc == 0.0 and hasattr(subject, 'ascendant'):
+            asc_obj = subject.ascendant
+            logger.info(f"🔄 Пробуем subject.ascendant: {asc_obj} (тип: {type(asc_obj).__name__})")
+            asc = extract_value(asc_obj)
+
+        if mc == 0.0 and hasattr(subject, 'midheaven'):
+            mc_obj = subject.midheaven
+            logger.info(f"🔄 Пробуем subject.midheaven: {mc_obj} (тип: {type(mc_obj).__name__})")
+            mc = extract_value(mc_obj)
 
         dsc = (asc + 180) % 360
         ic = (mc + 180) % 360
         self._angles = {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
+        logger.info(f"📐 Углы: ASC={asc:.2f}, MC={mc:.2f}, DSC={dsc:.2f}, IC={ic:.2f}")
 
         # ---- Извлечение куспидов домов ----
         house_keys = [
@@ -309,6 +349,7 @@ class AstrologyCalculator:
                             "degree": degree,
                         })
                         house_cusps.append({"number": i, "degree": degree})
+        logger.info(f"🏠 Куспиды домов: {len(houses)} домов, house_cusps: {len(house_cusps)}")
 
         # ---- Формирование планет с вычислением домов ----
         planet_keys = [
@@ -357,6 +398,7 @@ class AstrologyCalculator:
                             "retrograde": getattr(obj, 'retrograde', False),
                             "speed": getattr(obj, 'speed', 0.0),
                         })
+        logger.info(f"🪐 Планет найдено: {len(planets)}")
 
         # ---- Аспекты ----
         aspects = []
@@ -372,9 +414,9 @@ class AstrologyCalculator:
                         "aspect": getattr(a, 'aspect', 'unknown'),
                         "orb": orb_val,
                     })
-                logger.info(f"Аспекты получены через AspectsFactory: {len(aspects)} аспектов")
+                logger.info(f"🔮 Аспекты через AspectsFactory: {len(aspects)}")
         except Exception as e:
-            logger.warning(f"Ошибка при AspectsFactory: {e}")
+            logger.warning(f"⚠️ AspectsFactory ошибка: {e}")
 
         if not aspects:
             try:
@@ -389,12 +431,12 @@ class AstrologyCalculator:
                             "aspect": getattr(a, 'aspect', 'unknown'),
                             "orb": orb_val,
                         })
-                    logger.info(f"Аспекты получены через NatalAspects: {len(aspects)} аспектов")
+                    logger.info(f"🔮 Аспекты через NatalAspects: {len(aspects)}")
             except Exception as e:
-                logger.warning(f"Ошибка при NatalAspects: {e}")
+                logger.warning(f"⚠️ NatalAspects ошибка: {e}")
 
         if not aspects:
-            logger.warning("Не удалось получить аспекты. Они будут пустыми.")
+            logger.warning("⚠️ Не удалось получить аспекты (пусто)")
 
         utc_datetime = None
         if hasattr(subject.model, 'iso_formatted_utc_datetime'):
@@ -414,6 +456,7 @@ class AstrologyCalculator:
             "angles": self._angles,
         }
 
+        logger.info(f"✅ Расчёт завершён: {len(planets)} планет, {len(houses)} домов, {len(aspects)} аспектов")
         self._chart_data = result
         return result
 
