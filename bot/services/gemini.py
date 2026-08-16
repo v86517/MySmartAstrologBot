@@ -273,7 +273,7 @@ class GeminiService:
                     f"| {p.get('weight', 0)} |\n"
                 )
 
-            # ---- Исправлено: берём углы из данных ----
+            # ---- ИСПРАВЛЕНИЕ: берём углы из данных ----
             angles_dict = natal.get('angles', {})
             asc = angles_dict.get('ASC', 0.0)
             mc = angles_dict.get('MC', 0.0)
