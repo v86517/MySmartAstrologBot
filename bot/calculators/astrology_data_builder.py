@@ -860,12 +860,13 @@ class AstrologyDataBuilder:
     # ==================== SUMMARY ====================
 
     def _build_summary(self) -> Dict[str, Any]:
-        """Создаёт сводку карты."""
+        """Создаёт сводку карты с преобразованием типов."""
         planets = self.chart.get('planets', [])
         aspects = self.chart.get('aspects', [])
 
         dominant_planets = sorted(self.planet_weights.items(), key=lambda x: x[1], reverse=True)[:3]
-        dominant_planets = [{"planet": p[0], "weight": p[1]} for p in dominant_planets if any(pl.get('name') == p[0] for pl in planets)]
+        dominant_planets = [{"planet": p[0], "weight": p[1]} for p in dominant_planets if
+                            any(pl.get('name') == p[0] for pl in planets)]
 
         elements = self._calculate_dominant_elements()
         dominant_elements = sorted(elements.items(), key=lambda x: x[1], reverse=True)[:2]
@@ -887,16 +888,60 @@ class AstrologyDataBuilder:
         core_themes = sorted(themes_data.items(), key=lambda x: x[1]['score'], reverse=True)[:5]
         core_themes = [{"theme": t[0], "score": t[1]['score']} for t in core_themes]
 
-        strong_aspects = sorted(aspects, key=lambda x: x.get('weight', 0), reverse=True)[:3]
-        strong_aspects = [{"p1": a['p1'], "p2": a['p2'], "aspect": a['aspect'], "orb": a['orb']} for a in strong_aspects]
+        # Сильные аспекты с преобразованием веса
+        strong_aspects = []
+        for a in aspects:
+            weight = a.get('weight', 0)
+            try:
+                weight = float(weight)
+            except (ValueError, TypeError):
+                weight = 0
+            strong_aspects.append((a, weight))
+        strong_aspects = sorted(strong_aspects, key=lambda x: x[1], reverse=True)[:3]
+        strong_aspects = [{"p1": a['p1'], "p2": a['p2'], "aspect": a['aspect'], "orb": a['orb']} for a, _ in
+                          strong_aspects]
 
-        tensions = [a for a in aspects if a.get('aspect', '').lower() in ['square', 'opposition'] and a.get('orb', 10) < 5]
-        major_tensions = sorted(tensions, key=lambda x: x.get('weight', 0), reverse=True)[:3]
-        major_tensions = [{"p1": a['p1'], "p2": a['p2'], "aspect": a['aspect'], "orb": a['orb']} for a in major_tensions]
+        # Напряжения (квадраты и оппозиции с орбисом < 5)
+        tensions = []
+        for a in aspects:
+            aspect = a.get('aspect', '').lower()
+            if aspect in ['square', 'opposition']:
+                orb_val = a.get('orb', 10)
+                try:
+                    orb_val = float(orb_val)
+                except (ValueError, TypeError):
+                    orb_val = 10
+                if orb_val < 5:
+                    weight = a.get('weight', 0)
+                    try:
+                        weight = float(weight)
+                    except (ValueError, TypeError):
+                        weight = 0
+                    tensions.append((a, weight))
+        major_tensions = sorted(tensions, key=lambda x: x[1], reverse=True)[:3]
+        major_tensions = [{"p1": a['p1'], "p2": a['p2'], "aspect": a['aspect'], "orb": a['orb']} for a, _ in
+                          major_tensions]
 
-        resources = [a for a in aspects if a.get('aspect', '').lower() in ['trine', 'sextile'] and a.get('orb', 10) < 5]
-        major_resources = sorted(resources, key=lambda x: x.get('weight', 0), reverse=True)[:3]
-        major_resources = [{"p1": a['p1'], "p2": a['p2'], "aspect": a['aspect'], "orb": a['orb']} for a in major_resources]
+        # Ресурсы (трины и секстили с орбисом < 5)
+        resources = []
+        for a in aspects:
+            aspect = a.get('aspect', '').lower()
+            if aspect in ['trine', 'sextile']:
+                orb_val = a.get('orb', 10)
+                try:
+                    orb_val = float(orb_val)
+                except (ValueError, TypeError):
+                    orb_val = 10
+                if orb_val < 5:
+                    weight = a.get('weight', 0)
+                    try:
+                        weight = float(weight)
+                    except (ValueError, TypeError):
+                        weight = 0
+                    resources.append((a, weight))
+        major_resources = sorted(resources, key=lambda x: x[1], reverse=True)[:3]
+        major_resources = [{"p1": a['p1'], "p2": a['p2'], "aspect": a['aspect'], "orb": a['orb']} for a, _ in
+                           major_resources]
 
         return {
             "dominant_planets": dominant_planets,
