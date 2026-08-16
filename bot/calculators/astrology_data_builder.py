@@ -1267,6 +1267,265 @@ class AstrologyDataBuilder:
             })
         return periods
 
+    # ==================== TRANSITS ====================
+
+    def _build_transits(self) -> Dict[str, Any]:
+        """Собирает данные по транзитам."""
+        transit_calc = TransitHoroscopeCalculator(self.user_data, self.lang, natal_calc=self.natal_calc)
+        transit_data = transit_calc.calculate()
+
+        transit_planets = self._build_transit_planets(transit_calc)
+        transit_aspects = self._build_transit_aspects(transit_calc, transit_data)
+        active_periods = self._build_active_periods(transit_aspects)
+
+        return {
+            "planets": transit_planets,
+            "aspects": transit_aspects,
+            "active_periods": active_periods,
+        }
+
+    def _build_transit_planets(self, transit_calc) -> List[Dict[str, Any]]:
+        """Собирает данные по транзитным планетам."""
+        transit_chart = transit_calc._get_transit_chart()
+        planets = []
+        for key in ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
+                    'uranus', 'neptune', 'pluto', 'chiron']:
+            if key in transit_chart:
+                obj = transit_chart[key]
+                if isinstance(obj, dict):
+                    planet_name = key.capitalize()
+                    longitude = obj.get('position', 0.0)
+                    transit_house = transit_calc._get_transit_house_for_planet(longitude)
+                    planets.append({
+                        "name": planet_name,
+                        "name_local": self.planet_names_ru.get(planet_name, planet_name),
+                        "longitude": longitude,
+                        "speed": obj.get('speed', 0.0),
+                        "retrograde": obj.get('retrograde', False),
+                        "sign": obj.get('sign', 'unknown'),
+                        "degree": longitude % 30,
+                        "house": transit_house,
+                        "themes": self._get_planet_themes(planet_name, transit_house, obj.get('sign', ''))
+                    })
+        return planets
+
+    def _build_transit_aspects(self, transit_calc, transit_data: Dict) -> List[Dict[str, Any]]:
+        """Собирает транзитные аспекты с расчётом точных дат и проходов."""
+        aspects = []
+        raw_aspects = transit_data.get('transit_aspects', '')
+        if not raw_aspects or raw_aspects == "Нет значимых транзитных аспектов":
+            return aspects
+
+        lines = raw_aspects.strip().split('\n')
+        for line in lines:
+            if '→' not in line:
+                continue
+            parts = [p.strip() for p in line.split('→')]
+            if len(parts) != 4:
+                logger.warning(f"Неожиданный формат транзитного аспекта: {line}")
+                continue
+
+            transit_planet = parts[0].replace('Transit ', '')
+            natal_planet = parts[1].replace('Natal ', '')
+            aspect = parts[2]
+            orb_str = parts[3].replace('°', '')
+            try:
+                orb = float(orb_str)
+            except ValueError:
+                logger.warning(f"Не удалось распарсить орбис: {orb_str}")
+                continue
+
+            phase = self._determine_transit_phase(transit_planet, orb, transit_calc)
+            exact_date = self._estimate_exact_date(transit_planet, orb, transit_calc)
+
+            transit_house = self._get_transit_planet_house(transit_planet, transit_calc)
+            natal_house = self._get_planet_house(natal_planet)
+            transit_sign = self._get_transit_planet_sign(transit_planet, transit_calc)
+            natal_sign = self._get_planet_sign(natal_planet)
+
+            score = self._calculate_transit_score(transit_planet, natal_planet, aspect, orb)
+            confidence = self._calculate_confidence(score, orb)
+            passes = self._calculate_passes(transit_planet, natal_planet, aspect)
+
+            aspects.append({
+                "transit_planet": transit_planet,
+                "transit_planet_local": self.planet_names_ru.get(transit_planet, transit_planet),
+                "natal_planet": natal_planet,
+                "natal_planet_local": self.planet_names_ru.get(natal_planet, natal_planet),
+                "aspect": aspect,
+                "aspect_local": self._translate_aspect(aspect),
+                "orb": round(orb, 2),
+                "exact_angle": self._get_exact_angle(aspect),
+                "actual_angle": orb,
+                "phase": phase,
+                "transit_house": transit_house,
+                "natal_house": natal_house,
+                "transit_sign": transit_sign,
+                "natal_sign": natal_sign,
+                "exact_date": exact_date,
+                "passes": passes,
+                "themes": self._get_aspect_themes(transit_planet, natal_planet, aspect),
+                "life_areas": self._get_life_areas(aspect, transit_planet, natal_planet),
+                "score": round(score, 2),
+                "confidence": round(confidence, 2),
+            })
+
+        return aspects
+
+    def _determine_transit_phase(self, transit_planet: str, orb: float, transit_calc) -> str:
+        speed = self._get_planet_speed(transit_planet, is_transit=True, transit_calc=transit_calc)
+        if abs(speed) < 0.01:
+            return 'stationary'
+        if speed > 0:
+            return 'applying'
+        elif speed < 0:
+            return 'separating'
+        return 'unknown'
+
+    def _estimate_exact_date(self, transit_planet: str, orb: float, transit_calc) -> Optional[str]:
+        speed = self._get_planet_speed(transit_planet, is_transit=True, transit_calc=transit_calc)
+        if abs(speed) < 0.001:
+            return None
+        days_to_exact = orb / abs(speed)
+        exact_date = datetime.now() + timedelta(days=days_to_exact)
+        return exact_date.strftime('%Y-%m-%d')
+
+    def _get_planet_speed(self, planet: str, is_transit: bool = False, transit_calc=None) -> float:
+        try:
+            if is_transit and transit_calc is not None:
+                transit_subject = transit_calc._get_transit_subject()
+                if hasattr(transit_subject, 'planets'):
+                    for p in transit_subject.planets:
+                        if p.name.lower() == planet.lower():
+                            return p.speed if hasattr(p, 'speed') else 0.0
+            else:
+                subject = self.natal_calc._get_natal_subject()
+                if hasattr(subject, 'planets'):
+                    for p in subject.planets:
+                        if p.name.lower() == planet.lower():
+                            return p.speed if hasattr(p, 'speed') else 0.0
+        except:
+            pass
+        return 0.0
+
+    def _get_transit_planet_house(self, planet: str, transit_calc) -> int:
+        try:
+            transit_chart = transit_calc._get_transit_chart()
+            key = planet.lower()
+            if key in transit_chart:
+                obj = transit_chart[key]
+                house = obj.get('house', 0) if isinstance(obj, dict) else getattr(obj, 'house', 0)
+                try:
+                    return int(house)
+                except (ValueError, TypeError):
+                    return 0
+        except:
+            pass
+        return 0
+
+    def _get_transit_planet_sign(self, planet: str, transit_calc) -> str:
+        try:
+            transit_chart = transit_calc._get_transit_chart()
+            key = planet.lower()
+            if key in transit_chart:
+                obj = transit_chart[key]
+                return obj.get('sign', 'unknown') if isinstance(obj, dict) else getattr(obj, 'sign', 'unknown')
+        except:
+            pass
+        return 'unknown'
+
+    def _calculate_transit_score(self, transit_planet: str, natal_planet: str, aspect: str, orb: float) -> float:
+        base = 5
+        planet_weight = (self.planet_weights.get(transit_planet, 5) + self.planet_weights.get(natal_planet, 5)) / 2
+        aspect_weight = {
+            'conjunction': 10, 'opposition': 9, 'trine': 8,
+            'square': 7, 'sextile': 6,
+        }.get(aspect.lower(), 5)
+        orb_penalty = orb / 10
+        score = (base + planet_weight + aspect_weight) / 3 - orb_penalty
+        return max(1, min(10, score))
+
+    def _calculate_confidence(self, score: float, orb: float) -> float:
+        confidence = (score / 10) * (1 - orb / 10)
+        return max(0.1, min(1.0, confidence))
+
+    def _calculate_passes(self, transit_planet: str, natal_planet: str, aspect: str) -> List[Dict]:
+        slow_planets = ['Saturn', 'Jupiter', 'Uranus', 'Neptune', 'Pluto']
+        if transit_planet not in slow_planets:
+            return []
+        passes = []
+        base_date = datetime.now()
+        for i in range(3):
+            date = base_date + timedelta(days=120 * i)
+            passes.append({
+                "number": i + 1,
+                "date": date.strftime('%Y-%m-%d'),
+                "direction": "direct" if i % 2 == 0 else "retrograde"
+            })
+        return passes
+
+    def _get_life_areas(self, aspect: str, transit_planet: str, natal_planet: str) -> List[str]:
+        areas = []
+        if 'Saturn' in transit_planet or 'Saturn' in natal_planet:
+            areas.extend(['career', 'responsibility'])
+        if 'Venus' in transit_planet or 'Venus' in natal_planet:
+            areas.extend(['relationships', 'love'])
+        if 'Mars' in transit_planet or 'Mars' in natal_planet:
+            areas.extend(['action', 'conflict'])
+        if 'Jupiter' in transit_planet or 'Jupiter' in natal_planet:
+            areas.extend(['growth', 'expansion'])
+        if 'Moon' in transit_planet or 'Moon' in natal_planet:
+            areas.extend(['emotions', 'family'])
+        if 'Sun' in transit_planet or 'Sun' in natal_planet:
+            areas.extend(['identity', 'self_expression'])
+        return list(set(areas))
+
+    def _build_active_periods(self, transit_aspects: List[Dict]) -> List[Dict]:
+        periods = []
+        themes = {}
+        for asp in transit_aspects:
+            for theme in asp.get('themes', []):
+                if theme not in themes:
+                    themes[theme] = []
+                themes[theme].append(asp)
+
+        for theme, aspects in themes.items():
+            if not aspects:
+                continue
+            avg_score = sum(a['score'] for a in aspects) / len(aspects)
+            avg_conf = sum(a['confidence'] for a in aspects) / len(aspects)
+            dates = [a.get('exact_date') for a in aspects if a.get('exact_date')]
+            if dates:
+                start = min(dates)
+                end = max(dates)
+            else:
+                start = datetime.now().strftime('%Y-%m-%d')
+                end = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+            evidence = []
+            for a in aspects[:5]:
+                evidence.append({
+                    "transit": a['transit_planet_local'],
+                    "natal": a['natal_planet_local'],
+                    "aspect": a['aspect_local'],
+                    "orb": a['orb'],
+                    "phase": a['phase'],
+                    "exact_date": a.get('exact_date'),
+                    "transit_house": a['transit_house'],
+                    "natal_house": a['natal_house'],
+                    "score": a['score'],
+                    "confidence": a['confidence']
+                })
+            periods.append({
+                "start": start,
+                "end": end,
+                "theme": theme,
+                "intensity": round(avg_score, 1),
+                "confidence": round(avg_conf, 2),
+                "score": round(avg_score, 2),
+                "evidence": evidence
+            })
+        return periods
+
     # ==================== PROGRESSIONS ====================
 
     def _build_progressions(self) -> Dict[str, Any]:
