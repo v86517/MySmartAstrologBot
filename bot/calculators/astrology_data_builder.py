@@ -1107,7 +1107,7 @@ class AstrologyDataBuilder:
 
     def _determine_transit_phase(self, transit_planet: str, orb: float, transit_calc) -> str:
         speed = self._get_planet_speed(transit_planet, is_transit=True, transit_calc=transit_calc)
-        if abs(speed) < 0.01:
+        if abs(speed) < 0.001:
             return 'stationary'
         if speed > 0:
             return 'applying'
@@ -1132,22 +1132,40 @@ class AstrologyDataBuilder:
     }
 
     def _get_planet_speed(self, planet: str, is_transit: bool = False, transit_calc=None) -> float:
+        # Средние скорости планет (градусов в день) для fallback
+        AVERAGE_SPEEDS = {
+            'Sun': 0.9856,
+            'Moon': 13.1764,
+            'Mercury': 1.383,
+            'Venus': 1.2,
+            'Mars': 0.524,
+            'Jupiter': 0.083,
+            'Saturn': 0.033,
+            'Uranus': 0.012,
+            'Neptune': 0.006,
+            'Pluto': 0.004,
+            'Chiron': 0.02,
+            'Mean_Lilith': 0.1,
+            'True_North_Lunar_Node': -0.05,
+            'True_South_Lunar_Node': 0.05,
+        }
         try:
             if is_transit and transit_calc is not None:
                 transit_subject = transit_calc._get_transit_subject()
                 if hasattr(transit_subject, 'planets'):
                     for p in transit_subject.planets:
                         if p.name.lower() == planet.lower():
-                            return p.speed if hasattr(p, 'speed') else self.AVERAGE_SPEEDS.get(planet, 0.0)
+                            return p.speed if hasattr(p, 'speed') else AVERAGE_SPEEDS.get(planet, 0.0)
             else:
                 subject = self.natal_calc._get_natal_subject()
                 if hasattr(subject, 'planets'):
                     for p in subject.planets:
                         if p.name.lower() == planet.lower():
-                            return p.speed if hasattr(p, 'speed') else self.AVERAGE_SPEEDS.get(planet, 0.0)
+                            return p.speed if hasattr(p, 'speed') else AVERAGE_SPEEDS.get(planet, 0.0)
         except:
             pass
-        return self.AVERAGE_SPEEDS.get(planet, 0.0)
+        # Fallback на среднюю скорость
+        return AVERAGE_SPEEDS.get(planet, 0.0)
 
     def _get_transit_planet_house(self, planet: str, transit_calc) -> int:
         try:

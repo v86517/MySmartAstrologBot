@@ -258,25 +258,9 @@ class AstrologyCalculator:
         else:
             data = model_data.__dict__
 
-        # ---- ИЗВЛЕЧЕНИЕ УГЛОВ (исправлено) ----
-        # subject.ascendant и subject.midheaven могут быть объектами KerykeionPointModel
-        asc_obj = subject.ascendant if hasattr(subject, 'ascendant') else None
-        mc_obj = subject.midheaven if hasattr(subject, 'midheaven') else None
-
-        if hasattr(asc_obj, 'position'):
-            asc = float(asc_obj.position)
-        elif isinstance(asc_obj, (int, float)):
-            asc = float(asc_obj)
-        else:
-            asc = 0.0
-
-        if hasattr(mc_obj, 'position'):
-            mc = float(mc_obj.position)
-        elif isinstance(mc_obj, (int, float)):
-            mc = float(mc_obj)
-        else:
-            mc = 0.0
-
+        # ---- Извлечение углов из данных модели (исправлено) ----
+        asc = data.get('ascendant', 0.0)
+        mc = data.get('midheaven', 0.0)
         dsc = (asc + 180) % 360
         ic = (mc + 180) % 360
         self._angles = {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
