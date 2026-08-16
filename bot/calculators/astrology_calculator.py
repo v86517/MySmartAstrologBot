@@ -43,6 +43,8 @@ class AstrologyCalculator:
         self._timezone = None
         self._tf = TimezoneFinder()
         self._progression_data = None  # НОВОЕ: кеш прогрессий
+        self._cached_coords = None  # будет хранить (lat, lng)
+        self._cached_timezone = None
 
     def _parse_birth_datetime(self) -> Tuple[int, int, int, int, int]:
         date_str = self.birth_date_str or "01.01.2000"
@@ -64,10 +66,17 @@ class AstrologyCalculator:
         return city, country
 
     def _get_coordinates_and_timezone(self) -> Tuple[float, float, str]:
+        """Возвращает координаты и часовой пояс с кешированием."""
+        if self._cached_coords is not None and self._cached_timezone is not None:
+            return self._cached_coords[0], self._cached_coords[1], self._cached_timezone
+
         city, country = self._parse_birth_place()
         if not city:
             logger.warning("Место рождения не указано. Используем Москву")
-            return self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
+            lat, lng, tz_str = self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
+            self._cached_coords = (lat, lng)
+            self._cached_timezone = tz_str
+            return lat, lng, tz_str
 
         coords = self._get_coordinates_geocoder(city, country)
         if coords:
@@ -75,6 +84,8 @@ class AstrologyCalculator:
             tz_str = self._get_timezone_from_coords(lat, lng)
             if tz_str:
                 logger.info(f"✅ Найдено через геокодер: {city}, {country} ({lat}, {lng}, {tz_str})")
+                self._cached_coords = (lat, lng)
+                self._cached_timezone = tz_str
                 return lat, lng, tz_str
 
         if self.__class__.gemini_service:
@@ -83,6 +94,8 @@ class AstrologyCalculator:
             if result and 'lat' in result and 'lng' in result and 'timezone' in result:
                 lat, lng, tz_str = result['lat'], result['lng'], result['timezone']
                 logger.info(f"✅ Найдено через нейросеть: {city}, {country} ({lat}, {lng}, {tz_str})")
+                self._cached_coords = (lat, lng)
+                self._cached_timezone = tz_str
                 return lat, lng, tz_str
             else:
                 logger.warning(f"❌ Нейросеть не дала координат для {city}, {country}")
@@ -97,10 +110,15 @@ class AstrologyCalculator:
                 tz_str = self._get_timezone_from_coords(lat, lng)
                 if tz_str:
                     logger.info(f"✅ Найдена столица {country}: ({lat}, {lng}, {tz_str})")
+                    self._cached_coords = (lat, lng)
+                    self._cached_timezone = tz_str
                     return lat, lng, tz_str
 
         logger.warning(f"❌ Не удалось определить координаты для {city}, {country}. Используем Москву.")
-        return self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
+        lat, lng, tz_str = self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
+        self._cached_coords = (lat, lng)
+        self._cached_timezone = tz_str
+        return lat, lng, tz_str
 
     def _get_coordinates_geocoder(self, city: str, country: str = None) -> Optional[Dict[str, float]]:
         """Пытается получить координаты через Nominatim и Open-Meteo."""
