@@ -258,24 +258,10 @@ class AstrologyCalculator:
         else:
             data = model_data.__dict__
 
-        # ---- FIXED: Извлечение углов с проверкой типа ----
-        asc_raw = data.get('ascendant')
-        mc_raw = data.get('midheaven')
-
-        if hasattr(asc_raw, 'position'):
-            asc = asc_raw.position
-        elif isinstance(asc_raw, (int, float)):
-            asc = float(asc_raw)
-        else:
-            asc = 0.0
-
-        if hasattr(mc_raw, 'position'):
-            mc = mc_raw.position
-        elif isinstance(mc_raw, (int, float)):
-            mc = float(mc_raw)
-        else:
-            mc = 0.0
-
+        # ---- ИЗВЛЕЧЕНИЕ УГЛОВ (исправлено) ----
+        # Берём углы напрямую из объекта subject
+        asc = subject.ascendant if hasattr(subject, 'ascendant') else 0.0
+        mc = subject.midheaven if hasattr(subject, 'midheaven') else 0.0
         dsc = (asc + 180) % 360
         ic = (mc + 180) % 360
         self._angles = {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
@@ -358,7 +344,7 @@ class AstrologyCalculator:
                             "speed": getattr(obj, 'speed', 0.0),
                         })
 
-        # ---- Аспекты (без изменений) ----
+        # ---- Аспекты ----
         aspects = []
         try:
             from kerykeion import AspectsFactory

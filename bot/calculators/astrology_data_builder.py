@@ -145,12 +145,9 @@ class AstrologyDataBuilder:
 
     # ---------- УГЛЫ ----------
     def _get_angles(self, subject) -> Dict[str, float]:
-        """Возвращает углы ASC, MC, DSC, IC из модели."""
         try:
-            model = subject.model() if callable(subject.model) else subject.model
-            data = model.dict() if hasattr(model, 'dict') else model.__dict__
-            asc = data.get('ascendant', 0.0)
-            mc = data.get('midheaven', 0.0)
+            asc = subject.ascendant if hasattr(subject, 'ascendant') else 0.0
+            mc = subject.midheaven if hasattr(subject, 'midheaven') else 0.0
             dsc = (asc + 180) % 360
             ic = (mc + 180) % 360
             return {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
