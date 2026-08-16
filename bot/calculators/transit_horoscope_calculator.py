@@ -137,6 +137,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
     def _get_transit_house_for_planet(self, longitude: float) -> int:
         """Определяет дом транзитной планеты по долготе и куспидам домов транзита."""
         if not self.transit_houses:
+            logger.warning(f"⚠️ _get_transit_house_for_planet: self.transit_houses пуст")
             return 0
         sorted_houses = sorted(self.transit_houses, key=lambda h: h['degree'])
         for i, h in enumerate(sorted_houses):
@@ -149,6 +150,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
             else:
                 if start <= longitude < end:
                     return h['number']
+        logger.warning(f"⚠️ Дом для долготы {longitude} не найден, возвращаем 0")
         return 0
 
 

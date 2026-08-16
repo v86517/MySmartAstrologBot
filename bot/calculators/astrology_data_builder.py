@@ -55,7 +55,7 @@ class AstrologyDataBuilder:
                 "angle_aspects": self._build_angle_aspects(),
                 "patterns": self._build_patterns(),
                 "summary": self._build_summary(),
-                "angles": self._get_angles(self.natal_calc._get_natal_subject()),
+                "angles": self.chart.get('angles', {}),  # <-- берём из уже вычисленного chart
             },
             "transits": self._build_transits(),
             "progressions": self._build_progressions(),
@@ -146,27 +146,13 @@ class AstrologyDataBuilder:
     # ---------- УГЛЫ ----------
     def _get_angles(self, subject) -> Dict[str, float]:
         try:
-            asc_obj = subject.ascendant if hasattr(subject, 'ascendant') else None
-            mc_obj = subject.midheaven if hasattr(subject, 'midheaven') else None
-
-            if hasattr(asc_obj, 'position'):
-                asc = float(asc_obj.position)
-            elif isinstance(asc_obj, (int, float)):
-                asc = float(asc_obj)
-            else:
-                asc = 0.0
-
-            if hasattr(mc_obj, 'position'):
-                mc = float(mc_obj.position)
-            elif isinstance(mc_obj, (int, float)):
-                mc = float(mc_obj)
-            else:
-                mc = 0.0
-
+            asc = subject.ascendant if hasattr(subject, 'ascendant') else 0.0
+            mc = subject.midheaven if hasattr(subject, 'midheaven') else 0.0
             dsc = (asc + 180) % 360
             ic = (mc + 180) % 360
             return {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
-        except:
+        except Exception as e:
+            logger.warning(f"Ошибка в _get_angles: {e}")
             return {"ASC": 0.0, "MC": 0.0, "DSC": 0.0, "IC": 0.0}
 
     # ---------- ANGULARITY (исправлено для использования углов) ----------
@@ -1047,13 +1033,23 @@ class AstrologyDataBuilder:
         aspects = []
         raw_aspects = transit_data.get('transit_aspects', '')
         if not raw_aspects or raw_aspects == "Нет значимых транзитных аспектов":
+            logger.info("ℹ️ Нет транзитных аспектов для обработки")
             return aspects
 
         # Принудительно вызываем _get_transit_chart для заполнения transit_houses
         transit_calc._get_transit_chart()
         logger.info(f"🏠 Транзитные дома в _build_transit_aspects: {transit_calc.transit_houses}")
 
+        # Если transit_houses всё ещё пуст, пробуем перезаполнить вручную (на всякий случай)
+        if not transit_calc.transit_houses:
+            logger.warning("⚠️ transit_houses пуст, пытаемся перезаполнить через повторный вызов _get_transit_chart")
+            transit_calc.transit_chart = None  # сбрасываем кеш
+            transit_calc._get_transit_chart()
+            logger.info(f"🔄 После повторного вызова: {transit_calc.transit_houses}")
+
         lines = raw_aspects.strip().split('\n')
+        logger.info(f"📄 Найдено строк с аспектами: {len(lines)}")
+
         for line in lines:
             if '→' not in line:
                 continue
@@ -1086,8 +1082,14 @@ class AstrologyDataBuilder:
                     transit_longitude = getattr(obj, 'position', 0.0)
             else:
                 transit_longitude = 0.0
+                logger.warning(f"⚠️ Планета {transit_planet} не найдена в транзитной карте")
+
             transit_house = transit_calc._get_transit_house_for_planet(transit_longitude)
-            logger.info(f"🔍 Транзитная планета {transit_planet}, долгота {transit_longitude}, дом {transit_house}")
+            logger.info(f"🔍 Транзитная планета {transit_planet}, долгота {transit_longitude:.2f}, дом {transit_house}")
+
+            # Если дом всё ещё 0, добавим дополнительное логирование
+            if transit_house == 0:
+                logger.warning(f"⚠️ Дом для {transit_planet} = 0. transit_houses: {transit_calc.transit_houses}")
 
             natal_house = self._get_planet_house(natal_planet)
             transit_sign = self._get_transit_planet_sign(transit_planet, transit_calc)
@@ -1120,6 +1122,7 @@ class AstrologyDataBuilder:
                 "confidence": round(confidence, 2),
             })
 
+        logger.info(f"✅ Обработано {len(aspects)} транзитных аспектов")
         return aspects
 
     def _determine_transit_phase(self, transit_planet: str, orb: float, transit_calc) -> str:

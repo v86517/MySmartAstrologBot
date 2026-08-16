@@ -275,6 +275,7 @@ class GeminiService:
 
             # ---- ИСПРАВЛЕНИЕ: берём углы из данных ----
             angles_dict = natal.get('angles', {})
+            logger.info(f"📐 Углы из data: {angles_dict}")
             asc = angles_dict.get('ASC', 0.0)
             mc = angles_dict.get('MC', 0.0)
             dsc = angles_dict.get('DSC', 0.0)
