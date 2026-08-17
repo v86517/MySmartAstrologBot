@@ -1,3 +1,4 @@
+#bot\utils\helpers.py
 from bot.locales import TEXTS
 from bot.db import get_user_language
 

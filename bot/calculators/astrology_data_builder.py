@@ -1,3 +1,4 @@
+#bot/calculators/astrology_data_builder.py
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
@@ -1011,30 +1012,30 @@ class AstrologyDataBuilder:
                     })
         return planets
 
-    def _build_transit_planets(self, transit_calc) -> List[Dict[str, Any]]:
-        transit_chart = transit_calc._get_transit_chart()
-        planets = []
-        for key in ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
-                    'uranus', 'neptune', 'pluto', 'chiron']:
-            if key in transit_chart:
-                obj = transit_chart[key]
-                if isinstance(obj, dict):
-                    planet_name = key.capitalize()
-                    longitude = obj.get('position', 0.0)
-                    # Получаем дом через метод транзитного калькулятора
-                    transit_house = transit_calc._get_transit_house_for_planet(longitude)
-                    planets.append({
-                        "name": planet_name,
-                        "name_local": self.planet_names_ru.get(planet_name, planet_name),
-                        "longitude": longitude,
-                        "speed": obj.get('speed', 0.0),
-                        "retrograde": obj.get('retrograde', False),
-                        "sign": obj.get('sign', 'unknown'),
-                        "degree": longitude % 30,
-                        "house": transit_house,
-                        "themes": self._get_planet_themes(planet_name, transit_house, obj.get('sign', ''))
-                    })
-        return planets
+    # def _build_transit_planets(self, transit_calc) -> List[Dict[str, Any]]:
+    #     transit_chart = transit_calc._get_transit_chart()
+    #     planets = []
+    #     for key in ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
+    #                 'uranus', 'neptune', 'pluto', 'chiron']:
+    #         if key in transit_chart:
+    #             obj = transit_chart[key]
+    #             if isinstance(obj, dict):
+    #                 planet_name = key.capitalize()
+    #                 longitude = obj.get('position', 0.0)
+    #                 # Получаем дом через метод транзитного калькулятора
+    #                 transit_house = transit_calc._get_transit_house_for_planet(longitude)
+    #                 planets.append({
+    #                     "name": planet_name,
+    #                     "name_local": self.planet_names_ru.get(planet_name, planet_name),
+    #                     "longitude": longitude,
+    #                     "speed": obj.get('speed', 0.0),
+    #                     "retrograde": obj.get('retrograde', False),
+    #                     "sign": obj.get('sign', 'unknown'),
+    #                     "degree": longitude % 30,
+    #                     "house": transit_house,
+    #                     "themes": self._get_planet_themes(planet_name, transit_house, obj.get('sign', ''))
+    #                 })
+    #     return planets
 
     def _build_transit_aspects(self, transit_calc, transit_data: Dict) -> List[Dict[str, Any]]:
         aspects = []
@@ -1318,30 +1319,30 @@ class AstrologyDataBuilder:
             "active_periods": active_periods,
         }
 
-    def _build_transit_planets(self, transit_calc) -> List[Dict[str, Any]]:
-        """Собирает данные по транзитным планетам."""
-        transit_chart = transit_calc._get_transit_chart()
-        planets = []
-        for key in ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
-                    'uranus', 'neptune', 'pluto', 'chiron']:
-            if key in transit_chart:
-                obj = transit_chart[key]
-                if isinstance(obj, dict):
-                    planet_name = key.capitalize()
-                    longitude = obj.get('position', 0.0)
-                    transit_house = transit_calc._get_transit_house_for_planet(longitude)
-                    planets.append({
-                        "name": planet_name,
-                        "name_local": self.planet_names_ru.get(planet_name, planet_name),
-                        "longitude": longitude,
-                        "speed": obj.get('speed', 0.0),
-                        "retrograde": obj.get('retrograde', False),
-                        "sign": obj.get('sign', 'unknown'),
-                        "degree": longitude % 30,
-                        "house": transit_house,
-                        "themes": self._get_planet_themes(planet_name, transit_house, obj.get('sign', ''))
-                    })
-        return planets
+    # def _build_transit_planets(self, transit_calc) -> List[Dict[str, Any]]:
+    #     """Собирает данные по транзитным планетам."""
+    #     transit_chart = transit_calc._get_transit_chart()
+    #     planets = []
+    #     for key in ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
+    #                 'uranus', 'neptune', 'pluto', 'chiron']:
+    #         if key in transit_chart:
+    #             obj = transit_chart[key]
+    #             if isinstance(obj, dict):
+    #                 planet_name = key.capitalize()
+    #                 longitude = obj.get('position', 0.0)
+    #                 transit_house = transit_calc._get_transit_house_for_planet(longitude)
+    #                 planets.append({
+    #                     "name": planet_name,
+    #                     "name_local": self.planet_names_ru.get(planet_name, planet_name),
+    #                     "longitude": longitude,
+    #                     "speed": obj.get('speed', 0.0),
+    #                     "retrograde": obj.get('retrograde', False),
+    #                     "sign": obj.get('sign', 'unknown'),
+    #                     "degree": longitude % 30,
+    #                     "house": transit_house,
+    #                     "themes": self._get_planet_themes(planet_name, transit_house, obj.get('sign', ''))
+    #                 })
+    #     return planets
 
     def _build_transit_aspects(self, transit_calc, transit_data: Dict) -> List[Dict[str, Any]]:
         """Собирает транзитные аспекты с расчётом точных дат и проходов."""

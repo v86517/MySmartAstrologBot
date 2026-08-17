@@ -1,3 +1,4 @@
+#bot\states\states.py
 from aiogram.fsm.state import State, StatesGroup
 
 class UserDataStates(StatesGroup):

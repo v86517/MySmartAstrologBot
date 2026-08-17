@@ -322,6 +322,33 @@ def _set_service_price(service: str, price: float, currency: str = 'RUB') -> boo
         return False
 
 
+# ---------- BIRTH TIMEZONE ----------
+
+def _get_user_birth_timezone_sync(telegram_id: int) -> Optional[str]:
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        return user.birth_timezone
+    except User.DoesNotExist:
+        return None
+
+def _set_user_birth_timezone_sync(telegram_id: int, timezone_str: str) -> bool:
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        user.birth_timezone = timezone_str
+        user.save()
+        return True
+    except User.DoesNotExist:
+        return False
+
+def _clear_user_birth_timezone_sync(telegram_id: int) -> bool:
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        user.birth_timezone = None
+        user.save()
+        return True
+    except User.DoesNotExist:
+        return False
+
 # ==================== АСИНХРОННЫЕ ОБЁРТКИ ====================
 
 get_or_create_user = sync_to_async(_get_or_create_user)
@@ -346,3 +373,6 @@ set_user_admin = sync_to_async(_set_user_admin)
 get_emulation_mode = sync_to_async(_get_emulation_mode)
 get_service_price = sync_to_async(_get_service_price)
 set_service_price = sync_to_async(_set_service_price)
+get_user_birth_timezone = sync_to_async(_get_user_birth_timezone_sync)
+set_user_birth_timezone = sync_to_async(_set_user_birth_timezone_sync)
+clear_user_birth_timezone = sync_to_async(_clear_user_birth_timezone_sync)

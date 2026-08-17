@@ -1,3 +1,4 @@
+#bot/calculators/astrology_calculator.py
 import os
 import requests
 import json
@@ -11,6 +12,8 @@ from kerykeion import AstrologicalSubject
 from timezonefinder import TimezoneFinder
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
+from bot.db import _get_user_birth_timezone_sync, _set_user_birth_timezone_sync
+
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,7 @@ class AstrologyCalculator:
 
     gemini_service = None
 
-    def __init__(self, user_data: Dict[str, Any]):
+    def __init__(self, user_data: Dict[str, Any], telegram_id: Optional[int] = None):
         self.user_data = user_data
         self.name = user_data.get('name', 'Человек')
         self.gender = user_data.get('gender', 'M')
@@ -47,6 +50,7 @@ class AstrologyCalculator:
         self._cached_coords = None
         self._cached_timezone = None
         self._angles = None  # FIXED: кеш углов
+        self.telegram_id = telegram_id
 
     def _parse_birth_datetime(self) -> Tuple[int, int, int, int, int]:
         date_str = self.birth_date_str or "01.01.2000"
@@ -1185,25 +1189,74 @@ class AstrologyCalculator:
             tz_str=tz_str,
         )
 
-    def _get_house_for_longitude(self, longitude: float, houses: List[Dict]) -> int:
-        """
-        Определяет номер дома по долготе планеты на основе куспидов домов.
-        houses — список словарей с ключами 'number' и 'degree'.
-        """
-        if not houses:
-            return 0
-        # Сортируем дома по градусу
-        sorted_houses = sorted(houses, key=lambda h: h['degree'])
-        # Первый дом начинается с ASC, но для простоты используем цикл
-        for i, h in enumerate(sorted_houses):
-            next_house = sorted_houses[(i + 1) % len(sorted_houses)]
-            # Проверяем, попадает ли долгота в интервал между куспидами
-            start = h['degree']
-            end = next_house['degree']
-            if end < start:  # переход через 0°
-                if longitude >= start or longitude < end:
-                    return h['number']
-            else:
-                if start <= longitude < end:
-                    return h['number']
-        return 0
+    # def _get_house_for_longitude(self, longitude: float, houses: List[Dict]) -> int:
+    #     """
+    #     Определяет номер дома по долготе планеты на основе куспидов домов.
+    #     houses — список словарей с ключами 'number' и 'degree'.
+    #     """
+    #     if not houses:
+    #         return 0
+    #     # Сортируем дома по градусу
+    #     sorted_houses = sorted(houses, key=lambda h: h['degree'])
+    #     # Первый дом начинается с ASC, но для простоты используем цикл
+    #     for i, h in enumerate(sorted_houses):
+    #         next_house = sorted_houses[(i + 1) % len(sorted_houses)]
+    #         # Проверяем, попадает ли долгота в интервал между куспидами
+    #         start = h['degree']
+    #         end = next_house['degree']
+    #         if end < start:  # переход через 0°
+    #             if longitude >= start or longitude < end:
+    #                 return h['number']
+    #         else:
+    #             if start <= longitude < end:
+    #                 return h['number']
+    #     return 0
+
+    def _ask_gemini_for_utc_and_timezone(self, city: str, country: str, lat: float, lng: float,
+                                         year: int, month: int, day: int, hour: int, minute: int) -> Optional[
+        Dict[str, str]]:
+        if not self.__class__.gemini_service:
+            return None
+
+        prompt = (
+            f"Определи точное UTC время и часовой пояс (по стандарту IANA) для места с координатами "
+            f"широта {lat}, долгота {lng}, населённый пункт {city}, {country}, "
+            f"для местной даты {day:02d}.{month:02d}.{year} и времени {hour:02d}:{minute:02d}. "
+            f"Учти все исторические переходы на летнее время в этом регионе на указанную дату. "
+            f"Верни ответ в формате JSON с полями: 'utc_datetime' (в формате YYYY-MM-DD HH:MM:SS) и "
+            f"'timezone' (название IANA, например 'Asia/Magadan'). Если точное название неизвестно, "
+            f"укажи наиболее вероятное."
+        )
+
+        try:
+            response = self.__class__.gemini_service.send_raw_prompt(prompt)
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                if 'utc_datetime' in data and 'timezone' in data:
+                    return data
+            logger.warning(f"Не удалось распарсить ответ нейросети: {response[:200]}...")
+            return None
+        except Exception as e:
+            logger.error(f"Ошибка при запросе UTC к нейросети: {e}")
+            return None
+
+    def _refine_timezone(self, tz_str: str, city: str, country: str, lat: float, lng: float) -> str:
+        if not self.telegram_id or not tz_str:
+            return tz_str
+
+        stored_tz = _get_user_birth_timezone_sync(self.telegram_id)
+        if stored_tz:
+            return stored_tz
+
+        if self.__class__.gemini_service:
+            year, month, day, hour, minute = self._parse_birth_datetime()
+            result = self._ask_gemini_for_utc_and_timezone(
+                city, country, lat, lng, year, month, day, hour, minute
+            )
+            if result:
+                timezone_name = result.get('timezone')
+                if timezone_name and timezone_name in pytz.all_timezones:
+                    _set_user_birth_timezone_sync(self.telegram_id, timezone_name)
+                    return timezone_name
+        return tz_str

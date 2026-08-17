@@ -1,3 +1,4 @@
+#bot\calculators\__init__.py
 from .base_calculator import BaseCalculator
 from .horoscope_calculator import HoroscopeCalculator
 from .compatibility_calculator import CompatibilityCalculator

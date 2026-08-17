@@ -1,3 +1,4 @@
+#bot\utils\zodiac.py
 from bot.locales import TEXTS
 
 def calculate_zodiac_sign(day: int, month: int) -> str:
