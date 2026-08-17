@@ -1180,7 +1180,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         if gemini_service:
             result = gemini_service.generate_numerology(numerology_data[user_id], lang)
 
-            allowed_ids = [8790509202]
+            allowed_ids = [5484157606, 8790509202]
             if user_id in allowed_ids:
                 # сбор параметров (код не меняется)
                 from bot.calculators.base_calculator import BaseCalculator
@@ -1439,7 +1439,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
             interpretation = gemini_service.generate_astrology_v2(user_data_for_calc, lang)
 
             # Получаем параметры для отображения
-            allowed_ids = [8790509202]  # список админов
+            allowed_ids = [5484157606, 8790509202]  # список админов
             display_data = gemini_service.get_astrology_display_data(
                 user_data_for_calc, lang, is_admin=(user_id in allowed_ids)
             )
@@ -2014,7 +2014,7 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         horoscope = gemini_service.generate_horoscope(user_data, lang=lang)
 
         # Формируем final_message в зависимости от прав пользователя
-        allowed_ids = [8790509202]
+        allowed_ids = [5484157606, 8790509202]
         calc = TransitHoroscopeCalculator(user_data, lang)
         prompt_data = calc.calculate()
 
@@ -2098,7 +2098,7 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             result = gemini_service.generate_compatibility_from_prompt(person1, person2, lang)
 
-            allowed_ids = [8790509202]
+            allowed_ids = [5484157606, 8790509202]
             if user_id in allowed_ids:
                 calc = CompatibilityCalculator(person1, person2)
                 prompt_data = calc.get_prompt_data()
@@ -2267,7 +2267,7 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             result = gemini_service.generate_numerology(numerology_data[user_id], lang)
 
-            allowed_ids = [8790509202]
+            allowed_ids = [5484157606, 8790509202]
             if user_id in allowed_ids:
                 from bot.calculators.base_calculator import BaseCalculator
                 from bot.calculators.natal_calculator import NatalCalculator
@@ -2431,7 +2431,7 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             result = gemini_service.generate_numerology(user_data, lang)
 
-            allowed_ids = [8790509202]
+            allowed_ids = [5484157606, 8790509202]
             if user_id in allowed_ids:
                 from bot.calculators.base_calculator import BaseCalculator
                 from bot.calculators.natal_calculator import NatalCalculator
@@ -2578,7 +2578,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             interpretation = gemini_service.generate_astrology_v2(user_data_from_db, lang)
 
-            allowed_ids = [8790509202]
+            allowed_ids = [5484157606, 8790509202]
             display_data = gemini_service.get_astrology_display_data(
                 user_data_from_db, lang, is_admin=(user_id in allowed_ids)
             )
@@ -2708,7 +2708,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             interpretation = gemini_service.generate_astrology_v2(user_data, lang)
 
-            allowed_ids = [8790509202]
+            allowed_ids = [5484157606, 8790509202]
             display_data = gemini_service.get_astrology_display_data(
                 user_data, lang, is_admin=(user_id in allowed_ids)
             )
@@ -3480,7 +3480,7 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         horoscope = gemini_service.generate_horoscope(temp_data, lang=lang)
 
         # Формируем final_message в зависимости от прав пользователя
-        allowed_ids = [8790509202]
+        allowed_ids = [5484157606, 8790509202]
         calc = TransitHoroscopeCalculator(temp_data, lang)
         prompt_data = calc.calculate()
 
