@@ -1,9 +1,12 @@
+#bot/db.py
 import os
 import django
 from datetime import datetime, timedelta
 from django.utils import timezone
 from asgiref.sync import sync_to_async
 import logging
+from typing import Optional
+from decimal import Decimal
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()
