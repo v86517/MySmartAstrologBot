@@ -1,3 +1,4 @@
+#core/models.py
 from django.db import models
 from django.utils import timezone
 
@@ -27,6 +28,7 @@ class User(models.Model):
     date_of_birth = models.DateField(null=True, blank=True)
     birth_time = models.TimeField(null=True, blank=True)
     birth_place = models.CharField(max_length=200, null=True, blank=True)
+    birth_timezone = models.CharField(max_length=50, null=True, blank=True)
     gender = models.CharField(max_length=1, choices=GENDER_CHOICES, null=True, blank=True)
     timezone_offset = models.IntegerField(default=3, choices=TIMEZONE_CHOICES)  # смещение в часах от UTC (1..12)
     zodiac_sign = models.CharField(max_length=20, null=True, blank=True)
