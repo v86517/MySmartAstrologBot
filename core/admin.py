@@ -27,12 +27,6 @@ class UserAdmin(admin.ModelAdmin):
     )
 
 
-@admin.register(ServicePrice)
-class ServicePriceAdmin(admin.ModelAdmin):
-    list_display = ('service', 'price', 'currency')
-    list_editable = ('price', 'currency')  # можно редактировать прямо в списке
-
-
 @admin.register(DailyUsage)
 class DailyUsageAdmin(admin.ModelAdmin):
     list_display = [
@@ -112,3 +106,10 @@ class PaymentAdmin(admin.ModelAdmin):
     def user_language(self, obj):
         return obj.user.get_language_display() or obj.user.language
     user_language.short_description = 'Язык'
+
+
+@admin.register(ServicePrice)
+class ServicePriceAdmin(admin.ModelAdmin):
+    list_display = ('service', 'price', 'currency')
+    list_editable = ('price', 'currency')  # можно редактировать прямо в списке
+    search_fields = ('service',)
