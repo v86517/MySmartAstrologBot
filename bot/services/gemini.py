@@ -1,3 +1,4 @@
+# bot/services/gemini.py
 import os
 import requests
 import json
@@ -183,11 +184,25 @@ class GeminiService:
 
     # ==================== НОВЫЙ МЕТОД ДЛЯ НАТАЛЬНОЙ КАРТЫ (JSON v2) ====================
 
-    def generate_astrology_v2(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
+    async def generate_astrology_v2(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
         """
         Генерирует интерпретацию натальной карты на основе JSON v2.
-        Использует AstrologyDataBuilder и новый промпт для натальной карты.
+        Если у пользователя включён режим эмуляции, возвращает промпт вместо отправки в LLM.
         """
+        from bot.db import get_emulation_mode
+
+        user_id = user_data.get('telegram_id') or user_data.get('user_id')
+        if user_id:
+            emulation = await get_emulation_mode(user_id)
+            if emulation:
+                # Строим промпт, но не отправляем в LLM
+                from bot.calculators.astrology_data_builder import AstrologyDataBuilder
+                builder = AstrologyDataBuilder(user_data, lang)
+                json_data = builder.build()
+                prompt = self._build_astrology_prompt(json_data, lang)
+                # Возвращаем промпт как результат
+                return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+
         self.user_data = user_data
         self.lang = lang
 
@@ -199,10 +214,9 @@ class GeminiService:
             prompt = self._build_astrology_prompt(json_data, lang)
             return self._send_prompt(prompt, lang)
         except Exception as e:
-            # Логируем полный traceback
+            import traceback
             logger.error(f"❌ Ошибка в generate_astrology_v2: {e}")
             logger.error(traceback.format_exc())
-            # Возвращаем сообщение об ошибке пользователю
             return f"❌ Произошла ошибка при построении натальной карты: {str(e)}"
 
     def _build_astrology_prompt(self, json_data: Dict[str, Any], lang: str) -> str:

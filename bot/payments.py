@@ -5,11 +5,10 @@ from datetime import datetime, timedelta
 from yookassa import Configuration, Payment
 from yookassa.domain.models import PaymentStatus
 
-from bot.db import activate_subscription_db, save_payment_db
+from bot.db import activate_subscription_db, save_payment_db, add_numerology_count, add_astrology_count
 
 logger = logging.getLogger(__name__)
 
-# Настройка ЮKassa
 SHOP_ID = os.getenv('YKASSA_SHOP_ID')
 SECRET_KEY = os.getenv('YKASSA_SECRET_KEY')
 
@@ -18,7 +17,7 @@ if SHOP_ID and SECRET_KEY:
     Configuration.secret_key = SECRET_KEY
 
 
-def create_subscription_payment(user_id: int, amount: float = 299.00) -> dict:
+def create_subscription_payment(user_id: int, amount: float) -> dict:
     """
     Создание платежа для подписки
     """
@@ -53,9 +52,9 @@ def create_subscription_payment(user_id: int, amount: float = 299.00) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def create_natal_payment(user_id: int, amount: float = 999.00) -> dict:
+def create_natal_payment(user_id: int, amount: float) -> dict:
     """
-    Создание платежа для натальной карты
+    Создание платежа для натальной карты (устаревший, используйте yookassa.create_payment)
     """
     try:
         payment = Payment.create({
@@ -121,7 +120,6 @@ async def handle_successful_payment(payment_id: str):
             logger.error(f"Не найден user_id в метаданных платежа {payment_id}")
             return False
 
-        # Сохраняем платеж в БД
         await save_payment_db(
             user_id=user_id,
             payment_id=payment_id,
@@ -130,14 +128,20 @@ async def handle_successful_payment(payment_id: str):
             status='success'
         )
 
-        # Активируем подписку или натальную карту
         if payment_type == 'subscription':
             await activate_subscription_db(user_id, days=30)
             logger.info(f"✅ Подписка активирована для пользователя {user_id}")
         elif payment_type == 'natal_chart':
-            # Добавляем 1 натальную карту
-            await add_natal_chart_db(user_id)
+            # Добавляем 1 натальную карту (устаревший тип)
+            # Теперь используются numerology и astrology
+            await add_numerology_count(user_id, 1)  # или add_astrology_count? Но оставим для совместимости
             logger.info(f"✅ Натальная карта активирована для пользователя {user_id}")
+        elif payment_type == 'numerology':
+            await add_numerology_count(user_id, 1)
+            logger.info(f"✅ Нумерология добавлена для пользователя {user_id}")
+        elif payment_type == 'astrology':
+            await add_astrology_count(user_id, 1)
+            logger.info(f"✅ Астрология добавлена для пользователя {user_id}")
 
         return True
 

@@ -1180,8 +1180,9 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         if gemini_service:
             result = gemini_service.generate_numerology(numerology_data[user_id], lang)
 
-            allowed_ids = [5484157606, 8790509202]
-            if user_id in allowed_ids:
+            from bot.db import is_user_admin
+
+            if await is_user_admin(user_id):
                 # сбор параметров (код не меняется)
                 from bot.calculators.base_calculator import BaseCalculator
                 from bot.calculators.natal_calculator import NatalCalculator
@@ -1436,15 +1437,19 @@ async def process_astrology_gender(message: Message, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            interpretation = gemini_service.generate_astrology_v2(user_data_for_calc, lang)
+            # Добавляем telegram_id для проверки эмуляции
+            user_data_for_calc['telegram_id'] = user_id
+            interpretation = await gemini_service.generate_astrology_v2(user_data_for_calc, lang)
 
-            # Получаем параметры для отображения
-            allowed_ids = [5484157606, 8790509202]  # список админов
+            # Проверяем, администратор ли пользователь
+            from bot.db import is_user_admin
+            is_admin = await is_user_admin(user_id)
+
             display_data = gemini_service.get_astrology_display_data(
-                user_data_for_calc, lang, is_admin=(user_id in allowed_ids)
+                user_data_for_calc, lang, is_admin=is_admin
             )
 
-            if user_id in allowed_ids:
+            if is_admin:
                 final_message = display_data['full'] + "\n\n" + interpretation
             else:
                 final_message = display_data['basic'] + "\n\n" + interpretation
@@ -2014,11 +2019,12 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         horoscope = gemini_service.generate_horoscope(user_data, lang=lang)
 
         # Формируем final_message в зависимости от прав пользователя
-        allowed_ids = [5484157606, 8790509202]
+        from bot.db import is_user_admin
+
         calc = TransitHoroscopeCalculator(user_data, lang)
         prompt_data = calc.calculate()
 
-        if user_id in allowed_ids:
+        if await is_user_admin(user_id):
             parameters_text = format_parameters(prompt_data, 'horoscope', lang)
             final_message = f"{parameters_text}\n\n{horoscope}"
         else:
@@ -2098,8 +2104,9 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             result = gemini_service.generate_compatibility_from_prompt(person1, person2, lang)
 
-            allowed_ids = [5484157606, 8790509202]
-            if user_id in allowed_ids:
+            from bot.db import is_user_admin
+
+            if await is_user_admin(user_id):
                 calc = CompatibilityCalculator(person1, person2)
                 prompt_data = calc.get_prompt_data()
                 parameters_text = format_parameters(prompt_data, 'compatibility', lang)
@@ -2267,8 +2274,9 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             result = gemini_service.generate_numerology(numerology_data[user_id], lang)
 
-            allowed_ids = [5484157606, 8790509202]
-            if user_id in allowed_ids:
+            from bot.db import is_user_admin
+
+            if await is_user_admin(user_id):
                 from bot.calculators.base_calculator import BaseCalculator
                 from bot.calculators.natal_calculator import NatalCalculator
                 calc = BaseCalculator()
@@ -2366,15 +2374,21 @@ async def numerology_payment(callback: CallbackQuery, state: FSMContext):
         )
         return
 
+    # Получаем цену из БД
+    from bot.db import get_service_price
+    price = await get_service_price('numerology')
+    if price is None:
+        price = 888.00  # запасное значение
+
     result = yookassa.create_payment(
         user_id=user_id,
-        amount=12.00, #amount=888.00,
+        amount=float(price),
         description=f"Нумерология (ID: {user_id})",
         payment_type='numerology'
     )
 
     if result['success']:
-        await save_payment_db(user_id, result['payment_id'], 888.00, 'numerology', 'pending')
+        await save_payment_db(user_id, result['payment_id'], float(price), 'numerology', 'pending')
         await state.update_data(payment_id=result['payment_id'], numerology_paid=True)
 
         await callback.message.answer(
@@ -2431,8 +2445,9 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         if gemini_service:
             result = gemini_service.generate_numerology(user_data, lang)
 
-            allowed_ids = [5484157606, 8790509202]
-            if user_id in allowed_ids:
+            from bot.db import is_user_admin
+
+            if await is_user_admin(user_id):
                 from bot.calculators.base_calculator import BaseCalculator
                 from bot.calculators.natal_calculator import NatalCalculator
                 calc = BaseCalculator()
@@ -2576,14 +2591,18 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            interpretation = gemini_service.generate_astrology_v2(user_data_from_db, lang)
+            # Добавляем telegram_id для проверки эмуляции
+            user_data_from_db['telegram_id'] = user_id
+            interpretation = await gemini_service.generate_astrology_v2(user_data_from_db, lang)
 
-            allowed_ids = [5484157606, 8790509202]
+            from bot.db import is_user_admin
+            is_admin = await is_user_admin(user_id)
+
             display_data = gemini_service.get_astrology_display_data(
-                user_data_from_db, lang, is_admin=(user_id in allowed_ids)
+                user_data_from_db, lang, is_admin=is_admin
             )
 
-            if user_id in allowed_ids:
+            if is_admin:
                 final_message = display_data['full'] + "\n\n" + interpretation
             else:
                 final_message = display_data['basic'] + "\n\n" + interpretation
@@ -2642,15 +2661,21 @@ async def astrology_payment(callback: CallbackQuery, state: FSMContext):
         )
         return
 
+    # Получаем цену из БД
+    from bot.db import get_service_price
+    price = await get_service_price('astrology')
+    if price is None:
+        price = 999.00  # запасное значение
+
     result = yookassa.create_payment(
         user_id=user_id,
-        amount=13.00, #amount=999.00,
+        amount=float(price),
         description=f"Астрология (ID: {user_id})",
         payment_type='astrology'
     )
 
     if result['success']:
-        await save_payment_db(user_id, result['payment_id'], 999.00, 'astrology', 'pending')
+        await save_payment_db(user_id, result['payment_id'], float(price), 'astrology', 'pending')
         await state.update_data(payment_id=result['payment_id'], astrology_paid=True)
 
         await callback.message.answer(
@@ -2706,14 +2731,18 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         await asyncio.sleep(2)
 
         if gemini_service:
-            interpretation = gemini_service.generate_astrology_v2(user_data, lang)
+            # Добавляем telegram_id для проверки эмуляции
+            user_data['telegram_id'] = user_id
+            interpretation = await gemini_service.generate_astrology_v2(user_data, lang)
 
-            allowed_ids = [5484157606, 8790509202]
+            from bot.db import is_user_admin
+            is_admin = await is_user_admin(user_id)
+
             display_data = gemini_service.get_astrology_display_data(
-                user_data, lang, is_admin=(user_id in allowed_ids)
+                user_data, lang, is_admin=is_admin
             )
 
-            if user_id in allowed_ids:
+            if is_admin:
                 final_message = display_data['full'] + "\n\n" + interpretation
             else:
                 final_message = display_data['basic'] + "\n\n" + interpretation
@@ -3346,15 +3375,21 @@ async def process_timezone(callback: CallbackQuery, state: FSMContext):
             await state.clear()
             return
 
+        # Получаем цену из БД
+        from bot.db import get_service_price
+        price = await get_service_price('subscription')
+        if price is None:
+            price = 333.00  # запасное значение
+
         result = yookassa.create_payment(
             user_id=user_id,
-            amount=333.00,
+            amount=float(price),
             description=f"Подписка на астробота (ID: {user_id})",
             payment_type='subscription'
         )
 
         if result['success']:
-            await save_payment_db(user_id, result['payment_id'], 333.00, 'subscription', 'pending')
+            await save_payment_db(user_id, result['payment_id'], float(price), 'subscription', 'pending')
             await state.clear()
             await callback.message.delete()
             await callback.message.answer(
@@ -3480,11 +3515,12 @@ async def dont_save_data(callback: CallbackQuery, state: FSMContext):
         horoscope = gemini_service.generate_horoscope(temp_data, lang=lang)
 
         # Формируем final_message в зависимости от прав пользователя
-        allowed_ids = [5484157606, 8790509202]
+        from bot.db import is_user_admin
+
         calc = TransitHoroscopeCalculator(temp_data, lang)
         prompt_data = calc.calculate()
 
-        if user_id in allowed_ids:
+        if await is_user_admin(user_id):
             parameters_text = format_parameters(prompt_data, 'horoscope', lang)
             final_message = f"{parameters_text}\n\n{horoscope}"
         else:

@@ -1,3 +1,4 @@
+#bot/yookassa_client.py
 import os
 import uuid
 import logging

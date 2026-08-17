@@ -1,5 +1,7 @@
+# core/admin.py
+
 from django.contrib import admin
-from .models import User, DailyUsage, UserMessage, Payment
+from .models import User, DailyUsage, UserMessage, Payment, ServicePrice
 
 
 @admin.register(User)
@@ -7,16 +9,28 @@ class UserAdmin(admin.ModelAdmin):
     list_display = [
         'telegram_id', 'username', 'name', 'zodiac_sign',
         'numerology_count', 'astrology_count',
-        'is_subscribed', 'timezone_offset', 'language', 'created_at'
+        'is_subscribed', 'timezone_offset', 'language',
+        'is_admin', 'emulation_mode',  # новые поля
+        'created_at'
+    ]
+    list_filter = [
+        'is_subscribed', 'zodiac_sign', 'gender',
+        'timezone_offset', 'language', 'is_admin', 'emulation_mode'
     ]
     search_fields = ['telegram_id', 'username', 'name']
-    list_filter = ['is_subscribed', 'zodiac_sign', 'gender', 'timezone_offset', 'language']
     readonly_fields = ('created_at', 'updated_at')
     fieldsets = (
         (None, {'fields': ('telegram_id', 'username', 'first_name', 'last_name')}),
         ('Личные данные', {'fields': ('name', 'date_of_birth', 'birth_time', 'birth_place', 'gender', 'zodiac_sign')}),
         ('Статусы', {'fields': ('is_subscribed', 'subscription_until', 'numerology_count', 'astrology_count', 'timezone_offset', 'language')}),
+        ('Администрирование', {'fields': ('is_admin', 'emulation_mode')}),  # новая секция
     )
+
+
+@admin.register(ServicePrice)
+class ServicePriceAdmin(admin.ModelAdmin):
+    list_display = ('service', 'price', 'currency')
+    list_editable = ('price', 'currency')  # можно редактировать прямо в списке
 
 
 @admin.register(DailyUsage)

@@ -273,6 +273,52 @@ def _get_user_language(telegram_id):
         return 'ru'
 
 
+# ---------- АДМИНИСТРИРОВАНИЕ ----------
+
+def _is_user_admin(telegram_id):
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        return user.is_admin
+    except User.DoesNotExist:
+        return False
+
+def _set_user_admin(telegram_id, is_admin=True):
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        user.is_admin = is_admin
+        user.save()
+        return True
+    except User.DoesNotExist:
+        return False
+
+def _get_emulation_mode(telegram_id):
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        return user.emulation_mode
+    except User.DoesNotExist:
+        return False
+
+# ---------- ЦЕНЫ ----------
+
+def _get_service_price(service: str) -> Optional[Decimal]:
+    try:
+        price_obj = ServicePrice.objects.get(service=service)
+        return price_obj.price
+    except ServicePrice.DoesNotExist:
+        return None
+
+def _set_service_price(service: str, price: float, currency: str = 'RUB') -> bool:
+    try:
+        price_obj, created = ServicePrice.objects.update_or_create(
+            service=service,
+            defaults={'price': price, 'currency': currency}
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка установки цены: {e}")
+        return False
+
+
 # ==================== АСИНХРОННЫЕ ОБЁРТКИ ====================
 
 get_or_create_user = sync_to_async(_get_or_create_user)
@@ -292,3 +338,8 @@ get_numerology_count = sync_to_async(_get_numerology_count)
 get_astrology_count = sync_to_async(_get_astrology_count)
 get_all_subscribed_users = sync_to_async(_get_all_subscribed_users)
 get_user_language = sync_to_async(_get_user_language)
+is_user_admin = sync_to_async(_is_user_admin)
+set_user_admin = sync_to_async(_set_user_admin)
+get_emulation_mode = sync_to_async(_get_emulation_mode)
+get_service_price = sync_to_async(_get_service_price)
+set_service_price = sync_to_async(_set_service_price)
