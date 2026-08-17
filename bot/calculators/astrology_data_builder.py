@@ -39,14 +39,15 @@ class AstrologyDataBuilder:
         }
 
     def build(self) -> Dict[str, Any]:
-        chart = self.chart
+        chart = self.chart  # уже вычислен
+        metadata = self._build_metadata()
+        metadata.update({
+            "timezone": chart.get('timezone'),
+            "location": chart.get('location'),
+            "utc_datetime": chart.get('utc_datetime'),
+        })
         return {
-            "metadata": {
-                **self._build_metadata(),
-                "timezone": chart.get('timezone', 'Unknown'),
-                "utc_datetime": chart.get('utc_datetime', 'Unknown'),
-                "location": chart.get('location', {"lat": 0.0, "lng": 0.0}),
-            },
+            "metadata": metadata,
             "natal": {
                 "planets": self._build_natal_planets(),
                 "houses": self._build_natal_houses(),
@@ -61,7 +62,7 @@ class AstrologyDataBuilder:
                 "angle_aspects": self._build_angle_aspects(),
                 "patterns": self._build_patterns(),
                 "summary": self._build_summary(),
-                "angles": chart.get('angles', {}),
+                "angles": self.chart.get('angles', {}),
             },
             "transits": self._build_transits(),
             "progressions": self._build_progressions(),

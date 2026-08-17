@@ -463,7 +463,10 @@ class GeminiService:
         Возвращает словарь с ключами 'basic' и 'full'.
         """
         import logging
+        import pytz
+        from datetime import datetime
         logger = logging.getLogger(__name__)
+
         try:
             from bot.calculators.astrology_data_builder import AstrologyDataBuilder
             from bot.locales import TEXTS
@@ -489,8 +492,28 @@ class GeminiService:
                 elif p.get('name') == 'Moon':
                     moon = p
 
+            # ---- Асцендент ----
+            angles = natal.get('angles', {})
+            asc_deg = angles.get('ASC', 0.0)
+            # Определяем знак по градусу (упрощённо) или берём из куспидов
             houses = natal.get('houses', [])
-            asc = houses[0].get('sign', 'Unknown') if houses else 'Unknown'
+            asc_sign = houses[0].get('sign', 'Unknown') if houses else 'Unknown'
+            # Если asc_sign == 'Unknown', вычисляем по градусу
+            if asc_sign == 'Unknown' and asc_deg != 0.0:
+                # Определяем знак по градусу (0-30 Овен, 30-60 Телец и т.д.)
+                from bot.utils.zodiac import calculate_zodiac_sign
+                # Грубо переводим долготу в знак (можно было бы через библиотеку, но для отображения подойдёт)
+                sign_degrees = [
+                    (0, 'Ari'), (30, 'Tau'), (60, 'Gem'), (90, 'Can'),
+                    (120, 'Leo'), (150, 'Vir'), (180, 'Lib'), (210, 'Sco'),
+                    (240, 'Sag'), (270, 'Cap'), (300, 'Aqu'), (330, 'Pis')
+                ]
+                for deg, sign in sign_degrees:
+                    if asc_deg >= deg and asc_deg < deg + 30:
+                        asc_sign = sign
+                        break
+                if asc_sign == 'Unknown':
+                    asc_sign = 'Unknown'
 
             # ---- Локализация пола ----
             gender_text = user_data.get('gender', 'M')
@@ -509,14 +532,29 @@ class GeminiService:
             birth_date = user_data.get('birth_date', '')
             birth_time = user_data.get('birth_time', '00:00')
             local_time = f"{birth_date} {birth_time}" if birth_date else 'Unknown'
-            timezone = metadata.get('timezone', 'Unknown')
-            utc_time = metadata.get('utc_datetime', 'Unknown')
 
-            # ---- Асцендент ----
-            houses = natal.get('houses', [])
-            asc = houses[0].get('cusp', 'Unknown') if houses else 'Unknown'
+            timezone = metadata.get('timezone', '')
+            utc_datetime = metadata.get('utc_datetime', '')
 
-            # ---- Базовые параметры (для всех пользователей) ----
+            # ---- Вычисляем UTC, если не передан ----
+            if utc_datetime and utc_datetime != 'Unknown':
+                utc_str = utc_datetime
+            else:
+                # Попробуем вычислить самостоятельно
+                try:
+                    if timezone and birth_date:
+                        local_dt = datetime.strptime(f"{birth_date} {birth_time}", "%d.%m.%Y %H:%M")
+                        tz = pytz.timezone(timezone)
+                        localized = tz.localize(local_dt, is_dst=None)
+                        utc_dt = localized.astimezone(pytz.UTC)
+                        utc_str = utc_dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+                    else:
+                        utc_str = 'Unknown'
+                except Exception as e:
+                    logger.warning(f"Ошибка вычисления UTC: {e}")
+                    utc_str = 'Unknown'
+
+            # ---- Формирование базовых параметров ----
             if lang == 'en':
                 basic_params = (
                     f"🌙 Your astrological analysis\n\n"
@@ -524,14 +562,14 @@ class GeminiService:
                     f"{texts.get('astro_name', '👤 Name')}: {user_data.get('name', '')}\n"
                     f"{texts.get('astro_gender', '⚥ Gender')}: {gender_display}\n"
                     f"{texts.get('astro_local_time', '📅 Local time')}: {local_time}\n"
-                    f"{texts.get('astro_timezone', '🕒 Timezone')}: {timezone}\n"
-                    f"{texts.get('astro_utc_time', '🕒 UTC time')}: {utc_time}\n"
+                    f"{texts.get('astro_timezone', '🕒 Timezone')}: {timezone or 'Unknown'}\n"
+                    f"{texts.get('astro_utc_time', '🕒 UTC time')}: {utc_str}\n"
                     f"{texts.get('astro_place', '📍 Place')}: {user_data.get('birth_place', '')}\n"
                     f"{texts.get('astro_coordinates', '🌐 Coordinates')}: {lat:.4f}, {lng:.4f}\n"
                     f"━━━━━━━━━━━━━━━━━━━━━\n"
                     f"{texts.get('astro_sun', '☀️ Sun')}: {sun.get('sign', 'Unknown')}\n"
                     f"{texts.get('astro_moon', '🌙 Moon')}: {moon.get('sign', 'Unknown')}\n"
-                    f"{texts.get('astro_ascendant', '⬆️ Ascendant')}: {asc}"
+                    f"{texts.get('astro_ascendant', '⬆️ Ascendant')}: {asc_sign}"
                 )
             else:
                 basic_params = (
@@ -540,14 +578,14 @@ class GeminiService:
                     f"{texts.get('astro_name', '👤 Имя')}: {user_data.get('name', '')}\n"
                     f"{texts.get('astro_gender', '⚥ Пол')}: {gender_display}\n"
                     f"{texts.get('astro_local_time', '📅 Локальное время')}: {local_time}\n"
-                    f"{texts.get('astro_timezone', '🕒 Часовой пояс')}: {timezone}\n"
-                    f"{texts.get('astro_utc_time', '🕒 Время UTC')}: {utc_time}\n"
+                    f"{texts.get('astro_timezone', '🕒 Часовой пояс')}: {timezone or 'Unknown'}\n"
+                    f"{texts.get('astro_utc_time', '🕒 Время UTC')}: {utc_str}\n"
                     f"{texts.get('astro_place', '📍 Место')}: {user_data.get('birth_place', '')}\n"
                     f"{texts.get('astro_coordinates', '🌐 Координаты')}: {lat:.4f}, {lng:.4f}\n"
                     f"━━━━━━━━━━━━━━━━━━━━━\n"
                     f"{texts.get('astro_sun', '☀️ Солнце')}: {sun.get('sign', 'Неизвестно')}\n"
                     f"{texts.get('astro_moon', '🌙 Луна')}: {moon.get('sign', 'Неизвестно')}\n"
-                    f"{texts.get('astro_ascendant', '⬆️ Асцендент')}: {asc}"
+                    f"{texts.get('astro_ascendant', '⬆️ Асцендент')}: {asc_sign}"
                 )
 
             # ---- Полные параметры (только для администраторов) ----
