@@ -13,6 +13,9 @@ class User(models.Model):
         ('en', 'English'),
     ]
 
+    is_admin = models.BooleanField(default=False)
+    emulation_mode = models.BooleanField(default=False)
+
     TIMEZONE_CHOICES = [(i, f'UTC+{i}') for i in range(1, 13)]
 
     telegram_id = models.BigIntegerField(unique=True, db_index=True)
@@ -117,3 +120,29 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.payment_type} - {self.amount}₽"
+
+
+class ServicePrice(models.Model):
+    """
+    Цены на услуги.
+    """
+    SERVICE_CHOICES = [
+        ('horoscope', 'Гороскоп'),
+        ('compatibility', 'Совместимость'),
+        ('numerology', 'Нумерология'),
+        ('astrology', 'Астрология'),
+        ('subscription', 'Подписка'),
+        ('expert', 'Экспертный разбор'),
+    ]
+
+    service = models.CharField(max_length=20, choices=SERVICE_CHOICES, unique=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=3, default='RUB')
+
+    class Meta:
+        db_table = 'service_prices'
+        verbose_name = 'Цена услуги'
+        verbose_name_plural = 'Цены услуг'
+
+    def __str__(self):
+        return f"{self.get_service_display()}: {self.price} {self.currency}"
