@@ -512,6 +512,10 @@ class GeminiService:
             timezone = metadata.get('timezone', 'Unknown')
             utc_time = metadata.get('utc_datetime', 'Unknown')
 
+            # ---- Асцендент ----
+            houses = natal.get('houses', [])
+            asc = houses[0].get('cusp', 'Unknown') if houses else 'Unknown'
+
             # ---- Базовые параметры (для всех пользователей) ----
             if lang == 'en':
                 basic_params = (

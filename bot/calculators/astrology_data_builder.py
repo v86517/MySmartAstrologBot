@@ -39,8 +39,14 @@ class AstrologyDataBuilder:
         }
 
     def build(self) -> Dict[str, Any]:
+        chart = self.chart
         return {
-            "metadata": self._build_metadata(),
+            "metadata": {
+                **self._build_metadata(),
+                "timezone": chart.get('timezone', 'Unknown'),
+                "utc_datetime": chart.get('utc_datetime', 'Unknown'),
+                "location": chart.get('location', {"lat": 0.0, "lng": 0.0}),
+            },
             "natal": {
                 "planets": self._build_natal_planets(),
                 "houses": self._build_natal_houses(),
@@ -55,7 +61,7 @@ class AstrologyDataBuilder:
                 "angle_aspects": self._build_angle_aspects(),
                 "patterns": self._build_patterns(),
                 "summary": self._build_summary(),
-                "angles": self.chart.get('angles', {}),  # <-- берём из уже вычисленного chart
+                "angles": chart.get('angles', {}),
             },
             "transits": self._build_transits(),
             "progressions": self._build_progressions(),
@@ -247,7 +253,7 @@ class AstrologyDataBuilder:
             ruler = self._get_house_ruler(sign)
             houses.append({
                 "number": number,
-                "cusp": sign,
+                "cusp": sign,  # <-- это знак куспида
                 "cusp_degree": round(degree, 2),
                 "ruler": ruler,
                 "ruler_sign": self._get_planet_sign(ruler),
