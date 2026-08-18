@@ -228,37 +228,83 @@ class GeminiService:
     # ---- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ПОДГОТОВКИ ЗАМЕН ----
 
     def _prepare_horoscope_replacements(self, natal_data: Dict, transit_data: Dict, lang: str) -> Dict[str, str]:
-        """Подготавливает замены для промпта гороскопа."""
-        # Извлекаем базовые данные пользователя из метаданных
+        """Подготавливает замены для промпта гороскопа (все плейсхолдеры)."""
+        from datetime import datetime
+        from bot.utils.zodiac import get_zodiac_sign_localized
+
+        # Извлекаем базовые данные
         meta = natal_data.get('metadata', {})
         user_data = self.user_data or {}
         name = user_data.get('name', 'Человек')
         gender = user_data.get('gender', 'M')
-        gender_text = "Мужчина" if gender == 'M' else "Женщина"
+        gender_text = "Мужчина" if gender == 'M' else "Женщина" if gender == 'F' else "Не указан"
         birth_date = user_data.get('birth_date', 'не указана')
         birth_time = user_data.get('birth_time', 'не указано')
         birth_place = user_data.get('birth_place', 'не указано')
-        target_date = transit_data.get('target_date', datetime.now().strftime('%d.%m.%Y'))
+        forecast_date = transit_data.get('target_date', datetime.now().strftime('%d.%m.%Y'))
 
         # Натальные секции
         natal = natal_data.get('natal', {})
-        planets_table = self._format_planets_table(natal.get('planets', []))
-        cusps = self._format_cusps(natal.get('houses', []))
-        house_rulers = self._format_house_rulers(natal.get('house_rulers', []))
-        natal_aspects = self._format_aspects(natal.get('aspects', []))
-        themes_with_evidence = self._format_themes(natal.get('themes', {}))
+        planets = natal.get('planets', [])
+        houses = natal.get('houses', [])
+        rulers = natal.get('house_rulers', [])
+        aspects = natal.get('aspects', [])
+        themes = natal.get('themes', {})
+        angles = natal.get('angles', {})
+
+        # Форматируем углы
+        angles_str = (
+            f"ASC: {angles.get('ASC', 0):.2f}°, "
+            f"MC: {angles.get('MC', 0):.2f}°, "
+            f"DSC: {angles.get('DSC', 0):.2f}°, "
+            f"IC: {angles.get('IC', 0):.2f}°"
+        ) if angles else "Нет данных об углах."
+
+        # Планеты (таблица)
+        planets_table = self._format_planets_table(planets)
+
+        # Куспиды домов
+        cusps_str = self._format_cusps(houses)
+
+        # Управители домов
+        house_rulers_str = self._format_house_rulers(rulers)
+
+        # Натальные аспекты
+        natal_aspects_str = self._format_aspects(aspects)
+
+        # Натальные темы
+        themes_str = self._format_themes(themes)
 
         # Транзитные секции
-        transit_planets = self._format_transit_planets(transit_data.get('transit_planets', []))
-        transit_aspects = self._format_transit_aspects(transit_data.get('transit_aspects', []))
-        transit_angle_aspects = self._format_transit_angle_aspects(transit_data.get('transit_angle_aspects', []))
-        transit_passes = self._format_transit_passes(transit_data.get('transit_passes', []))
-        transit_ingresses = self._format_transit_ingresses(transit_data.get('transit_ingresses', []))
-        transit_stations = self._format_transit_stations(transit_data.get('transit_stations', []))
-        active_periods = self._format_active_periods(transit_data.get('active_periods', []))
-        transit_themes = self._format_transit_themes(transit_data.get('transit_themes', {}))
+        transit_planets = transit_data.get('transit_planets', [])
+        transit_aspects = transit_data.get('transit_aspects', [])
+        transit_angle_aspects = transit_data.get('transit_angle_aspects', [])
+        transit_passes = transit_data.get('transit_passes', [])
+        transit_ingresses = transit_data.get('transit_ingresses', [])
+        transit_stations = transit_data.get('transit_stations', [])
+        active_periods = transit_data.get('active_periods', [])
+        transit_themes = transit_data.get('transit_themes', {})
 
-        # Дополнительно: метаданные
+        # Форматируем транзиты
+        transit_planets_str = self._format_transit_planets(transit_planets)
+        transit_aspects_str = self._format_transit_aspects(transit_aspects)
+        transit_angle_aspects_str = self._format_transit_angle_aspects(transit_angle_aspects)
+        transit_passes_str = self._format_transit_passes(transit_passes)
+        transit_ingresses_str = self._format_transit_ingresses(transit_ingresses)
+        transit_stations_str = self._format_transit_stations(transit_stations)
+        active_periods_str = self._format_active_periods(active_periods)
+        transit_themes_str = self._format_transit_themes(transit_themes)
+
+        # Timeline – собираем из транзитных аспектов с точными датами
+        timeline_items = []
+        for asp in transit_aspects:
+            if asp.get('exact_date'):
+                timeline_items.append(
+                    f"{asp['exact_date']}: {asp['transit_planet']} {asp['aspect']} {asp['natal_planet']}"
+                )
+        timeline_str = "\n".join(timeline_items[:10]) if timeline_items else "Нет значимых событий в ближайшее время."
+
+        # Метаданные
         settings = meta.get('settings', {})
         metadata_settings = (
             f"Зодиак: {settings.get('zodiac', 'tropical')}\n"
@@ -270,28 +316,33 @@ class GeminiService:
             f"Орбы аспектов: {settings.get('aspect_orb', {})}"
         )
 
-        return {
+        # Собираем финальный словарь (все ключи должны совпадать с плейсхолдерами в шаблоне)
+        replacements = {
             "person_name": name,
             "person_gender": gender_text,
             "birth_date": birth_date,
             "birth_time": birth_time,
             "birth_place": birth_place,
-            "target_date": target_date,
+            "forecast_date": forecast_date,
             "metadata_settings": metadata_settings,
             "planets_table": planets_table,
-            "cusps": cusps,
-            "house_rulers": house_rulers,
-            "natal_aspects": natal_aspects,
-            "themes_with_evidence": themes_with_evidence,
-            "transit_planets": transit_planets,
-            "transit_aspects": transit_aspects,
-            "transit_angle_aspects": transit_angle_aspects,
-            "transit_passes": transit_passes,
-            "transit_ingresses": transit_ingresses,
-            "transit_stations": transit_stations,
-            "active_periods": active_periods,
-            "transit_themes": transit_themes,
+            "angles": angles_str,
+            "cusps": cusps_str,
+            "house_rulers_list": house_rulers_str,
+            "natal_aspects_list": natal_aspects_str,
+            "themes_with_evidence": themes_str,
+            "transit_planets": transit_planets_str,
+            "transit_aspects_list": transit_aspects_str,
+            "transit_angle_aspects_list": transit_angle_aspects_str,
+            "transit_passes": transit_passes_str,
+            "transit_ingresses": transit_ingresses_str,
+            "transit_stations": transit_stations_str,
+            "active_periods": active_periods_str,
+            "transit_themes": transit_themes_str,
+            "timeline": timeline_str,
         }
+
+        return replacements
 
     def _prepare_compatibility_replacements(self, natal1: Dict, natal2: Dict, synastry_data: Dict, lang: str) -> Dict[str, str]:
         """Подготавливает замены для промпта совместимости."""
