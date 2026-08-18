@@ -2,6 +2,13 @@ import asyncio
 import logging
 import os
 from dotenv import load_dotenv
+
+# ==================== НАСТРОЙКА DJANGO ДО ИМПОРТА МОДЕЛЕЙ ====================
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
+import django
+django.setup()
+# ========================================================================
+
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
@@ -9,7 +16,6 @@ from bot.services.gemini import GeminiService
 from bot.calculators.astrology_calculator import AstrologyCalculator
 from bot.scheduler import setup_scheduler
 
-# Импортируем все роутеры
 from bot.handlers import (
     start_router,
     horoscope_router,
@@ -23,7 +29,6 @@ from bot.handlers import (
     common_router,
 )
 
-# Импортируем функции для передачи Gemini в модули, где он нужен
 from bot.handlers.horoscope import set_gemini_service as set_horoscope_gemini
 from bot.handlers.compatibility import set_gemini_service as set_compatibility_gemini
 from bot.handlers.numerology import set_gemini_service as set_numerology_gemini
@@ -54,14 +59,12 @@ try:
 except Exception as e:
     logger.error(f"❌ Ошибка инициализации Gemini: {e}")
 
-# Передаём Gemini в обработчики, которые его используют
 if gemini_service:
     set_horoscope_gemini(gemini_service)
     set_compatibility_gemini(gemini_service)
     set_numerology_gemini(gemini_service)
     set_astrology_gemini(gemini_service)
 
-# Подключаем все роутеры
 dp.include_router(start_router)
 dp.include_router(horoscope_router)
 dp.include_router(compatibility_router)
@@ -73,19 +76,15 @@ dp.include_router(archive_router)
 dp.include_router(expert_router)
 dp.include_router(common_router)
 
-
 async def main():
     logger.info("🚀 Запуск бота MySmartAstrologBot...")
     bot_info = await bot.get_me()
     logger.info(f"🤖 Бот @{bot_info.username} готов к работе!")
-
     if gemini_service:
         logger.info("✅ Gemini API готов к работе!")
     else:
         logger.warning("⚠️ Gemini API НЕ ДОСТУПЕН! Проверьте API ключ в .env")
-
     scheduler = setup_scheduler(bot)
-
     try:
         await dp.start_polling(bot)
     finally:

@@ -1,18 +1,13 @@
 #bot/db.py
-import os
-import django
 from datetime import datetime, timedelta
 from django.utils import timezone
 from asgiref.sync import sync_to_async
 import logging
 from typing import Optional
 from decimal import Decimal
+
+# Django уже настроен в main.py, поэтому просто импортируем модели
 from core.models import User, DailyUsage, UserMessage, Payment, ServicePrice
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
-django.setup()
-
-from core.models import User, DailyUsage, UserMessage, Payment
 
 logger = logging.getLogger(__name__)
 
