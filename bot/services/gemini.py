@@ -186,17 +186,18 @@ class GeminiService:
 
     # В bot/services/gemini.py
 
-    async def generate_horoscope_with_data(self, user_id: int, natal_data: Dict[str, Any],
-                                           transit_data: Dict[str, Any], lang: str) -> str:
+    async def generate_horoscope_with_data(self, user_id: int, user_data: Dict[str, Any],
+                                           natal_data: Dict[str, Any], transit_data: Dict[str, Any],
+                                           lang: str) -> str:
+        """Генерирует гороскоп на основе структурированных данных с поддержкой эмуляции."""
         from bot.db import get_emulation_mode
         emulation = await get_emulation_mode(user_id)
         template = self._load_prompt_template('prompt_horoscope_v2.txt')
         if not template:
             logger.error("Шаблон prompt_horoscope_v2.txt не найден, используем старый метод")
-            return self.generate_horoscope(self.user_data or {}, lang)
+            return self.generate_horoscope(user_data, lang)
 
-        replacements = self._prepare_horoscope_replacements(natal_data, transit_data, lang)
-        # Добавляем language_instruction в замены
+        replacements = self._prepare_horoscope_replacements(user_data, natal_data, transit_data, lang)
         if lang == 'en':
             replacements[
                 'language_instruction'] = "IMPORTANT: Respond in English only. All your output must be in English."
@@ -205,22 +206,25 @@ class GeminiService:
                 'language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь твой ответ должен быть на русском."
 
         prompt = self._replace_placeholders(template, replacements)
-        # НЕ вызываем _add_language_instruction
         if emulation:
             return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
         return self._send_prompt(prompt, lang)
 
-    async def generate_compatibility_with_data(self, user_id: int, natal1: Dict[str, Any],
-                                               natal2: Dict[str, Any], synastry_data: Dict[str, Any],
+    async def generate_compatibility_with_data(self, user_id: int, user_data_a: Dict[str, Any],
+                                               user_data_b: Dict[str, Any],
+                                               natal1: Dict[str, Any], natal2: Dict[str, Any],
+                                               synastry_data: Dict[str, Any],
                                                lang: str) -> str:
+        """Генерирует анализ совместимости с поддержкой эмуляции."""
         from bot.db import get_emulation_mode
         emulation = await get_emulation_mode(user_id)
         template = self._load_prompt_template('prompt_connect_v2.txt')
         if not template:
             logger.error("Шаблон prompt_connect_v2.txt не найден, используем старый метод")
-            return self.generate_compatibility_from_prompt({}, {}, lang)
+            return self.generate_compatibility_from_prompt(user_data_a, user_data_b, lang)
 
-        replacements = self._prepare_compatibility_replacements(natal1, natal2, synastry_data, lang)
+        replacements = self._prepare_compatibility_replacements(user_data_a, user_data_b,
+                                                                natal1, natal2, synastry_data, lang)
         if lang == 'en':
             replacements[
                 'language_instruction'] = "IMPORTANT: Respond in English only. All your output must be in English."
@@ -235,17 +239,19 @@ class GeminiService:
 
     # ---- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ПОДГОТОВКИ ЗАМЕН ----
 
-    def _prepare_horoscope_replacements(self, natal_data: Dict, transit_data: Dict, lang: str) -> Dict[str, str]:
-        """Подготавливает замены для промпта гороскопа (все плейсхолдеры)."""
+    def _prepare_horoscope_replacements(self, user_data: Dict, natal_data: Dict, transit_data: Dict, lang: str) -> Dict[
+        str, str]:
+        """Подготавливает замены для промпта гороскопа."""
         from datetime import datetime
         from bot.utils.zodiac import get_zodiac_sign_localized
 
-        # Извлекаем базовые данные
-        meta = natal_data.get('metadata', {})
-        user_data = self.user_data or {}
-        name = user_data.get('name', 'Человек')
+        # Извлекаем базовые данные из user_data
+        name = user_data.get('name', 'Пользователь')
         gender = user_data.get('gender', 'M')
-        gender_text = "Мужчина" if gender == 'M' else "Женщина" if gender == 'F' else "Не указан"
+        if lang == 'ru':
+            gender_text = "Мужской" if gender == 'M' else "Женский" if gender == 'F' else "Не указан"
+        else:
+            gender_text = "Male" if gender == 'M' else "Female" if gender == 'F' else "Not specified"
         birth_date = user_data.get('birth_date', 'не указана')
         birth_time = user_data.get('birth_time', 'не указано')
         birth_place = user_data.get('birth_place', 'не указано')
@@ -260,6 +266,19 @@ class GeminiService:
         themes = natal.get('themes', {})
         angles = natal.get('angles', {})
 
+        # Метаданные (из natal_data)
+        meta = natal_data.get('metadata', {})
+        settings = meta.get('settings', {})
+        metadata_settings = (
+            f"Зодиак: {settings.get('zodiac', 'tropical')}\n"
+            f"Система домов: {settings.get('house_system', 'Placidus')}\n"
+            f"Эфемериды: {settings.get('ephemeris', 'kerykeion')}\n"
+            f"Лунный узел: {settings.get('lunar_node', 'true')}\n"
+            f"Система координат: {settings.get('coordinate_system', 'geocentric')}\n"
+            f"Тип прогрессий: {settings.get('progression_type', 'secondary')}\n"
+            f"Орбы аспектов: {settings.get('aspect_orb', {})}"
+        )
+
         # Форматируем углы
         angles_str = (
             f"ASC: {angles.get('ASC', 0):.2f}°, "
@@ -268,7 +287,7 @@ class GeminiService:
             f"IC: {angles.get('IC', 0):.2f}°"
         ) if angles else "Нет данных об углах."
 
-        # Планеты (таблица)
+        # Форматируем планеты
         planets_table = self._format_planets_table(planets)
 
         # Куспиды домов
@@ -303,7 +322,7 @@ class GeminiService:
         active_periods_str = self._format_active_periods(active_periods)
         transit_themes_str = self._format_transit_themes(transit_themes)
 
-        # Timeline – собираем из транзитных аспектов с точными датами
+        # Timeline
         timeline_items = []
         for asp in transit_aspects:
             if asp.get('exact_date'):
@@ -312,19 +331,6 @@ class GeminiService:
                 )
         timeline_str = "\n".join(timeline_items[:10]) if timeline_items else "Нет значимых событий в ближайшее время."
 
-        # Метаданные
-        settings = meta.get('settings', {})
-        metadata_settings = (
-            f"Зодиак: {settings.get('zodiac', 'tropical')}\n"
-            f"Система домов: {settings.get('house_system', 'Placidus')}\n"
-            f"Эфемериды: {settings.get('ephemeris', 'kerykeion')}\n"
-            f"Лунный узел: {settings.get('lunar_node', 'true')}\n"
-            f"Система координат: {settings.get('coordinate_system', 'geocentric')}\n"
-            f"Тип прогрессий: {settings.get('progression_type', 'secondary')}\n"
-            f"Орбы аспектов: {settings.get('aspect_orb', {})}"
-        )
-
-        # Собираем финальный словарь (все ключи должны совпадать с плейсхолдерами в шаблоне)
         replacements = {
             "person_name": name,
             "person_gender": gender_text,
@@ -352,22 +358,29 @@ class GeminiService:
 
         return replacements
 
-    def _prepare_compatibility_replacements(self, natal1: Dict, natal2: Dict, synastry_data: Dict, lang: str) -> Dict[str, str]:
+    def _prepare_compatibility_replacements(self, user_data_a: Dict, user_data_b: Dict,
+                                            natal1: Dict, natal2: Dict, synastry_data: Dict, lang: str) -> Dict[
+        str, str]:
         """Подготавливает замены для промпта совместимости."""
-        # Базовые данные людей (из метаданных или пользовательских данных)
-        meta1 = natal1.get('metadata', {})
-        meta2 = natal2.get('metadata', {})
-        # В реальности user_data для каждого человека нужно передавать отдельно, но здесь упрощённо
-        # Предположим, что мы храним имена и т.д. в метаданных или передаём отдельно
-        # Для демонстрации используем заглушки
-        name1 = self.user_data.get('name', 'Человек A') if self.user_data else 'Человек A'
-        name2 = 'Человек B'  # нужно передавать извне
+        from bot.utils.zodiac import get_zodiac_sign_localized
+
+        # Базовые данные из user_data_a и user_data_b
+        name_a = user_data_a.get('name', 'Человек A')
+        name_b = user_data_b.get('name', 'Человек B')
+        gender_a = user_data_a.get('gender', 'M')
+        gender_b = user_data_b.get('gender', 'M')
+        if lang == 'ru':
+            gender_text_a = "Мужской" if gender_a == 'M' else "Женский" if gender_a == 'F' else "Не указан"
+            gender_text_b = "Мужской" if gender_b == 'M' else "Женский" if gender_b == 'F' else "Не указан"
+        else:
+            gender_text_a = "Male" if gender_a == 'M' else "Female" if gender_a == 'F' else "Not specified"
+            gender_text_b = "Male" if gender_b == 'M' else "Female" if gender_b == 'F' else "Not specified"
 
         # Натальные данные человека A
         natal_a = natal1.get('natal', {})
         planets_a = self._format_planets_table(natal_a.get('planets', []))
         cusps_a = self._format_cusps(natal_a.get('houses', []))
-        house_rulers_a = self._format_house_rulers(natal_a.get('house_rulers', []))
+        rulers_a = self._format_house_rulers(natal_a.get('house_rulers', []))
         aspects_a = self._format_aspects(natal_a.get('aspects', []))
         themes_a = self._format_themes(natal_a.get('themes', {}))
 
@@ -375,7 +388,7 @@ class GeminiService:
         natal_b = natal2.get('natal', {})
         planets_b = self._format_planets_table(natal_b.get('planets', []))
         cusps_b = self._format_cusps(natal_b.get('houses', []))
-        house_rulers_b = self._format_house_rulers(natal_b.get('house_rulers', []))
+        rulers_b = self._format_house_rulers(natal_b.get('house_rulers', []))
         aspects_b = self._format_aspects(natal_b.get('aspects', []))
         themes_b = self._format_themes(natal_b.get('themes', {}))
 
@@ -387,17 +400,19 @@ class GeminiService:
         mutual_receptions = self._format_mutual_receptions(synastry_data.get('mutual_receptions', []))
         comp_themes = self._format_synastry_themes(synastry_data.get('compatibility_themes', {}))
 
-        return {
-            "person_a_name": name1,
-            "person_b_name": name2,
+        replacements = {
+            "person_a_name": name_a,
+            "person_b_name": name_b,
+            "person_a_gender": gender_text_a,
+            "person_b_gender": gender_text_b,
             "person_a_planets": planets_a,
             "person_a_cusps": cusps_a,
-            "person_a_house_rulers": house_rulers_a,
+            "person_a_house_rulers": rulers_a,
             "person_a_aspects": aspects_a,
             "person_a_themes": themes_a,
             "person_b_planets": planets_b,
             "person_b_cusps": cusps_b,
-            "person_b_house_rulers": house_rulers_b,
+            "person_b_house_rulers": rulers_b,
             "person_b_aspects": aspects_b,
             "person_b_themes": themes_b,
             "synastry_aspects_a_to_b": syn_aspects_a_to_b,
@@ -407,6 +422,8 @@ class GeminiService:
             "mutual_receptions": mutual_receptions,
             "compatibility_themes": comp_themes,
         }
+
+        return replacements
 
     # ---- ФОРМАТТЕРЫ ДЛЯ РАЗЛИЧНЫХ СЕКЦИЙ (для промптов) ----
 

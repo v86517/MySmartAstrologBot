@@ -169,7 +169,7 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         transit_data = transit_calc.get_full_transit_data()
 
         # 3. Генерируем текст через Gemini (новый метод)
-        horoscope_text = await _gemini_service.generate_horoscope_with_data(user_id, natal_data, transit_data, lang)
+        horoscope_text = await _gemini_service.generate_horoscope_with_data(user_id, user_data, natal_data, transit_data, lang)
 
         # 4. Формируем вывод
         is_admin = await is_user_admin(user_id)

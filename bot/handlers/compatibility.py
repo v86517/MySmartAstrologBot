@@ -462,8 +462,7 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             synastry_data = comp_calc.get_full_synastry_data()
 
             # 3. Генерируем текст через Gemini (новый метод)
-            compat_text = await _gemini_service.generate_compatibility_with_data(user_id, natal1, natal2, synastry_data,
-                                                                                 lang)
+            compat_text = await _gemini_service.generate_compatibility_with_data(user_id, person1, person2, natal1, natal2, synastry_data, lang)
 
             # 4. Формируем вывод
             is_admin = await is_user_admin(user_id)
