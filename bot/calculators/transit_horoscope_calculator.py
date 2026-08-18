@@ -252,7 +252,12 @@ class TransitHoroscopeCalculator(BaseCalculator):
         if self._transit_aspects is not None:
             return self._transit_aspects
 
-        natal_planets = self._extract_planets_from_chart(self._get_natal_chart())
+        # Убедимся, что натальная карта загружена
+        if self.natal_chart is None:
+            self._get_natal_chart()
+
+        # Берём готовый список натальных планет из карты
+        natal_planets = self.natal_chart.get('planets', []) if self.natal_chart else []
         transit_planets = self.get_transit_planet_positions()
 
         logger.info(f"🔍 НАТАЛЬНЫЕ ПЛАНЕТЫ ({len(natal_planets)}):")
@@ -268,7 +273,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
 
         for tp in transit_planets:
             for np in natal_planets:
-                # Пропускаем аспекты транзита к самому себе (если планета совпадает)
+                # Пропускаем аспекты транзита к самому себе
                 if tp['name'] == np['name']:
                     continue
 
