@@ -173,3 +173,101 @@ def calculate_aspects_manual(planets1: List[Dict], planets2: List[Dict],
                     })
                     break
     return aspects
+
+
+# ========== НОВЫЕ ФУНКЦИИ ДЛЯ ТРАНЗИТОВ И СИНАСТРИИ ==========
+
+def get_aspect_type(deg1: float, deg2: float, orb_dict: Dict[str, float]) -> Tuple[Optional[str], float]:
+    """
+    Определяет тип аспекта и орбис между двумя долготами.
+    orb_dict: {'conjunction': 8, 'opposition': 8, ...}
+    Возвращает (название аспекта, орбис) или (None, 0).
+    """
+    diff = abs(deg1 - deg2) % 360
+    if diff > 180:
+        diff = 360 - diff
+    for aspect_name, orb in orb_dict.items():
+        target = {
+            'conjunction': 0, 'opposition': 180, 'trine': 120,
+            'square': 90, 'sextile': 60, 'quincunx': 150,
+            'semisextile': 30, 'sesquiquadrate': 135,
+            'quintile': 72, 'biquintile': 144
+        }.get(aspect_name.lower(), 0)
+        if abs(diff - target) <= orb:
+            return aspect_name, abs(diff - target)
+    return None, 0.0
+
+
+def calculate_score(planet1_weight: float, planet2_weight: float, aspect_weight: float, orb: float) -> float:
+    """Вычисляет score для аспекта по формуле: (base + avg_weight + aspect_weight)/3 - orb_penalty."""
+    base = 5
+    avg_weight = (planet1_weight + planet2_weight) / 2
+    orb_penalty = orb / 10
+    score = (base + avg_weight + aspect_weight) / 3 - orb_penalty
+    return max(1, min(10, score))
+
+
+def calculate_confidence(score: float, orb: float) -> float:
+    """Вычисляет confidence как (score/10) * (1 - orb/10)."""
+    confidence = (score / 10) * (1 - orb / 10)
+    return max(0.1, min(1.0, confidence))
+
+
+def get_planet_speed_from_subject(planet_name: str, subject) -> float:
+    """Извлекает скорость планеты из субъекта (по имени)."""
+    if hasattr(subject, 'planets'):
+        for p in subject.planets:
+            if p.name.lower() == planet_name.lower():
+                return getattr(p, 'speed', 0.0)
+    return 0.0
+
+
+def get_transit_phase(speed: float) -> str:
+    """Определяет фазу транзита: 'applying', 'separating' или 'stationary'."""
+    if abs(speed) < 0.01:
+        return 'stationary'
+    return 'applying' if speed > 0 else 'separating'
+
+
+def estimate_exact_date(orb: float, speed: float, current_date: datetime) -> Optional[str]:
+    """Оценивает дату точного аспекта на основе текущего орбиса и скорости (в градусах в день)."""
+    if abs(speed) < 0.001:
+        return None
+    days = orb / abs(speed)
+    exact = current_date + timedelta(days=days)
+    return exact.strftime('%Y-%m-%d')
+
+
+def get_passes_for_slow_planet(planet_name: str, orb: float, speed: float, current_date: datetime) -> List[Dict]:
+    """
+    Возвращает проходы для медленных планет (Saturn, Jupiter, Uranus, Neptune, Pluto).
+    Возвращает список из трёх приблизительных дат.
+    """
+    slow_planets = ['Saturn', 'Jupiter', 'Uranus', 'Neptune', 'Pluto']
+    if planet_name not in slow_planets or abs(speed) < 0.001:
+        return []
+    passes = []
+    # Проходы с интервалом примерно 120 дней (для упрощения)
+    for i in range(3):
+        date = current_date + timedelta(days=120 * i)
+        direction = "direct" if i % 2 == 0 else "retrograde"
+        passes.append({"number": i + 1, "date": date.strftime('%Y-%m-%d'), "direction": direction})
+    return passes
+
+
+def get_life_areas(planet1: str, planet2: str) -> List[str]:
+    """Определяет жизненные сферы для аспекта на основе планет."""
+    areas = []
+    if 'Saturn' in (planet1, planet2):
+        areas.extend(['career', 'responsibility'])
+    if 'Venus' in (planet1, planet2):
+        areas.extend(['relationships', 'love'])
+    if 'Mars' in (planet1, planet2):
+        areas.extend(['action', 'conflict'])
+    if 'Jupiter' in (planet1, planet2):
+        areas.extend(['growth', 'expansion'])
+    if 'Moon' in (planet1, planet2):
+        areas.extend(['emotions', 'family'])
+    if 'Sun' in (planet1, planet2):
+        areas.extend(['identity', 'self_expression'])
+    return list(set(areas))

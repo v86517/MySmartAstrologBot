@@ -7,7 +7,7 @@ from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 
 from bot.utils.helpers import get_text
-from bot.utils.formatters import format_parameters, format_basic_compatibility_parameters
+from bot.utils.formatters import format_basic_astrology_parameters, format_full_astrology_parameters
 from bot.utils.messaging import send_long_message
 from bot.keyboards.keyboards import (
     get_main_menu,
@@ -31,6 +31,7 @@ from bot.db import (
     is_user_admin,
 )
 from bot.calculators.compatibility_calculator import CompatibilityCalculator
+from bot.calculators.astrology_data_builder import AstrologyDataBuilder
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -42,9 +43,7 @@ def set_gemini_service(service):
     _gemini_service = service
 
 
-# ==================== ФУНКЦИЯ-СТАРТЕР ДЛЯ КНОПКИ МЕНЮ ====================
 async def start_compatibility(message: Message, state: FSMContext):
-    """Начало процесса совместимости (вызывается из handle_menu_commands)"""
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
 
@@ -436,8 +435,10 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    status_msg = await callback.message.answer(await get_text(user_id, 'compatibility_status_analyzing'),
-                                               reply_markup=ReplyKeyboardRemove())
+    status_msg = await callback.message.answer(
+        await get_text(user_id, 'compatibility_status_analyzing'),
+        reply_markup=ReplyKeyboardRemove()
+    )
 
     try:
         try:
@@ -451,24 +452,61 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             pass
 
         if _gemini_service:
-            result = _gemini_service.generate_compatibility_from_prompt(person1, person2, lang)
+            # --- НОВАЯ ЛОГИКА С ИСПОЛЬЗОВАНИЕМ СИНАСТРИИ И НАТАЛЬНЫХ ДАННЫХ ---
+            # 1. Получаем натальные данные для каждого человека (JSON v2)
+            natal1 = AstrologyDataBuilder(person1, lang).build()
+            natal2 = AstrologyDataBuilder(person2, lang).build()
 
-            if await is_user_admin(user_id):
-                calc = CompatibilityCalculator(person1, person2)
-                prompt_data = calc.get_prompt_data()
-                parameters_text = format_parameters(prompt_data, 'compatibility', lang)
-                final_message = f"{parameters_text}\n\n{result}"
+            # 2. Получаем синастрические данные
+            comp_calc = CompatibilityCalculator(person1, person2)
+            synastry_data = comp_calc.get_full_synastry_data()
+
+            # 3. Генерируем текст через Gemini (новый метод)
+            compat_text = _gemini_service.generate_compatibility_with_data(natal1, natal2, synastry_data, lang)
+
+            # 4. Формируем вывод
+            is_admin = await is_user_admin(user_id)
+
+            basic1 = format_basic_astrology_parameters(person1, lang)
+            basic2 = format_basic_astrology_parameters(person2, lang)
+
+            if is_admin:
+                full1 = format_full_astrology_parameters(natal1, None, lang)  # без транзитов
+                full2 = format_full_astrology_parameters(natal2, None, lang)
+                final_message = (
+                    f"💕 Анализ совместимости\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"👤 ЧЕЛОВЕК 1\n{basic1}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"👤 ЧЕЛОВЕК 2\n{basic2}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"--- ПОЛНЫЕ ДАННЫЕ ЧЕЛОВЕКА 1 ---\n{full1}\n"
+                    f"--- ПОЛНЫЕ ДАННЫЕ ЧЕЛОВЕКА 2 ---\n{full2}\n"
+                    f"--- СИНАСТРИЧЕСКИЕ ДАННЫЕ ---\n"
+                    f"Аспекты A→B: {len(synastry_data.get('synastry_aspects_a_to_b', []))}\n"
+                    f"Аспекты B→A: {len(synastry_data.get('synastry_aspects_b_to_a', []))}\n"
+                    f"Планеты A в домах B: {len(synastry_data.get('planets_in_houses', {}).get('a_in_b_houses', []))}\n"
+                    f"Планеты B в домах A: {len(synastry_data.get('planets_in_houses', {}).get('b_in_a_houses', []))}\n"
+                    f"Аспекты к углам: {len(synastry_data.get('synastry_angle_aspects', []))}\n"
+                    f"Взаимные рецепции: {len(synastry_data.get('mutual_receptions', []))}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"{compat_text}"
+                )
             else:
-                basic = format_basic_compatibility_parameters(person1, person2, lang)
-                final_message = f"{basic}\n\n{result}"
+                final_message = (
+                    f"💕 Анализ совместимости\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"👤 ЧЕЛОВЕК 1\n{basic1}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"👤 ЧЕЛОВЕК 2\n{basic2}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"{compat_text}"
+                )
 
             await mark_feature_used_db(user_id, 'compatibility')
             await save_message_to_archive(user_id, 'compatibility', final_message)
 
-            result_template = await get_text(user_id, 'compatibility_result')
-            result_text = result_template.format(result=final_message)
-
-            await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
+            await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
 
             try:
                 await status_msg.delete()
@@ -487,23 +525,14 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             except:
                 pass
     except Exception as e:
-        await callback.message.answer(f"❌ Произошла ошибка при анализе:\n{str(e)}")
+        logger.error(f"Ошибка в confirm_compatibility: {e}", exc_info=True)
+        await callback.message.answer(f"❌ Произошла ошибка при анализе совместимости. Пожалуйста, попробуйте позже.")
         try:
             await status_msg.delete()
         except:
             pass
     finally:
         await state.clear()
-
-
-@router.callback_query(F.data == "cancel_compatibility", CompatibilityStates.CONFIRM_BOTH)
-async def cancel_compatibility(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await state.clear()
-    await callback.message.delete()
-    user_id = callback.from_user.id
-    lang = await get_user_language(user_id)
-    await callback.message.answer(await get_text(user_id, 'error_cancel'), reply_markup=get_main_menu(lang))
 
 
 @router.callback_query(F.data == "use_my_data")

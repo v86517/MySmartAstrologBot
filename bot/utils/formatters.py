@@ -6,6 +6,7 @@ from bot.calculators.base_calculator import BaseCalculator
 from bot.calculators.natal_calculator import NatalCalculator
 from bot.calculators.compatibility_calculator import CompatibilityCalculator
 from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
+from bot.calculators.astrology_calculator import AstrologyCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -346,4 +347,165 @@ def format_basic_compatibility_parameters(person1: dict, person2: dict, lang: st
         "",
         person_text(person2, 2),
     ]
+    return "\n".join(lines)
+
+
+# ---- НОВЫЕ ФУНКЦИИ ДЛЯ ВЫВОДА БАЗОВЫХ И ПОЛНЫХ ПАРАМЕТРОВ ----
+
+def format_basic_astrology_parameters(user_data: dict, lang: str) -> str:
+    """
+    Возвращает строку с базовыми параметрами для вывода пользователю.
+    Формат соответствует ТЗ:
+      👤 Имя: ...
+      ⚥ Пол: ...
+      📅 Локальное время рождения: ...
+      🕒 Часовой пояс места рождения: ...
+      🕒 Время рождения UTC: ...
+      📍 Место рождения: ...
+      🌐 Координаты места рождения: ...
+      ━━━━━━━━━━━━━━━━━━━━━
+      ☀️ Солнце: ...
+      🌙 Луна: ...
+      ⬆️ Асцендент: ...
+    """
+    from bot.calculators.astrology_calculator import AstrologyCalculator
+    texts = TEXTS.get(lang, TEXTS['ru'])
+
+    calc = AstrologyCalculator(user_data)
+    chart = calc._calculate_chart()
+    angles = chart.get('angles', {})
+    asc_deg = angles.get('ASC', 0.0)
+    houses = chart.get('houses', [])
+    asc_sign = houses[0]['sign'] if houses else 'unknown'
+    from bot.utils.zodiac import get_zodiac_sign_localized
+    asc_sign_local = get_zodiac_sign_localized(asc_sign, lang)
+
+    planets = chart.get('planets', [])
+    sun = next((p for p in planets if p['name'] == 'Sun'), {})
+    moon = next((p for p in planets if p['name'] == 'Moon'), {})
+    sun_sign = get_zodiac_sign_localized(sun.get('sign', 'unknown'), lang)
+    moon_sign = get_zodiac_sign_localized(moon.get('sign', 'unknown'), lang)
+
+    gender = user_data.get('gender', 'M')
+    if lang == 'ru':
+        gender_display = "Мужской" if gender == 'M' else "Женский" if gender == 'F' else "Не указан"
+    else:
+        gender_display = "Male" if gender == 'M' else "Female" if gender == 'F' else "Not specified"
+
+    birth_date = user_data.get('birth_date', '')
+    birth_time = user_data.get('birth_time', '')
+    timezone = chart.get('timezone', '')
+    utc_datetime = chart.get('utc_datetime', '')
+    place = user_data.get('birth_place', '')
+    location = chart.get('location', {})
+    lat = location.get('lat', 0.0)
+    lng = location.get('lng', 0.0)
+
+    lines = [
+        f"👤 {texts.get('astro_name', 'Имя')}: {user_data.get('name', '')}",
+        f"⚥ {texts.get('astro_gender', 'Пол')}: {gender_display}",
+        f"📅 {texts.get('astro_local_time', 'Локальное время')}: {birth_date} {birth_time}",
+        f"🕒 {texts.get('astro_timezone', 'Часовой пояс')}: {timezone}",
+        f"🕒 {texts.get('astro_utc_time', 'Время UTC')}: {utc_datetime}",
+        f"📍 {texts.get('astro_place', 'Место')}: {place}",
+        f"🌐 {texts.get('astro_coordinates', 'Координаты')}: {lat:.4f}, {lng:.4f}",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"☀️ {texts.get('astro_sun', 'Солнце')}: {sun_sign}",
+        f"🌙 {texts.get('astro_moon', 'Луна')}: {moon_sign}",
+        f"⬆️ {texts.get('astro_ascendant', 'Асцендент')}: {asc_sign_local}",
+    ]
+    return "\n".join(lines)
+
+
+def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None, lang: str = 'ru') -> str:
+    """
+    Возвращает строку с полными параметрами для администратора.
+    Использует данные из AstrologyDataBuilder (natal_data) и при необходимости transit_data.
+    """
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    natal = natal_data.get('natal', {})
+    lines = []
+
+    # Планеты
+    planets = natal.get('planets', [])
+    if planets:
+        lines.append("🪐 Планеты в знаках и домах:")
+        for p in planets:
+            name = p.get('name_local', p.get('name', ''))
+            sign = p.get('sign', '')
+            degree = p.get('degree', 0.0)
+            house = p.get('house', 0)
+            lines.append(f"  • {name} в {sign} ({degree:.2f}°) в {house} доме")
+        lines.append("")
+
+    # Куспиды домов
+    houses = natal.get('houses', [])
+    if houses:
+        lines.append("🏠 Куспиды домов:")
+        for h in houses:
+            number = h.get('number', 0)
+            sign = h.get('cusp', '')
+            degree = h.get('cusp_degree', 0.0)
+            lines.append(f"Дом {number}: {sign} {degree:.2f}°")
+        lines.append("")
+
+    # Управители домов
+    rulers = natal.get('house_rulers', [])
+    if rulers:
+        lines.append("### Управители домов")
+        for r in rulers:
+            house = r.get('house', 0)
+            cusp = r.get('cusp', '')
+            ruler = r.get('ruler', '')
+            ruler_sign = r.get('ruler_sign', '')
+            ruler_house = r.get('ruler_house', 0)
+            retro = r.get('ruler_retrograde', False)
+            lines.append(
+                f"Дом {house}: {cusp} -> управитель {ruler} (в {ruler_sign}, {ruler_house} доме{' ℞' if retro else ''})"
+            )
+        lines.append("")
+
+    # Натальные аспекты
+    aspects = natal.get('aspects', [])
+    if aspects:
+        lines.append("🔮 Аспекты между планетами (мажорные, орбис ≤ 5°):")
+        for a in aspects:
+            p1 = a.get('p1_name_local', a.get('p1', ''))
+            p2 = a.get('p2_name_local', a.get('p2', ''))
+            aspect = a.get('aspect_local', a.get('aspect', ''))
+            orb = a.get('orb', 0.0)
+            if orb <= 5.0:
+                lines.append(f"  • {p1} {aspect} {p2} (орбис: {orb:.2f}°)")
+        lines.append("")
+
+    # Транзитные аспекты (если переданы)
+    if transit_data:
+        transit_aspects = transit_data.get('transit_aspects', [])
+        if transit_aspects:
+            lines.append("🌟 Транзитные аспекты на текущий момент:")
+            for a in transit_aspects:
+                transit_planet = a.get('transit_planet', '')
+                natal_planet = a.get('natal_planet', '')
+                aspect = a.get('aspect', '')
+                orb = a.get('orb', 0.0)
+                lines.append(f"Transit {transit_planet} → Natal {natal_planet} → {aspect} → {orb:.2f}°")
+            lines.append("")
+
+        # Прогрессии (если есть)
+        progressions = natal_data.get('progressions', {}).get('aspects', [])
+        if progressions:
+            lines.append("🔄 Прогрессивные аспекты:")
+            for a in progressions:
+                prog = a.get('progressed_planet', '')
+                natal_pl = a.get('natal_planet', '')
+                aspect = a.get('aspect', '')
+                orb = a.get('orb', 0.0)
+                lines.append(f"Progressed {prog} → Natal {natal_pl} → {aspect} → {orb:.2f}°")
+            lines.append("")
+
+    # Медицинские показатели (можно взять из natal_data или из дополнительных расчётов)
+    # Для простоты добавим заглушку
+    lines.append("🏥 Медицинские показатели (6-й и 8-й дома, Гигиея):")
+    lines.append("(данные рассчитываются отдельно)")
+
     return "\n".join(lines)

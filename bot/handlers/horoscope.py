@@ -6,7 +6,7 @@ from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 
 from bot.utils.helpers import get_text
-from bot.utils.formatters import format_parameters, format_basic_horoscope_parameters
+from bot.utils.formatters import format_basic_astrology_parameters, format_full_astrology_parameters
 from bot.utils.messaging import send_long_message
 from bot.keyboards.keyboards import (
     get_subscription_keyboard,
@@ -27,11 +27,11 @@ from bot.db import (
     is_user_admin,
 )
 from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
+from bot.calculators.astrology_data_builder import AstrologyDataBuilder
 
 logger = logging.getLogger(__name__)
 router = Router()
 
-# Глобальный объект Gemini (устанавливается из main.py)
 _gemini_service = None
 
 def set_gemini_service(service):
@@ -124,14 +124,12 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
     user_data = await state.get_data()
-    user_data = user_data.get('user_data')
+    user_data = user_data.get('user_data') or await get_user_data(user_id)
 
     if not user_data or not user_data.get('name'):
-        user_data = await get_user_data(user_id)
-        if not user_data or not user_data.get('name'):
-            await callback.message.answer(await get_text(user_id, 'error_not_found'))
-            await state.clear()
-            return
+        await callback.message.answer(await get_text(user_id, 'error_not_found'))
+        await state.clear()
+        return
 
     if not _gemini_service:
         await callback.message.answer(await get_text(user_id, 'error_service_unavailable'))
@@ -161,18 +159,46 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
         await asyncio.sleep(1)
 
-        horoscope = _gemini_service.generate_horoscope(user_data, lang=lang)
+        # --- НОВАЯ ЛОГИКА С ИСПОЛЬЗОВАНИЕМ ТРАНЗИТОВ И НАТАЛЬНЫХ ДАННЫХ ---
+        # 1. Получаем натальные данные (JSON v2)
+        natal_builder = AstrologyDataBuilder(user_data, lang)
+        natal_data = natal_builder.build()
 
-        calc = TransitHoroscopeCalculator(user_data, lang)
-        prompt_data = calc.calculate()
+        # 2. Получаем транзитные данные
+        transit_calc = TransitHoroscopeCalculator(user_data, lang)
+        transit_data = transit_calc.get_full_transit_data()
 
-        if await is_user_admin(user_id):
-            parameters_text = format_parameters(prompt_data, 'horoscope', lang)
-            final_message = f"{parameters_text}\n\n{horoscope}"
+        # 3. Генерируем текст через Gemini (новый метод)
+        horoscope_text = _gemini_service.generate_horoscope_with_data(natal_data, transit_data, lang)
+
+        # 4. Формируем вывод
+        is_admin = await is_user_admin(user_id)
+
+        # Базовые параметры (для всех)
+        basic_params = format_basic_astrology_parameters(user_data, lang)
+
+        if is_admin:
+            # Полные параметры для администратора
+            full_params = format_full_astrology_parameters(natal_data, transit_data, lang)
+            final_message = (
+                f"🔮 Ваш гороскоп на {transit_data.get('target_date', datetime.now().strftime('%d.%m.%Y'))}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{basic_params}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{full_params}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"{horoscope_text}"
+            )
         else:
-            basic_params = format_basic_horoscope_parameters(prompt_data, lang)
-            final_message = f"{basic_params}\n\n{horoscope}"
+            final_message = (
+                f"🔮 Ваш гороскоп на {transit_data.get('target_date', datetime.now().strftime('%d.%m.%Y'))}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{basic_params}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"{horoscope_text}"
+            )
 
+        # Сохраняем в архив
         await save_message_to_archive(user_id, 'horoscope', final_message)
 
         if not is_subscribed:
@@ -180,11 +206,8 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
 
         await status_msg.delete()
 
-        target_date = prompt_data.get('target_date', datetime.now().strftime("%d.%m.%Y"))
-        result_template = await get_text(user_id, 'horoscope_result')
-        result_text = result_template.format(date=target_date, horoscope=final_message)
-
-        await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
+        # Отправляем пользователю
+        await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
 
         if not is_subscribed:
             await callback.message.answer(
@@ -193,11 +216,13 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
             )
 
         await state.clear()
+
     except Exception as e:
+        logger.error(f"Ошибка в confirm_horoscope: {e}", exc_info=True)
         try:
-            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
+            await status_msg.edit_text(f"❌ Произошла ошибка при генерации гороскопа. Пожалуйста, попробуйте позже.")
         except:
-            await callback.message.answer(f"❌ Ошибка: {str(e)}")
+            await callback.message.answer(f"❌ Произошла ошибка: {str(e)}")
         await state.clear()
 
 
