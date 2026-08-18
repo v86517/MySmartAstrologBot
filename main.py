@@ -424,6 +424,70 @@ async def change_language(message: Message):
     await message.answer(text, reply_markup=get_language_keyboard())
 
 
+@dp.message(F.text)
+async def handle_menu_commands(message: Message, state: FSMContext):
+    """
+    Обрабатывает текстовые команды главного меню.
+    """
+    user_id = message.from_user.id
+    lang = await get_user_language(user_id)
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    text = message.text
+
+    # === ЛОГИРОВАНИЕ ===
+    logger.info(f"🔍 handle_menu_commands: user_id={user_id}, lang={lang}, text='{text}'")
+    menu_commands = [
+        texts['menu_horoscope'],
+        texts['menu_compatibility'],
+        texts['menu_numerology'],
+        texts['menu_astrology'],
+        texts['menu_premium'],
+        texts['menu_expert'],
+        texts['menu_archive'],
+        texts['menu_profile'],
+        texts['menu_language'],
+    ]
+    logger.info(f"📋 menu_commands: {menu_commands}")
+    # ====================
+
+    # Если текст не является командой меню – пропускаем (не обрабатываем)
+    if text not in menu_commands:
+        return
+
+    # Очищаем состояние, кроме кнопки языка (она не должна мешать)
+    if text != texts['menu_language']:
+        await state.clear()
+
+    # Вызываем соответствующий обработчик
+    if text == texts['menu_horoscope']:
+        logger.info("➡️ Вызов start_horoscope")
+        await start_horoscope(message, state)
+    elif text == texts['menu_compatibility']:
+        logger.info("➡️ Вызов start_compatibility")
+        await start_compatibility(message, state)
+    elif text == texts['menu_numerology']:
+        logger.info("➡️ Вызов start_numerology")
+        await start_numerology(message, state)
+    elif text == texts['menu_astrology']:
+        logger.info("➡️ Вызов start_astrology")
+        await start_astrology(message, state)
+    elif text == texts['menu_premium']:
+        logger.info("➡️ Вызов show_subscription")
+        await show_subscription(message)
+    elif text == texts['menu_expert']:
+        logger.info("➡️ Вызов expert_request")
+        await expert_request(message)
+    elif text == texts['menu_archive']:
+        logger.info("➡️ Вызов show_archive")
+        await show_archive(message)
+    elif text == texts['menu_profile']:
+        logger.info("➡️ Вызов profile")
+        await profile(message)
+    elif text == texts['menu_language']:
+        logger.info("➡️ Вызов change_language")
+        await change_language(message)
+
+
 # ==================== ВСЕ ХЕНДЛЕРЫ СОСТОЯНИЙ (FSM) ====================
 
 # ---- UserDataStates ----
@@ -3668,75 +3732,75 @@ async def send_long_message(
 
 # ==================== ОБЩИЙ ОБРАБОТЧИК ТЕКСТОВЫХ КОМАНД ====================
 
-@dp.message(F.text)
-async def handle_menu_commands(message: Message, state: FSMContext):
-    """
-    Обрабатывает текстовые команды главного меню.
-    Срабатывает всегда, но если состояние активно, обрабатываются только команды меню.
-    """
-    user_id = message.from_user.id
-    lang = await get_user_language(user_id)
-    texts = TEXTS.get(lang, TEXTS['ru'])
-    text = message.text
-
-    logger.info(f"🔍 handle_menu_commands: user_id={user_id}, lang={lang}, text='{text}'")
-    # Список текстов кнопок меню на текущем языке
-    menu_commands = [
-        texts['menu_horoscope'],
-        texts['menu_compatibility'],
-        texts['menu_numerology'],
-        texts['menu_astrology'],
-        texts['menu_premium'],
-        texts['menu_expert'],
-        texts['menu_archive'],
-        texts['menu_profile'],
-        texts['menu_language'],
-    ]
-    logger.info(f"📋 menu_commands: {menu_commands}")
-
-    # Если текст является командой меню, обрабатываем даже при активном состоянии
-    if text in menu_commands:
-        # Сбрасываем состояние, кроме кнопки языка (она не должна мешать)
-        if text != texts['menu_language']:
-            await state.clear()
-
-        # Вызываем соответствующий обработчик
-        if text == texts['menu_horoscope']:
-            logger.info("➡️ Вызов menu_horoscope")
-            await start_horoscope(message, state)
-        elif text == texts['menu_compatibility']:
-            logger.info("➡️ Вызов menu_compatibility")
-            await start_compatibility(message, state)
-        elif text == texts['menu_numerology']:
-            logger.info("➡️ Вызов menu_numerology")
-            await start_numerology(message, state)
-        elif text == texts['menu_astrology']:
-            logger.info("➡️ Вызов menu_astrology")
-            await start_astrology(message, state)
-        elif text == texts['menu_premium']:
-            logger.info("➡️ Вызов menu_premium")
-            await show_subscription(message)
-        elif text == texts['menu_expert']:
-            logger.info("➡️ Вызов menu_expert")
-            await expert_request(message)
-        elif text == texts['menu_archive']:
-            logger.info("➡️ Вызов menu_archive")
-            await show_archive(message)
-        elif text == texts['menu_profile']:
-            logger.info("➡️ Вызов menu_profile")
-            await profile(message)
-        elif text == texts['menu_language']:
-            logger.info("➡️ Вызов menu_language")
-            await change_language(message)
-        return
-
-    # Если состояние активно, остальные текстовые сообщения игнорируем
-    current_state = await state.get_state()
-    if current_state is not None:
-        return
-
-    # Если состояние не активно, но текст не команда меню – обрабатываем как неизвестное
-    await handle_unknown(message)
+# @dp.message(F.text)
+# async def handle_menu_commands(message: Message, state: FSMContext):
+#     """
+#     Обрабатывает текстовые команды главного меню.
+#     Срабатывает всегда, но если состояние активно, обрабатываются только команды меню.
+#     """
+#     user_id = message.from_user.id
+#     lang = await get_user_language(user_id)
+#     texts = TEXTS.get(lang, TEXTS['ru'])
+#     text = message.text
+#
+#     logger.info(f"🔍 handle_menu_commands: user_id={user_id}, lang={lang}, text='{text}'")
+#     # Список текстов кнопок меню на текущем языке
+#     menu_commands = [
+#         texts['menu_horoscope'],
+#         texts['menu_compatibility'],
+#         texts['menu_numerology'],
+#         texts['menu_astrology'],
+#         texts['menu_premium'],
+#         texts['menu_expert'],
+#         texts['menu_archive'],
+#         texts['menu_profile'],
+#         texts['menu_language'],
+#     ]
+#     logger.info(f"📋 menu_commands: {menu_commands}")
+#
+#     # Если текст является командой меню, обрабатываем даже при активном состоянии
+#     if text in menu_commands:
+#         # Сбрасываем состояние, кроме кнопки языка (она не должна мешать)
+#         if text != texts['menu_language']:
+#             await state.clear()
+#
+#         # Вызываем соответствующий обработчик
+#         if text == texts['menu_horoscope']:
+#             logger.info("➡️ Вызов menu_horoscope")
+#             await start_horoscope(message, state)
+#         elif text == texts['menu_compatibility']:
+#             logger.info("➡️ Вызов menu_compatibility")
+#             await start_compatibility(message, state)
+#         elif text == texts['menu_numerology']:
+#             logger.info("➡️ Вызов menu_numerology")
+#             await start_numerology(message, state)
+#         elif text == texts['menu_astrology']:
+#             logger.info("➡️ Вызов menu_astrology")
+#             await start_astrology(message, state)
+#         elif text == texts['menu_premium']:
+#             logger.info("➡️ Вызов menu_premium")
+#             await show_subscription(message)
+#         elif text == texts['menu_expert']:
+#             logger.info("➡️ Вызов menu_expert")
+#             await expert_request(message)
+#         elif text == texts['menu_archive']:
+#             logger.info("➡️ Вызов menu_archive")
+#             await show_archive(message)
+#         elif text == texts['menu_profile']:
+#             logger.info("➡️ Вызов menu_profile")
+#             await profile(message)
+#         elif text == texts['menu_language']:
+#             logger.info("➡️ Вызов menu_language")
+#             await change_language(message)
+#         return
+#
+#     # Если состояние активно, остальные текстовые сообщения игнорируем
+#     current_state = await state.get_state()
+#     if current_state is not None:
+#         return
+#
+#     # Если состояние не активно, но текст не команда меню – обрабатываем как неизвестное
+#     await handle_unknown(message)
 
 
 @dp.message()
