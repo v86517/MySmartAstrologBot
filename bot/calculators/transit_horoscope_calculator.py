@@ -255,9 +255,14 @@ class TransitHoroscopeCalculator(BaseCalculator):
         natal_planets = self._extract_planets_from_chart(self._get_natal_chart())
         transit_planets = self.get_transit_planet_positions()
 
-        # Для расчёта весов используем карту
-        natal_names = {p['name'] for p in natal_planets}
-        # Добавляем углы для возможных аспектов к ним (но здесь только планеты)
+        logger.info(f"🔍 НАТАЛЬНЫЕ ПЛАНЕТЫ ({len(natal_planets)}):")
+        for np in natal_planets:
+            logger.info(f"  {np['name']}: {np['degree']:.2f}° в знаке {np['sign']}, дом {np.get('house', 0)}")
+
+        logger.info(f"🔍 ТРАНЗИТНЫЕ ПЛАНЕТЫ ({len(transit_planets)}):")
+        for tp in transit_planets:
+            logger.info(f"  {tp['name']}: {tp['longitude']:.2f}° в знаке {tp['sign']}, дом {tp.get('house', 0)}")
+
         aspects = []
         current_date = datetime.now()
 
@@ -266,16 +271,25 @@ class TransitHoroscopeCalculator(BaseCalculator):
                 # Пропускаем аспекты транзита к самому себе (если планета совпадает)
                 if tp['name'] == np['name']:
                     continue
+
                 aspect_type, orb = get_aspect_type(tp['longitude'], np['degree'], self.ASPECT_ORBS)
+                logger.debug(f"  Проверка {tp['name']} ({tp['longitude']:.2f}) → {np['name']} ({np['degree']:.2f}): "
+                             f"aspect_type={aspect_type}, orb={orb:.2f}")
+
                 if aspect_type is None:
                     continue
+
+                logger.info(f"✅ НАЙДЕН АСПЕКТ: {tp['name']} {aspect_type} {np['name']} с орбом {orb:.2f}°")
+
                 # Веса планет
                 p1_weight = self.PLANET_WEIGHTS.get(tp['name'], 5)
                 p2_weight = self.PLANET_WEIGHTS.get(np['name'], 5)
-                aspect_weight = {'conjunction': 10, 'opposition': 9, 'trine': 8,
-                                 'square': 7, 'sextile': 6, 'quincunx': 5,
-                                 'semisextile': 4, 'sesquiquadrate': 4,
-                                 'quintile': 3, 'biquintile': 3}.get(aspect_type, 5)
+                aspect_weight = {
+                    'conjunction': 10, 'opposition': 9, 'trine': 8,
+                    'square': 7, 'sextile': 6, 'quincunx': 5,
+                    'semisextile': 4, 'sesquiquadrate': 4,
+                    'quintile': 3, 'biquintile': 3
+                }.get(aspect_type, 5)
                 score = calculate_score(p1_weight, p2_weight, aspect_weight, orb)
                 confidence = calculate_confidence(score, orb)
                 speed = tp.get('speed', 0.0)
@@ -302,6 +316,8 @@ class TransitHoroscopeCalculator(BaseCalculator):
                     "life_areas": get_life_areas(tp['name'], np['name']),
                     "passes": passes,
                 })
+
+        logger.info(f"📊 ИТОГО НАЙДЕНО ТРАНЗИТНЫХ АСПЕКТОВ К ПЛАНЕТАМ: {len(aspects)}")
         self._transit_aspects = aspects
         return aspects
 
