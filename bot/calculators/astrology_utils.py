@@ -1,5 +1,6 @@
-# bot/calculators/astrology_utils.py
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime, timedelta
+
 
 def get_house_for_longitude(longitude: float, houses: List[Dict]) -> int:
     """Определяет номер дома по долготе планеты на основе куспидов домов."""
@@ -18,6 +19,7 @@ def get_house_for_longitude(longitude: float, houses: List[Dict]) -> int:
                 return h['number']
     return 0
 
+
 def get_angles(subject) -> Dict[str, float]:
     """Извлекает углы ASC, MC, DSC, IC из субъекта."""
     try:
@@ -28,6 +30,7 @@ def get_angles(subject) -> Dict[str, float]:
         return {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
     except Exception:
         return {"ASC": 0.0, "MC": 0.0, "DSC": 0.0, "IC": 0.0}
+
 
 def find_dispositor(planet_name: str, sign: str, planets_data: List[Dict]) -> Dict[str, Any]:
     """Находит диспозитора планеты по знаку, возвращает цепочку."""
@@ -63,6 +66,7 @@ def find_dispositor(planet_name: str, sign: str, planets_data: List[Dict]) -> Di
         "chain": chain,
         "final_dispositor": chain[-1] if chain else None,
     }
+
 
 def extract_planets_from_subject(subject) -> List[Dict]:
     """Извлекает список планет с градусами из субъекта (для натала и транзитов)."""
@@ -114,6 +118,7 @@ def extract_planets_from_subject(subject) -> List[Dict]:
                         })
     return planets
 
+
 def extract_houses_from_subject(subject) -> List[Dict]:
     """Извлекает куспиды домов из субъекта."""
     houses = []
@@ -142,6 +147,7 @@ def extract_houses_from_subject(subject) -> List[Dict]:
                         "degree": getattr(obj, 'position', 0.0),
                     })
     return houses
+
 
 def calculate_aspects_manual(planets1: List[Dict], planets2: List[Dict],
                              aspect_types: Optional[Dict[str, float]] = None) -> List[Dict]:
