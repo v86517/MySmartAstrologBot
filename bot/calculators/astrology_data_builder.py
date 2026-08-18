@@ -1,10 +1,18 @@
-#bot/calculators/astrology_data_builder.py
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import itertools
+
 from .astrology_calculator import AstrologyCalculator
 from .transit_horoscope_calculator import TransitHoroscopeCalculator
+from .astrology_utils import (
+    get_house_for_longitude,
+    get_angles,
+    find_dispositor,
+    extract_planets_from_subject,
+    extract_houses_from_subject,
+    calculate_aspects_manual,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +48,7 @@ class AstrologyDataBuilder:
         }
 
     def build(self) -> Dict[str, Any]:
-        chart = self.chart  # уже вычислен
+        chart = self.chart
         metadata = self._build_metadata()
         metadata.update({
             "timezone": chart.get('timezone'),
@@ -95,41 +103,27 @@ class AstrologyDataBuilder:
             }
         }
 
-    # ---------- NATAL PLANETS (упрощено) ----------
+    # ---------- NATAL PLANETS ----------
     def _build_natal_planets(self) -> List[Dict[str, Any]]:
-        """Собирает данные по планетам, используя уже рассчитанные дома из chart."""
         planets = []
         planet_data = self.chart.get('planets', [])
         subject = self.natal_calc._get_natal_subject()
-
-        # Получаем углы для angularity
-        angles = self._get_angles(subject)
+        angles = get_angles(subject)
 
         for p in planet_data:
             planet_name = p.get('name', 'Unknown')
             if planet_name in ['Ascendant', 'Descendant', 'Medium_Coeli', 'Imum_Coeli']:
                 continue
 
-            degree = p.get('degree', 0.0)
-            try:
-                degree = float(degree)
-            except (ValueError, TypeError):
-                degree = 0.0
-
-            # Дом уже рассчитан в _calculate_chart
-            house = p.get('house', 0)
-            try:
-                house = int(house)
-            except (ValueError, TypeError):
-                house = 0
-
+            degree = float(p.get('degree', 0.0))
+            house = int(p.get('house', 0))
             speed = p.get('speed', 0.0)
             retrograde = p.get('retrograde', False)
             latitude = p.get('latitude', 0.0)
 
             weight = self.planet_weights.get(planet_name, 5)
             angularity = self._calculate_angularity(subject, planet_name, degree, angles)
-            dispositor_info = self._find_dispositor(planet_name, p.get('sign', ''))
+            dispositor_info = find_dispositor(planet_name, p.get('sign', ''), planet_data)
 
             planets.append({
                 "name": planet_name,
@@ -151,21 +145,8 @@ class AstrologyDataBuilder:
 
         return planets
 
-    # ---------- УГЛЫ ----------
-    def _get_angles(self, subject) -> Dict[str, float]:
-        try:
-            asc = subject.ascendant if hasattr(subject, 'ascendant') else 0.0
-            mc = subject.midheaven if hasattr(subject, 'midheaven') else 0.0
-            dsc = (asc + 180) % 360
-            ic = (mc + 180) % 360
-            return {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
-        except Exception as e:
-            logger.warning(f"Ошибка в _get_angles: {e}")
-            return {"ASC": 0.0, "MC": 0.0, "DSC": 0.0, "IC": 0.0}
-
-    # ---------- ANGULARITY (исправлено для использования углов) ----------
+    # ---------- ANGULARITY ----------
     def _calculate_angularity(self, subject, planet_name: str, degree: float, angles: Dict[str, float]) -> Dict[str, Any]:
-        """Рассчитывает угловое расстояние до ASC и MC с использованием переданных углов."""
         try:
             asc_degree = angles.get('ASC', 0.0)
             mc_degree = angles.get('MC', 0.0)
@@ -198,64 +179,19 @@ class AstrologyDataBuilder:
                 "near_mc": False,
             }
 
-    # ==================== DISPOSITOR ====================
-
-    def _find_dispositor(self, planet_name: str, sign: str) -> Dict[str, Any]:
-        sign_rulers = {
-            'Aries': 'Mars', 'Taurus': 'Venus', 'Gemini': 'Mercury',
-            'Cancer': 'Moon', 'Leo': 'Sun', 'Virgo': 'Mercury',
-            'Libra': 'Venus', 'Scorpio': 'Pluto', 'Sagittarius': 'Jupiter',
-            'Capricorn': 'Saturn', 'Aquarius': 'Uranus', 'Pisces': 'Neptune',
-        }
-        if sign not in sign_rulers:
-            return {"dispositor": None, "chain": [], "final_dispositor": None}
-
-        dispositor = sign_rulers[sign]
-        chain = [planet_name]
-        current = dispositor
-        planets = self.chart.get('planets', [])
-        planet_names = [p.get('name') for p in planets]
-
-        while current in planet_names:
-            chain.append(current)
-            for p in planets:
-                if p.get('name') == current:
-                    current_sign = p.get('sign', '')
-                    if current_sign in sign_rulers:
-                        current = sign_rulers[current_sign]
-                    else:
-                        current = None
-                    break
-            else:
-                current = None
-
-        return {
-            "dispositor": dispositor,
-            "chain": chain,
-            "final_dispositor": chain[-1] if chain else None,
-        }
-
     # ==================== NATAL HOUSES ====================
 
     def _build_natal_houses(self) -> List[Dict[str, Any]]:
         houses = []
         house_data = self.chart.get('houses', [])
         for h in house_data:
-            number = h.get('number', 0)
-            try:
-                number = int(number)
-            except (ValueError, TypeError):
-                number = 0
+            number = int(h.get('number', 0))
             sign = h.get('sign', 'unknown')
-            degree = h.get('degree', 0.0)
-            try:
-                degree = float(degree)
-            except (ValueError, TypeError):
-                degree = 0.0
+            degree = float(h.get('degree', 0.0))
             ruler = self._get_house_ruler(sign)
             houses.append({
                 "number": number,
-                "cusp": sign,  # <-- это знак куспида
+                "cusp": sign,
                 "cusp_degree": round(degree, 2),
                 "ruler": ruler,
                 "ruler_sign": self._get_planet_sign(ruler),
@@ -288,11 +224,7 @@ class AstrologyDataBuilder:
     def _get_planet_house(self, planet_name: str) -> int:
         for p in self.chart.get('planets', []):
             if p.get('name') == planet_name:
-                house = p.get('house', 0)
-                try:
-                    return int(house)
-                except (ValueError, TypeError):
-                    return 0
+                return int(p.get('house', 0))
         return 0
 
     # ==================== NATAL ASPECTS ====================
@@ -304,11 +236,7 @@ class AstrologyDataBuilder:
             p1 = a.get('p1', '')
             p2 = a.get('p2', '')
             aspect = a.get('aspect', '')
-            orb = a.get('orb', 0.0)
-            try:
-                orb = float(orb)
-            except (ValueError, TypeError):
-                orb = 0.0
+            orb = float(a.get('orb', 0.0))
 
             p1_house = self._get_planet_house(p1)
             p2_house = self._get_planet_house(p2)
@@ -326,7 +254,7 @@ class AstrologyDataBuilder:
                 "aspect_local": self._translate_aspect(aspect),
                 "orb": round(orb, 2),
                 "exact_angle": self._get_exact_angle(aspect),
-                "actual_angle": self._get_actual_angle(p1, p2, orb),
+                "actual_angle": orb,
                 "phase": self._determine_phase(),
                 "weight": round(weight, 2),
                 "p1_house": p1_house,
@@ -345,9 +273,6 @@ class AstrologyDataBuilder:
             'quintile': 72, 'biquintile': 144,
         }
         return aspect_map.get(aspect.lower(), 0)
-
-    def _get_actual_angle(self, p1: str, p2: str, orb: float) -> float:
-        return orb
 
     def _translate_aspect(self, aspect: str) -> str:
         aspect_map_ru = {
@@ -371,7 +296,7 @@ class AstrologyDataBuilder:
         weight = (base_weight + planet_weight + aspect_weight) / 3 - orb_penalty
         return max(1, min(10, weight))
 
-    # ==================== THEMES (basic) ====================
+    # ==================== THEMES ====================
 
     def _get_planet_themes(self, planet_name: str, house: int, sign: str) -> List[str]:
         themes = {
@@ -400,17 +325,9 @@ class AstrologyDataBuilder:
     def _build_house_rulers(self) -> List[Dict[str, Any]]:
         rulers = []
         for h in self.chart.get('houses', []):
-            number = h.get('number', 0)
-            try:
-                number = int(number)
-            except (ValueError, TypeError):
-                number = 0
+            number = int(h.get('number', 0))
             sign = h.get('sign', 'unknown')
-            degree = h.get('degree', 0.0)
-            try:
-                degree = float(degree)
-            except (ValueError, TypeError):
-                degree = 0.0
+            degree = float(h.get('degree', 0.0))
             ruler = self._get_house_ruler(sign)
             rulers.append({
                 "house": number,
@@ -432,14 +349,15 @@ class AstrologyDataBuilder:
 
     def _build_dispositors(self) -> List[Dict[str, Any]]:
         dispositors = []
+        planets_data = self.chart.get('planets', [])
         processed = set()
-        for p in self.chart.get('planets', []):
+        for p in planets_data:
             planet_name = p.get('name', '')
             if planet_name in processed:
                 continue
             processed.add(planet_name)
             sign = p.get('sign', '')
-            info = self._find_dispositor(planet_name, sign)
+            info = find_dispositor(planet_name, sign, planets_data)
             if info.get('dispositor'):
                 dispositors.append({
                     "planet": planet_name,
@@ -492,14 +410,9 @@ class AstrologyDataBuilder:
         return {k: round(v) for k, v in modalities.items()}
 
     def _calculate_dominant_houses(self) -> Dict[str, int]:
-        """Рассчитывает доминирующие дома с преобразованием типов."""
         houses = {}
         for p in self.chart.get('planets', []):
-            house = p.get('house', 0)
-            try:
-                house = int(house)
-            except (ValueError, TypeError):
-                house = 0
+            house = int(p.get('house', 0))
             if house > 0:
                 houses[str(house)] = houses.get(str(house), 0) + 1
         return houses
@@ -512,7 +425,6 @@ class AstrologyDataBuilder:
         return result
 
     def _calculate_dominant_signs(self) -> Dict[str, int]:
-        """Рассчитывает доминирующие знаки с весами."""
         sign_weights = {
             'Sun': 3, 'Moon': 3, 'Mercury': 2, 'Venus': 2, 'Mars': 2,
             'Jupiter': 1, 'Saturn': 1, 'Uranus': 0.5, 'Neptune': 0.5, 'Pluto': 0.5,
@@ -527,20 +439,9 @@ class AstrologyDataBuilder:
 
     # ==================== ANGLE ASPECTS ====================
 
-    def _get_angles(self, subject) -> Dict[str, float]:
-        try:
-            asc = subject.ascendant if hasattr(subject, 'ascendant') else 0.0
-            mc = subject.midheaven if hasattr(subject, 'midheaven') else 0.0
-            dsc = (asc + 180) % 360
-            ic = (mc + 180) % 360
-            return {"ASC": asc, "MC": mc, "DSC": dsc, "IC": ic}
-        except:
-            return {"ASC": 0.0, "MC": 0.0, "DSC": 0.0, "IC": 0.0}
-
     def _build_angle_aspects(self) -> List[Dict[str, Any]]:
-        """Рассчитывает аспекты планет к углам (ASC, MC, DSC, IC)."""
         subject = self.natal_calc._get_natal_subject()
-        angles = self._get_angles(subject)
+        angles = get_angles(subject)
         aspects = []
         planets = self.chart.get('planets', [])
         aspect_targets = {
@@ -586,7 +487,6 @@ class AstrologyDataBuilder:
     # ==================== PATTERNS ====================
 
     def _build_patterns(self) -> List[Dict[str, Any]]:
-        """Определяет астрологические конфигурации с использованием точных углов."""
         patterns = []
         planets = self.chart.get('planets', [])
         if not planets:
@@ -596,7 +496,7 @@ class AstrologyDataBuilder:
         signs = {p['name']: p.get('sign', '') for p in planets}
         houses = {p['name']: p.get('house', 0) for p in planets}
 
-        # Стеллиумы
+        # Стеллумы
         st_sign = self._find_cluster_by_key(signs, 3)
         if st_sign:
             patterns.append({
@@ -804,7 +704,6 @@ class AstrologyDataBuilder:
         return None
 
     def _find_grand_sextile(self, longitudes: Dict[str, float]) -> Optional[Dict]:
-        """Большой секстиль: 6 планет, образующих цепочку секстилей."""
         main_planets = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                         'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']
         available = [p for p in main_planets if p in longitudes]
@@ -873,7 +772,6 @@ class AstrologyDataBuilder:
     # ==================== SUMMARY ====================
 
     def _build_summary(self) -> Dict[str, Any]:
-        """Создаёт сводку карты с преобразованием типов."""
         planets = self.chart.get('planets', [])
         aspects = self.chart.get('aspects', [])
 
@@ -900,14 +798,9 @@ class AstrologyDataBuilder:
         core_themes = sorted(themes_data.items(), key=lambda x: x[1]['score'], reverse=True)[:5]
         core_themes = [{"theme": t[0], "score": t[1]['score']} for t in core_themes]
 
-        # Сильные аспекты
         strong_list = []
         for a in aspects:
-            weight = a.get('weight', 0)
-            try:
-                weight = float(weight)
-            except (ValueError, TypeError):
-                weight = 0
+            weight = float(a.get('weight', 0))
             strong_list.append((a, weight))
         strong_list.sort(key=lambda x: x[1], reverse=True)
         strong_aspects = []
@@ -919,22 +812,13 @@ class AstrologyDataBuilder:
                 "orb": a.get('orb', 0)
             })
 
-        # Напряжения
         tension_list = []
         for a in aspects:
             aspect = a.get('aspect', '').lower()
             if aspect in ('square', 'opposition'):
-                orb_val = a.get('orb', 10)
-                try:
-                    orb_val = float(orb_val)
-                except (ValueError, TypeError):
-                    orb_val = 10
+                orb_val = float(a.get('orb', 10))
                 if orb_val < 5:
-                    weight = a.get('weight', 0)
-                    try:
-                        weight = float(weight)
-                    except (ValueError, TypeError):
-                        weight = 0
+                    weight = float(a.get('weight', 0))
                     tension_list.append((a, weight))
         tension_list.sort(key=lambda x: x[1], reverse=True)
         major_tensions = []
@@ -946,22 +830,13 @@ class AstrologyDataBuilder:
                 "orb": a.get('orb', 0)
             })
 
-        # Ресурсы
         resource_list = []
         for a in aspects:
             aspect = a.get('aspect', '').lower()
             if aspect in ('trine', 'sextile'):
-                orb_val = a.get('orb', 10)
-                try:
-                    orb_val = float(orb_val)
-                except (ValueError, TypeError):
-                    orb_val = 10
+                orb_val = float(a.get('orb', 10))
                 if orb_val < 5:
-                    weight = a.get('weight', 0)
-                    try:
-                        weight = float(weight)
-                    except (ValueError, TypeError):
-                        weight = 0
+                    weight = float(a.get('weight', 0))
                     resource_list.append((a, weight))
         resource_list.sort(key=lambda x: x[1], reverse=True)
         major_resources = []
@@ -987,6 +862,20 @@ class AstrologyDataBuilder:
 
     # ==================== TRANSITS ====================
 
+    def _build_transits(self) -> Dict[str, Any]:
+        transit_calc = TransitHoroscopeCalculator(self.user_data, self.lang, natal_calc=self.natal_calc)
+        transit_data = transit_calc.calculate()
+
+        transit_planets = self._build_transit_planets(transit_calc)
+        transit_aspects = self._build_transit_aspects(transit_calc, transit_data)
+        active_periods = self._build_active_periods(transit_aspects)
+
+        return {
+            "planets": transit_planets,
+            "aspects": transit_aspects,
+            "active_periods": active_periods,
+        }
+
     def _build_transit_planets(self, transit_calc) -> List[Dict[str, Any]]:
         transit_chart = transit_calc._get_transit_chart()
         planets = []
@@ -997,7 +886,6 @@ class AstrologyDataBuilder:
                 if isinstance(obj, dict):
                     planet_name = key.capitalize()
                     longitude = obj.get('position', 0.0)
-                    # Получаем дом через метод транзитного калькулятора
                     transit_house = transit_calc._get_transit_house_for_planet(longitude)
                     planets.append({
                         "name": planet_name,
@@ -1012,58 +900,23 @@ class AstrologyDataBuilder:
                     })
         return planets
 
-    # def _build_transit_planets(self, transit_calc) -> List[Dict[str, Any]]:
-    #     transit_chart = transit_calc._get_transit_chart()
-    #     planets = []
-    #     for key in ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
-    #                 'uranus', 'neptune', 'pluto', 'chiron']:
-    #         if key in transit_chart:
-    #             obj = transit_chart[key]
-    #             if isinstance(obj, dict):
-    #                 planet_name = key.capitalize()
-    #                 longitude = obj.get('position', 0.0)
-    #                 # Получаем дом через метод транзитного калькулятора
-    #                 transit_house = transit_calc._get_transit_house_for_planet(longitude)
-    #                 planets.append({
-    #                     "name": planet_name,
-    #                     "name_local": self.planet_names_ru.get(planet_name, planet_name),
-    #                     "longitude": longitude,
-    #                     "speed": obj.get('speed', 0.0),
-    #                     "retrograde": obj.get('retrograde', False),
-    #                     "sign": obj.get('sign', 'unknown'),
-    #                     "degree": longitude % 30,
-    #                     "house": transit_house,
-    #                     "themes": self._get_planet_themes(planet_name, transit_house, obj.get('sign', ''))
-    #                 })
-    #     return planets
-
     def _build_transit_aspects(self, transit_calc, transit_data: Dict) -> List[Dict[str, Any]]:
         aspects = []
         raw_aspects = transit_data.get('transit_aspects', '')
         if not raw_aspects or raw_aspects == "Нет значимых транзитных аспектов":
-            logger.info("ℹ️ Нет транзитных аспектов для обработки")
             return aspects
 
-        # Принудительно вызываем _get_transit_chart для заполнения transit_houses
         transit_calc._get_transit_chart()
-        logger.info(f"🏠 Транзитные дома в _build_transit_aspects: {transit_calc.transit_houses}")
-
-        # Если transit_houses всё ещё пуст, пробуем перезаполнить вручную (на всякий случай)
         if not transit_calc.transit_houses:
-            logger.warning("⚠️ transit_houses пуст, пытаемся перезаполнить через повторный вызов _get_transit_chart")
-            transit_calc.transit_chart = None  # сбрасываем кеш
+            transit_calc.transit_chart = None
             transit_calc._get_transit_chart()
-            logger.info(f"🔄 После повторного вызова: {transit_calc.transit_houses}")
 
         lines = raw_aspects.strip().split('\n')
-        logger.info(f"📄 Найдено строк с аспектами: {len(lines)}")
-
         for line in lines:
             if '→' not in line:
                 continue
             parts = [p.strip() for p in line.split('→')]
             if len(parts) != 4:
-                logger.warning(f"Неожиданный формат транзитного аспекта: {line}")
                 continue
 
             transit_planet = parts[0].replace('Transit ', '')
@@ -1073,301 +926,6 @@ class AstrologyDataBuilder:
             try:
                 orb = float(orb_str)
             except ValueError:
-                logger.warning(f"Не удалось распарсить орбис: {orb_str}")
-                continue
-
-            phase = self._determine_transit_phase(transit_planet, orb, transit_calc)
-            exact_date = self._estimate_exact_date(transit_planet, orb, transit_calc)
-
-            # Получаем долготу транзитной планеты
-            transit_chart = transit_calc._get_transit_chart()
-            transit_key = transit_planet.lower()
-            if transit_key in transit_chart:
-                obj = transit_chart[transit_key]
-                if isinstance(obj, dict):
-                    transit_longitude = obj.get('position', 0.0)
-                else:
-                    transit_longitude = getattr(obj, 'position', 0.0)
-            else:
-                transit_longitude = 0.0
-                logger.warning(f"⚠️ Планета {transit_planet} не найдена в транзитной карте")
-
-            transit_house = transit_calc._get_transit_house_for_planet(transit_longitude)
-            logger.info(f"🔍 Транзитная планета {transit_planet}, долгота {transit_longitude:.2f}, дом {transit_house}")
-
-            # Если дом всё ещё 0, добавим дополнительное логирование
-            if transit_house == 0:
-                logger.warning(f"⚠️ Дом для {transit_planet} = 0. transit_houses: {transit_calc.transit_houses}")
-
-            natal_house = self._get_planet_house(natal_planet)
-            transit_sign = self._get_transit_planet_sign(transit_planet, transit_calc)
-            natal_sign = self._get_planet_sign(natal_planet)
-
-            score = self._calculate_transit_score(transit_planet, natal_planet, aspect, orb)
-            confidence = self._calculate_confidence(score, orb)
-            passes = self._calculate_passes(transit_planet, natal_planet, aspect)
-
-            aspects.append({
-                "transit_planet": transit_planet,
-                "transit_planet_local": self.planet_names_ru.get(transit_planet, transit_planet),
-                "natal_planet": natal_planet,
-                "natal_planet_local": self.planet_names_ru.get(natal_planet, natal_planet),
-                "aspect": aspect,
-                "aspect_local": self._translate_aspect(aspect),
-                "orb": round(orb, 2),
-                "exact_angle": self._get_exact_angle(aspect),
-                "actual_angle": orb,
-                "phase": phase,
-                "transit_house": transit_house,
-                "natal_house": natal_house,
-                "transit_sign": transit_sign,
-                "natal_sign": natal_sign,
-                "exact_date": exact_date,
-                "passes": passes,
-                "themes": self._get_aspect_themes(transit_planet, natal_planet, aspect),
-                "life_areas": self._get_life_areas(aspect, transit_planet, natal_planet),
-                "score": round(score, 2),
-                "confidence": round(confidence, 2),
-            })
-
-        logger.info(f"✅ Обработано {len(aspects)} транзитных аспектов")
-        return aspects
-
-    def _determine_transit_phase(self, transit_planet: str, orb: float, transit_calc) -> str:
-        speed = self._get_planet_speed(transit_planet, is_transit=True, transit_calc=transit_calc)
-        if abs(speed) < 0.001:
-            return 'stationary'
-        if speed > 0:
-            return 'applying'
-        elif speed < 0:
-            return 'separating'
-        return 'unknown'
-
-    def _estimate_exact_date(self, transit_planet: str, orb: float, transit_calc) -> Optional[str]:
-        speed = self._get_planet_speed(transit_planet, is_transit=True, transit_calc=transit_calc)
-        if abs(speed) < 0.001:
-            return None
-        days_to_exact = orb / abs(speed)
-        exact_date = datetime.now() + timedelta(days=days_to_exact)
-        return exact_date.strftime('%Y-%m-%d')
-
-    AVERAGE_SPEEDS = {
-        'Sun': 0.9856, 'Moon': 13.1764, 'Mercury': 1.383,
-        'Venus': 1.2, 'Mars': 0.524, 'Jupiter': 0.083,
-        'Saturn': 0.033, 'Uranus': 0.012, 'Neptune': 0.006,
-        'Pluto': 0.004, 'Chiron': 0.02, 'Mean_Lilith': 0.1,
-        'True_North_Lunar_Node': -0.05, 'True_South_Lunar_Node': 0.05,
-    }
-
-    def _get_planet_speed(self, planet: str, is_transit: bool = False, transit_calc=None) -> float:
-        AVERAGE_SPEEDS = {
-            'Sun': 0.9856, 'Moon': 13.1764, 'Mercury': 1.383,
-            'Venus': 1.2, 'Mars': 0.524, 'Jupiter': 0.083,
-            'Saturn': 0.033, 'Uranus': 0.012, 'Neptune': 0.006,
-            'Pluto': 0.004, 'Chiron': 0.02, 'Mean_Lilith': 0.1,
-            'True_North_Lunar_Node': -0.05, 'True_South_Lunar_Node': 0.05,
-        }
-        try:
-            if is_transit and transit_calc is not None:
-                transit_subject = transit_calc._get_transit_subject()
-                if hasattr(transit_subject, 'planets'):
-                    for p in transit_subject.planets:
-                        if p.name.lower() == planet.lower():
-                            return p.speed if hasattr(p, 'speed') else AVERAGE_SPEEDS.get(planet, 0.0)
-            else:
-                subject = self.natal_calc._get_natal_subject()
-                if hasattr(subject, 'planets'):
-                    for p in subject.planets:
-                        if p.name.lower() == planet.lower():
-                            return p.speed if hasattr(p, 'speed') else AVERAGE_SPEEDS.get(planet, 0.0)
-        except:
-            pass
-        return AVERAGE_SPEEDS.get(planet, 0.0)
-
-    def _get_transit_planet_house(self, planet: str, transit_calc) -> int:
-        try:
-            transit_chart = transit_calc._get_transit_chart()
-            key = planet.lower()
-            if key in transit_chart:
-                obj = transit_chart[key]
-                house = obj.get('house', 0) if isinstance(obj, dict) else getattr(obj, 'house', 0)
-                try:
-                    return int(house)
-                except (ValueError, TypeError):
-                    return 0
-        except:
-            pass
-        return 0
-
-    def _get_transit_planet_sign(self, planet: str, transit_calc) -> str:
-        try:
-            transit_chart = transit_calc._get_transit_chart()
-            key = planet.lower()
-            if key in transit_chart:
-                obj = transit_chart[key]
-                return obj.get('sign', 'unknown') if isinstance(obj, dict) else getattr(obj, 'sign', 'unknown')
-        except:
-            pass
-        return 'unknown'
-
-    def _calculate_transit_score(self, transit_planet: str, natal_planet: str, aspect: str, orb: float) -> float:
-        base = 5
-        planet_weight = (self.planet_weights.get(transit_planet, 5) + self.planet_weights.get(natal_planet, 5)) / 2
-        aspect_weight = {
-            'conjunction': 10, 'opposition': 9, 'trine': 8,
-            'square': 7, 'sextile': 6,
-        }.get(aspect.lower(), 5)
-        orb_penalty = orb / 10
-        score = (base + planet_weight + aspect_weight) / 3 - orb_penalty
-        return max(1, min(10, score))
-
-    def _calculate_confidence(self, score: float, orb: float) -> float:
-        confidence = (score / 10) * (1 - orb / 10)
-        return max(0.1, min(1.0, confidence))
-
-    def _calculate_passes(self, transit_planet: str, natal_planet: str, aspect: str) -> List[Dict]:
-        slow_planets = ['Saturn', 'Jupiter', 'Uranus', 'Neptune', 'Pluto']
-        if transit_planet not in slow_planets:
-            return []
-        passes = []
-        base_date = datetime.now()
-        for i in range(3):
-            date = base_date + timedelta(days=120 * i)
-            passes.append({
-                "number": i + 1,
-                "date": date.strftime('%Y-%m-%d'),
-                "direction": "direct" if i % 2 == 0 else "retrograde"
-            })
-        return passes
-
-    def _get_life_areas(self, aspect: str, transit_planet: str, natal_planet: str) -> List[str]:
-        areas = []
-        if 'Saturn' in transit_planet or 'Saturn' in natal_planet:
-            areas.extend(['career', 'responsibility'])
-        if 'Venus' in transit_planet or 'Venus' in natal_planet:
-            areas.extend(['relationships', 'love'])
-        if 'Mars' in transit_planet or 'Mars' in natal_planet:
-            areas.extend(['action', 'conflict'])
-        if 'Jupiter' in transit_planet or 'Jupiter' in natal_planet:
-            areas.extend(['growth', 'expansion'])
-        if 'Moon' in transit_planet or 'Moon' in natal_planet:
-            areas.extend(['emotions', 'family'])
-        if 'Sun' in transit_planet or 'Sun' in natal_planet:
-            areas.extend(['identity', 'self_expression'])
-        return list(set(areas))
-
-    def _build_active_periods(self, transit_aspects: List[Dict]) -> List[Dict]:
-        periods = []
-        themes = {}
-        for asp in transit_aspects:
-            for theme in asp.get('themes', []):
-                if theme not in themes:
-                    themes[theme] = []
-                themes[theme].append(asp)
-
-        for theme, aspects in themes.items():
-            if not aspects:
-                continue
-            avg_score = sum(a['score'] for a in aspects) / len(aspects)
-            avg_conf = sum(a['confidence'] for a in aspects) / len(aspects)
-            dates = [a.get('exact_date') for a in aspects if a.get('exact_date')]
-            if dates:
-                start = min(dates)
-                end = max(dates)
-            else:
-                start = datetime.now().strftime('%Y-%m-%d')
-                end = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-            evidence = []
-            for a in aspects[:5]:
-                evidence.append({
-                    "transit": a['transit_planet_local'],
-                    "natal": a['natal_planet_local'],
-                    "aspect": a['aspect_local'],
-                    "orb": a['orb'],
-                    "phase": a['phase'],
-                    "exact_date": a.get('exact_date'),
-                    "transit_house": a['transit_house'],
-                    "natal_house": a['natal_house'],
-                    "score": a['score'],
-                    "confidence": a['confidence']
-                })
-            periods.append({
-                "start": start,
-                "end": end,
-                "theme": theme,
-                "intensity": round(avg_score, 1),
-                "confidence": round(avg_conf, 2),
-                "score": round(avg_score, 2),
-                "evidence": evidence
-            })
-        return periods
-
-    # ==================== TRANSITS ====================
-
-    def _build_transits(self) -> Dict[str, Any]:
-        """Собирает данные по транзитам."""
-        transit_calc = TransitHoroscopeCalculator(self.user_data, self.lang, natal_calc=self.natal_calc)
-        transit_data = transit_calc.calculate()
-
-        transit_planets = self._build_transit_planets(transit_calc)
-        transit_aspects = self._build_transit_aspects(transit_calc, transit_data)
-        active_periods = self._build_active_periods(transit_aspects)
-
-        return {
-            "planets": transit_planets,
-            "aspects": transit_aspects,
-            "active_periods": active_periods,
-        }
-
-    # def _build_transit_planets(self, transit_calc) -> List[Dict[str, Any]]:
-    #     """Собирает данные по транзитным планетам."""
-    #     transit_chart = transit_calc._get_transit_chart()
-    #     planets = []
-    #     for key in ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
-    #                 'uranus', 'neptune', 'pluto', 'chiron']:
-    #         if key in transit_chart:
-    #             obj = transit_chart[key]
-    #             if isinstance(obj, dict):
-    #                 planet_name = key.capitalize()
-    #                 longitude = obj.get('position', 0.0)
-    #                 transit_house = transit_calc._get_transit_house_for_planet(longitude)
-    #                 planets.append({
-    #                     "name": planet_name,
-    #                     "name_local": self.planet_names_ru.get(planet_name, planet_name),
-    #                     "longitude": longitude,
-    #                     "speed": obj.get('speed', 0.0),
-    #                     "retrograde": obj.get('retrograde', False),
-    #                     "sign": obj.get('sign', 'unknown'),
-    #                     "degree": longitude % 30,
-    #                     "house": transit_house,
-    #                     "themes": self._get_planet_themes(planet_name, transit_house, obj.get('sign', ''))
-    #                 })
-    #     return planets
-
-    def _build_transit_aspects(self, transit_calc, transit_data: Dict) -> List[Dict[str, Any]]:
-        """Собирает транзитные аспекты с расчётом точных дат и проходов."""
-        aspects = []
-        raw_aspects = transit_data.get('transit_aspects', '')
-        if not raw_aspects or raw_aspects == "Нет значимых транзитных аспектов":
-            return aspects
-
-        lines = raw_aspects.strip().split('\n')
-        for line in lines:
-            if '→' not in line:
-                continue
-            parts = [p.strip() for p in line.split('→')]
-            if len(parts) != 4:
-                logger.warning(f"Неожиданный формат транзитного аспекта: {line}")
-                continue
-
-            transit_planet = parts[0].replace('Transit ', '')
-            natal_planet = parts[1].replace('Natal ', '')
-            aspect = parts[2]
-            orb_str = parts[3].replace('°', '')
-            try:
-                orb = float(orb_str)
-            except ValueError:
-                logger.warning(f"Не удалось распарсить орбис: {orb_str}")
                 continue
 
             phase = self._determine_transit_phase(transit_planet, orb, transit_calc)
@@ -1383,6 +941,7 @@ class AstrologyDataBuilder:
                     transit_longitude = getattr(obj, 'position', 0.0)
             else:
                 transit_longitude = 0.0
+
             transit_house = transit_calc._get_transit_house_for_planet(transit_longitude)
             natal_house = self._get_planet_house(natal_planet)
             transit_sign = self._get_transit_planet_sign(transit_planet, transit_calc)
@@ -1459,21 +1018,6 @@ class AstrologyDataBuilder:
         except:
             pass
         return AVERAGE_SPEEDS.get(planet, 0.0)
-
-    def _get_transit_planet_house(self, planet: str, transit_calc) -> int:
-        try:
-            transit_chart = transit_calc._get_transit_chart()
-            key = planet.lower()
-            if key in transit_chart:
-                obj = transit_chart[key]
-                house = obj.get('house', 0) if isinstance(obj, dict) else getattr(obj, 'house', 0)
-                try:
-                    return int(house)
-                except (ValueError, TypeError):
-                    return 0
-        except:
-            pass
-        return 0
 
     def _get_transit_planet_sign(self, planet: str, transit_calc) -> str:
         try:
@@ -1592,7 +1136,6 @@ class AstrologyDataBuilder:
                 continue
             parts = [p.strip() for p in line.split('→')]
             if len(parts) != 4:
-                logger.warning(f"Неожиданный формат прогрессивного аспекта: {line}")
                 continue
 
             progressed = parts[0].replace('Progressed ', '')
@@ -1602,7 +1145,6 @@ class AstrologyDataBuilder:
             try:
                 orb = float(orb_str)
             except ValueError:
-                logger.warning(f"Не удалось распарсить орбис прогрессии: {orb_str}")
                 continue
 
             phase = 'applying' if orb < 0.5 else 'separating'
@@ -1656,28 +1198,16 @@ class AstrologyDataBuilder:
 
         # 3. Натальные аспекты
         for a in self.chart.get('aspects', []):
-            orb_val = a.get('orb', 10)
-            try:
-                orb_val = float(orb_val)
-            except (ValueError, TypeError):
-                orb_val = 10
+            orb_val = float(a.get('orb', 10))
             if orb_val <= 3:
-                weight = a.get('weight', 5)
-                try:
-                    weight = float(weight)
-                except (ValueError, TypeError):
-                    weight = 5
+                weight = float(a.get('weight', 5))
                 p1, p2 = a['p1'], a['p2']
                 for theme in self._get_aspect_themes(p1, p2, a['aspect']):
                     self._add_evidence(themes, theme, 'natal_aspect', f"{p1} {a['aspect']} {p2}", f"orb {orb_val:.2f}°", weight)
 
         # 4. Аспекты к углам
         for angle_aspect in self._build_angle_aspects():
-            weight = angle_aspect.get('score', 5)
-            try:
-                weight = float(weight)
-            except (ValueError, TypeError):
-                weight = 5
+            weight = float(angle_aspect.get('score', 5))
             theme = angle_aspect.get('themes', ['unknown'])[0]
             self._add_evidence(themes, theme, 'angle_aspect',
                                f"{angle_aspect['planet']} {angle_aspect['aspect']} {angle_aspect['angle']}",
@@ -1685,22 +1215,14 @@ class AstrologyDataBuilder:
 
         # 5. Паттерны
         for pat in self._build_patterns():
-            strength = pat.get('strength', 5)
-            try:
-                strength = float(strength)
-            except (ValueError, TypeError):
-                strength = 5
+            strength = float(pat.get('strength', 5))
             for theme in pat.get('themes', []):
                 self._add_evidence(themes, theme, 'pattern', pat['type'], f"strength {strength}", strength)
 
         # 6. Транзиты
         transit_data = self._build_transits()
         for ta in transit_data.get('aspects', []):
-            score_val = ta.get('score', 0)
-            try:
-                score_val = float(score_val)
-            except (ValueError, TypeError):
-                score_val = 0
+            score_val = float(ta.get('score', 0))
             if score_val > 6:
                 for theme in ta.get('themes', []):
                     self._add_evidence(themes, theme, 'transit',
@@ -1710,11 +1232,7 @@ class AstrologyDataBuilder:
         # 7. Прогрессии
         prog_data = self._build_progressions()
         for pa in prog_data.get('aspects', []):
-            score_val = pa.get('score', 0)
-            try:
-                score_val = float(score_val)
-            except (ValueError, TypeError):
-                score_val = 0
+            score_val = float(pa.get('score', 0))
             if score_val > 6:
                 for theme in pa.get('themes', []):
                     self._add_evidence(themes, theme, 'progression',
@@ -1780,19 +1298,3 @@ class AstrologyDataBuilder:
                 })
         timeline.sort(key=lambda x: x['date'])
         return timeline[:20]
-
-    def _get_house_for_longitude(self, longitude: float, houses: List[Dict]) -> int:
-        if not houses:
-            return 0
-        sorted_houses = sorted(houses, key=lambda h: h['degree'])
-        for i, h in enumerate(sorted_houses):
-            next_house = sorted_houses[(i + 1) % len(sorted_houses)]
-            start = h['degree']
-            end = next_house['degree']
-            if end < start:
-                if longitude >= start or longitude < end:
-                    return h['number']
-            else:
-                if start <= longitude < end:
-                    return h['number']
-        return 0
