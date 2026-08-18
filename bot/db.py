@@ -7,6 +7,7 @@ from asgiref.sync import sync_to_async
 import logging
 from typing import Optional
 from decimal import Decimal
+from core.models import User, DailyUsage, UserMessage, Payment, ServicePrice
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()

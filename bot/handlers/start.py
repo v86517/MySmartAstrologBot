@@ -62,3 +62,25 @@ async def change_language(message: Message):
     user_id = message.from_user.id
     text = await get_text(user_id, 'choose_language')
     await message.answer(text, reply_markup=get_language_keyboard())
+
+
+from aiogram.types import CallbackQuery
+from asgiref.sync import sync_to_async
+from core.models import User
+from bot.keyboards.keyboards import get_main_menu
+
+@router.callback_query(F.data.startswith("lang_"))
+async def set_language(callback: CallbackQuery):
+    lang = callback.data.split("_")[1]
+    user_id = callback.from_user.id
+
+    try:
+        user = await sync_to_async(User.objects.get)(telegram_id=user_id)
+        user.language = lang
+        await sync_to_async(user.save)()
+        await callback.answer()
+        confirm_text = await get_text(user_id, 'language_set')
+        await callback.message.delete()
+        await callback.message.answer(confirm_text, reply_markup=get_main_menu(lang))
+    except User.DoesNotExist:
+        await callback.answer("❌ Ошибка: пользователь не найден", show_alert=True)
