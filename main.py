@@ -21,7 +21,7 @@ from bot.keyboards.keyboards import (
     get_compatibility_keyboard,
     get_confirm_keyboard,
     #get_continue_keyboard,
-#    get_zodiac_keyboard_person2,
+    get_zodiac_keyboard_person2,
     get_expert_keyboard,
     get_subscription_keyboard,
     get_subscription_active_keyboard,
@@ -31,15 +31,15 @@ from bot.keyboards.keyboards import (
     get_skip_keyboard,
     get_numerology_payment_keyboard,
     get_numerology_confirm_keyboard,
-#    get_numerology_use_data_keyboard,
+    get_numerology_use_data_keyboard,
     get_astrology_payment_keyboard,
     get_astrology_confirm_keyboard,
-#    get_astrology_use_data_keyboard,
+    get_astrology_use_data_keyboard,
     get_timezone_keyboard,
     get_subscription_promo_keyboard,
     get_save_data_keyboard,
-#    get_after_save_keyboard,
-#    get_subscription_payment_keyboard,
+    get_after_save_keyboard,
+    get_subscription_payment_keyboard,
     get_fill_profile_keyboard,
     get_support_keyboard, get_horoscope_confirm_keyboard,
     get_language_keyboard,
@@ -54,12 +54,12 @@ from bot.db import (
     save_user_data,
     get_user_data,
     check_subscription_db,
-#    activate_subscription_db,
+    activate_subscription_db,
     can_use_feature_db,
     mark_feature_used_db,
     save_message_to_archive,
     get_user_archive,
-#    get_archive_message,
+    get_archive_message,
     get_user_language,
 )
 from bot.scheduler import setup_scheduler, send_daily_horoscopes
@@ -68,8 +68,8 @@ from core.models import User
 from bot.yookassa_client import yookassa
 from bot.db import save_payment_db, activate_subscription_db, add_numerology_count, add_astrology_count
 from bot.calculators.astrology_calculator import AstrologyCalculator
-#from bot.calculators.base_calculator import BaseCalculator
-#from bot.calculators.natal_calculator import NatalCalculator
+from bot.calculators.base_calculator import BaseCalculator
+from bot.calculators.natal_calculator import NatalCalculator
 from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
 from bot.calculators.compatibility_calculator import CompatibilityCalculator
 from datetime import datetime
