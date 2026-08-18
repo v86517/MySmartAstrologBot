@@ -16,12 +16,8 @@ from bot.utils.helpers import get_text
 
 from bot.keyboards.keyboards import (
     get_main_menu,
-    #get_zodiac_keyboard,
     get_cancel_keyboard,
     get_compatibility_keyboard,
-    get_confirm_keyboard,
-    #get_continue_keyboard,
-    get_zodiac_keyboard_person2,
     get_expert_keyboard,
     get_subscription_keyboard,
     get_subscription_active_keyboard,
@@ -38,12 +34,12 @@ from bot.keyboards.keyboards import (
     get_timezone_keyboard,
     get_subscription_promo_keyboard,
     get_save_data_keyboard,
-    get_after_save_keyboard,
-    get_subscription_payment_keyboard,
     get_fill_profile_keyboard,
-    get_support_keyboard, get_horoscope_confirm_keyboard,
+    get_support_keyboard,
+    get_horoscope_confirm_keyboard,
     get_language_keyboard,
-    get_main_menu_button, get_compatibility_confirm_keyboard,
+    get_main_menu_button,
+    get_compatibility_confirm_keyboard,
 )
 from bot.states.states import UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates, HoroscopeStates, SubscriptionStates
 from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji, get_zodiac_sign_localized
