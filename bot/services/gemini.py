@@ -184,34 +184,45 @@ class GeminiService:
 
     # ---- НОВЫЕ МЕТОДЫ ДЛЯ ТРАНЗИТОВ И СИНАСТРИИ (по ТЗ) ----
 
-    def generate_horoscope_with_data(self, natal_data: Dict[str, Any], transit_data: Dict[str, Any], lang: str) -> str:
-        """Генерирует гороскоп на основе структурированных данных (natal + transit)."""
+    # В bot/services/gemini.py
+
+    async def generate_horoscope_with_data(self, user_id: int, natal_data: Dict[str, Any],
+                                           transit_data: Dict[str, Any], lang: str) -> str:
+        """Генерирует гороскоп на основе структурированных данных с поддержкой эмуляции."""
+        from bot.db import get_emulation_mode
+        emulation = await get_emulation_mode(user_id)
         template = self._load_prompt_template('prompt_horoscope_v2.txt')
         if not template:
             logger.error("Шаблон prompt_horoscope_v2.txt не найден, используем старый метод")
-            # fallback на старый метод
-            user_data = self.user_data or {}
-            return self.generate_horoscope(user_data, lang)
+            return self.generate_horoscope(self.user_data or {}, lang)
 
         replacements = self._prepare_horoscope_replacements(natal_data, transit_data, lang)
         prompt = self._replace_placeholders(template, replacements)
         prompt = self._add_language_instruction(prompt, lang)
+
+        if emulation:
+            return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+
         return self._send_prompt(prompt, lang)
 
-    def generate_compatibility_with_data(self, natal1: Dict[str, Any], natal2: Dict[str, Any],
-                                         synastry_data: Dict[str, Any], lang: str) -> str:
-        """Генерирует анализ совместимости на основе натальных и синастрических данных."""
+    async def generate_compatibility_with_data(self, user_id: int, natal1: Dict[str, Any],
+                                               natal2: Dict[str, Any], synastry_data: Dict[str, Any],
+                                               lang: str) -> str:
+        """Генерирует анализ совместимости с поддержкой эмуляции."""
+        from bot.db import get_emulation_mode
+        emulation = await get_emulation_mode(user_id)
         template = self._load_prompt_template('prompt_connect_v2.txt')
         if not template:
             logger.error("Шаблон prompt_connect_v2.txt не найден, используем старый метод")
-            # fallback
-            person1 = self.user_data or {}
-            person2 = {}  # не знаем, как получить
-            return self.generate_compatibility_from_prompt(person1, person2, lang)
+            return self.generate_compatibility_from_prompt({}, {}, lang)
 
         replacements = self._prepare_compatibility_replacements(natal1, natal2, synastry_data, lang)
         prompt = self._replace_placeholders(template, replacements)
         prompt = self._add_language_instruction(prompt, lang)
+
+        if emulation:
+            return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+
         return self._send_prompt(prompt, lang)
 
     # ---- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ПОДГОТОВКИ ЗАМЕН ----
