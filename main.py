@@ -1284,13 +1284,18 @@ async def confirm_horoscope_state(message: Message, state: FSMContext):
 async def start_horoscope(message: Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
+    logger.info(f"🟢 start_horoscope вызвана для user_id={user_id}, lang={lang}")
+
     is_subscribed = await check_subscription_db(user_id)
+    logger.info(f"   is_subscribed={is_subscribed}")
 
     # Если есть подписка – сразу проверяем данные
     if is_subscribed:
         user_data = await get_user_data(user_id)
+        logger.info(f"   user_data с подпиской: {user_data}")
         if user_data and user_data.get('name'):
             # Показываем подтверждение
+            logger.info("   Ветка: подписка есть, данные есть → показываем подтверждение")
             zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
             zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
 
@@ -1311,30 +1316,37 @@ async def start_horoscope(message: Message, state: FSMContext):
                 emoji=zodiac_emoji,
                 zodiac=zodiac_name
             )
-
+            logger.info(f"   profile_text: {profile_text[:100]}...")
             await state.update_data(user_data=user_data)
             await state.set_state(HoroscopeStates.CONFIRM)
             await message.answer(profile_text, reply_markup=get_horoscope_confirm_keyboard(lang))
+            logger.info("   ✅ Отправлено сообщение с подтверждением")
             return
         else:
             # Подписка есть, но данных нет – начинаем сбор
+            logger.info("   Ветка: подписка есть, данных нет → начинаем сбор")
             await state.set_state(UserDataStates.WAITING_NAME)
             await message.answer(await get_text(user_id, 'horoscope_intro'), reply_markup=get_cancel_keyboard(lang))
+            logger.info("   ✅ Отправлен запрос имени")
             return
 
     # Нет подписки – проверяем лимит
     if not await can_use_feature_db(user_id, 'horoscope'):
         # Лимит исчерпан – предлагаем подписку
+        logger.info("   Ветка: нет подписки, лимит исчерпан → предлагаем подписку")
         await message.answer(
             await get_text(user_id, 'horoscope_free_ready'),
             reply_markup=get_subscription_keyboard(lang)
         )
+        logger.info("   ✅ Отправлено предложение подписки")
         return
 
     # Лимит есть – проверяем данные
     user_data = await get_user_data(user_id)
+    logger.info(f"   user_data без подписки: {user_data}")
     if user_data and user_data.get('name'):
         # Данные есть – показываем подтверждение (но без подписки, поэтому после подтверждения будет использован лимит)
+        logger.info("   Ветка: нет подписки, лимит есть, данные есть → показываем подтверждение")
         zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
         zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
 
@@ -1355,14 +1367,17 @@ async def start_horoscope(message: Message, state: FSMContext):
             emoji=zodiac_emoji,
             zodiac=zodiac_name
         )
-
+        logger.info(f"   profile_text: {profile_text[:100]}...")
         await state.update_data(user_data=user_data)
         await state.set_state(HoroscopeStates.CONFIRM)
         await message.answer(profile_text, reply_markup=get_horoscope_confirm_keyboard(lang))
+        logger.info("   ✅ Отправлено сообщение с подтверждением")
     else:
         # Данных нет – начинаем сбор
+        logger.info("   Ветка: нет подписки, лимит есть, данных нет → начинаем сбор")
         await state.set_state(UserDataStates.WAITING_NAME)
         await message.answer(await get_text(user_id, 'horoscope_intro'), reply_markup=get_cancel_keyboard(lang))
+        logger.info("   ✅ Отправлен запрос имени")
 
 
 async def start_compatibility(message: Message, state: FSMContext):
