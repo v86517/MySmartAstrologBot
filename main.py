@@ -3679,6 +3679,7 @@ async def handle_menu_commands(message: Message, state: FSMContext):
     texts = TEXTS.get(lang, TEXTS['ru'])
     text = message.text
 
+    logger.info(f"🔍 handle_menu_commands: user_id={user_id}, lang={lang}, text='{text}'")
     # Список текстов кнопок меню на текущем языке
     menu_commands = [
         texts['menu_horoscope'],
@@ -3691,6 +3692,7 @@ async def handle_menu_commands(message: Message, state: FSMContext):
         texts['menu_profile'],
         texts['menu_language'],
     ]
+    logger.info(f"📋 menu_commands: {menu_commands}")
 
     # Если текст является командой меню, обрабатываем даже при активном состоянии
     if text in menu_commands:
@@ -3700,22 +3702,31 @@ async def handle_menu_commands(message: Message, state: FSMContext):
 
         # Вызываем соответствующий обработчик
         if text == texts['menu_horoscope']:
+            logger.info("➡️ Вызов menu_horoscope")
             await start_horoscope(message, state)
         elif text == texts['menu_compatibility']:
+            logger.info("➡️ Вызов menu_compatibility")
             await start_compatibility(message, state)
         elif text == texts['menu_numerology']:
+            logger.info("➡️ Вызов menu_numerology")
             await start_numerology(message, state)
         elif text == texts['menu_astrology']:
+            logger.info("➡️ Вызов menu_astrology")
             await start_astrology(message, state)
         elif text == texts['menu_premium']:
+            logger.info("➡️ Вызов menu_premium")
             await show_subscription(message)
         elif text == texts['menu_expert']:
+            logger.info("➡️ Вызов menu_expert")
             await expert_request(message)
         elif text == texts['menu_archive']:
+            logger.info("➡️ Вызов menu_archive")
             await show_archive(message)
         elif text == texts['menu_profile']:
+            logger.info("➡️ Вызов menu_profile")
             await profile(message)
         elif text == texts['menu_language']:
+            logger.info("➡️ Вызов menu_language")
             await change_language(message)
         return
 
