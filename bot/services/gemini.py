@@ -263,21 +263,8 @@ class GeminiService:
         houses = natal.get('houses', [])
         rulers = natal.get('house_rulers', [])
         aspects = natal.get('aspects', [])
-        themes = natal.get('themes', {})
         angles = natal.get('angles', {})
-
-        # Метаданные (из natal_data)
-        meta = natal_data.get('metadata', {})
-        settings = meta.get('settings', {})
-        metadata_settings = (
-            f"Зодиак: {settings.get('zodiac', 'tropical')}\n"
-            f"Система домов: {settings.get('house_system', 'Placidus')}\n"
-            f"Эфемериды: {settings.get('ephemeris', 'kerykeion')}\n"
-            f"Лунный узел: {settings.get('lunar_node', 'true')}\n"
-            f"Система координат: {settings.get('coordinate_system', 'geocentric')}\n"
-            f"Тип прогрессий: {settings.get('progression_type', 'secondary')}\n"
-            f"Орбы аспектов: {settings.get('aspect_orb', {})}"
-        )
+        themes = natal_data.get('themes', {})  # <-- ИСПРАВЛЕНО: темы на верхнем уровне
 
         # Форматируем углы
         angles_str = (
@@ -287,19 +274,10 @@ class GeminiService:
             f"IC: {angles.get('IC', 0):.2f}°"
         ) if angles else "Нет данных об углах."
 
-        # Форматируем планеты
         planets_table = self._format_planets_table(planets)
-
-        # Куспиды домов
         cusps_str = self._format_cusps(houses)
-
-        # Управители домов
         house_rulers_str = self._format_house_rulers(rulers)
-
-        # Натальные аспекты
         natal_aspects_str = self._format_aspects(aspects)
-
-        # Натальные темы
         themes_str = self._format_themes(themes)
 
         # Транзитные секции
@@ -312,7 +290,6 @@ class GeminiService:
         active_periods = transit_data.get('active_periods', [])
         transit_themes = transit_data.get('transit_themes', {})
 
-        # Форматируем транзиты
         transit_planets_str = self._format_transit_planets(transit_planets)
         transit_aspects_str = self._format_transit_aspects(transit_aspects)
         transit_angle_aspects_str = self._format_transit_angle_aspects(transit_angle_aspects)
@@ -330,6 +307,19 @@ class GeminiService:
                     f"{asp['exact_date']}: {asp['transit_planet']} {asp['aspect']} {asp['natal_planet']}"
                 )
         timeline_str = "\n".join(timeline_items[:10]) if timeline_items else "Нет значимых событий в ближайшее время."
+
+        # Метаданные
+        meta = natal_data.get('metadata', {})
+        settings = meta.get('settings', {})
+        metadata_settings = (
+            f"Зодиак: {settings.get('zodiac', 'tropical')}\n"
+            f"Система домов: {settings.get('house_system', 'Placidus')}\n"
+            f"Эфемериды: {settings.get('ephemeris', 'kerykeion')}\n"
+            f"Лунный узел: {settings.get('lunar_node', 'true')}\n"
+            f"Система координат: {settings.get('coordinate_system', 'geocentric')}\n"
+            f"Тип прогрессий: {settings.get('progression_type', 'secondary')}\n"
+            f"Орбы аспектов: {settings.get('aspect_orb', {})}"
+        )
 
         replacements = {
             "person_name": name,
@@ -362,35 +352,25 @@ class GeminiService:
                                             natal1: Dict, natal2: Dict, synastry_data: Dict, lang: str) -> Dict[
         str, str]:
         """Подготавливает замены для промпта совместимости."""
-        from bot.utils.zodiac import get_zodiac_sign_localized
-
-        # Базовые данные из user_data_a и user_data_b
+        # Базовые данные людей
         name_a = user_data_a.get('name', 'Человек A')
         name_b = user_data_b.get('name', 'Человек B')
-        gender_a = user_data_a.get('gender', 'M')
-        gender_b = user_data_b.get('gender', 'M')
-        if lang == 'ru':
-            gender_text_a = "Мужской" if gender_a == 'M' else "Женский" if gender_a == 'F' else "Не указан"
-            gender_text_b = "Мужской" if gender_b == 'M' else "Женский" if gender_b == 'F' else "Не указан"
-        else:
-            gender_text_a = "Male" if gender_a == 'M' else "Female" if gender_a == 'F' else "Not specified"
-            gender_text_b = "Male" if gender_b == 'M' else "Female" if gender_b == 'F' else "Not specified"
 
         # Натальные данные человека A
         natal_a = natal1.get('natal', {})
         planets_a = self._format_planets_table(natal_a.get('planets', []))
         cusps_a = self._format_cusps(natal_a.get('houses', []))
-        rulers_a = self._format_house_rulers(natal_a.get('house_rulers', []))
+        house_rulers_a = self._format_house_rulers(natal_a.get('house_rulers', []))
         aspects_a = self._format_aspects(natal_a.get('aspects', []))
-        themes_a = self._format_themes(natal_a.get('themes', {}))
+        themes_a = self._format_themes(natal1.get('themes', {}))  # <-- ИСПРАВЛЕНО
 
         # Натальные данные человека B
         natal_b = natal2.get('natal', {})
         planets_b = self._format_planets_table(natal_b.get('planets', []))
         cusps_b = self._format_cusps(natal_b.get('houses', []))
-        rulers_b = self._format_house_rulers(natal_b.get('house_rulers', []))
+        house_rulers_b = self._format_house_rulers(natal_b.get('house_rulers', []))
         aspects_b = self._format_aspects(natal_b.get('aspects', []))
-        themes_b = self._format_themes(natal_b.get('themes', {}))
+        themes_b = self._format_themes(natal2.get('themes', {}))  # <-- ИСПРАВЛЕНО
 
         # Синастрические данные
         syn_aspects_a_to_b = self._format_synastry_aspects(synastry_data.get('synastry_aspects_a_to_b', []))
@@ -400,19 +380,17 @@ class GeminiService:
         mutual_receptions = self._format_mutual_receptions(synastry_data.get('mutual_receptions', []))
         comp_themes = self._format_synastry_themes(synastry_data.get('compatibility_themes', {}))
 
-        replacements = {
+        return {
             "person_a_name": name_a,
             "person_b_name": name_b,
-            "person_a_gender": gender_text_a,
-            "person_b_gender": gender_text_b,
             "person_a_planets": planets_a,
             "person_a_cusps": cusps_a,
-            "person_a_house_rulers": rulers_a,
+            "person_a_house_rulers": house_rulers_a,
             "person_a_aspects": aspects_a,
             "person_a_themes": themes_a,
             "person_b_planets": planets_b,
             "person_b_cusps": cusps_b,
-            "person_b_house_rulers": rulers_b,
+            "person_b_house_rulers": house_rulers_b,
             "person_b_aspects": aspects_b,
             "person_b_themes": themes_b,
             "synastry_aspects_a_to_b": syn_aspects_a_to_b,
@@ -422,8 +400,6 @@ class GeminiService:
             "mutual_receptions": mutual_receptions,
             "compatibility_themes": comp_themes,
         }
-
-        return replacements
 
     # ---- ФОРМАТТЕРЫ ДЛЯ РАЗЛИЧНЫХ СЕКЦИЙ (для промптов) ----
 
