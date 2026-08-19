@@ -716,3 +716,29 @@ class GeminiService:
     def get_astrology_display_data(self, user_data: Dict[str, Any], lang: str, is_admin: bool = False) -> Dict[str, str]:
         # Существующий метод
         pass
+
+    async def generate_horoscope_with_context(self, user_id: int, context: str, lang: str,
+                                              period: str = 'today', display_date: str = '') -> str:
+        from bot.db import get_emulation_mode
+        emulation = await get_emulation_mode(user_id)
+        template = self._load_prompt_template('prompt_horoscope_v3.txt')
+        if not template:
+            logger.error("Шаблон prompt_horoscope_v3.txt не найден")
+            return "❌ Ошибка: шаблон для гороскопа не найден."
+
+        period_name = "день" if period == 'today' else "месяц" if period == 'month' else "год"
+        replacements = {
+            "context": context,
+            "period": period_name
+        }
+        if lang == 'en':
+            replacements[
+                'language_instruction'] = "IMPORTANT: Respond in English only. All your output must be in English."
+        else:
+            replacements[
+                'language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь твой ответ должен быть на русском."
+
+        prompt = self._replace_placeholders(template, replacements)
+        if emulation:
+            return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+        return self._send_prompt(prompt, lang)

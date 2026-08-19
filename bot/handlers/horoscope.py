@@ -30,6 +30,7 @@ from bot.db import (
 )
 from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
 from bot.calculators.astrology_data_builder import AstrologyDataBuilder
+from bot.calculators.context_builder import AstrologyContextBuilder
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -206,30 +207,35 @@ async def confirm_horoscope(callback: CallbackQuery):
         )
         transit_data = transit_calc.get_full_transit_data()
 
-        # Генерируем текст через Gemini
-        horoscope_text = await _gemini_service.generate_horoscope_with_data(
+        # ---- НОВАЯ ЛОГИКА С КОНТЕКСТНЫМ БИЛДЕРОМ ----
+        from bot.calculators.context_builder import AstrologyContextBuilder
+        builder = AstrologyContextBuilder(user_data, natal_data, transit_data, lang)
+        if period == 'today':
+            context = builder.build_day_context()
+        elif period == 'month':
+            context = builder.build_month_context()
+        else:
+            context = builder.build_year_context()
+
+        horoscope_text = await _gemini_service.generate_horoscope_with_context(
             user_id,
-            user_data,
-            natal_data,
-            transit_data,
+            context,
             lang,
             period=period,
-            display_date=display_date,
-            start_utc=start_utc,
-            end_utc=end_utc
+            display_date=display_date
         )
+        # ---- КОНЕЦ НОВОЙ ЛОГИКИ ----
 
         # Формируем вывод
         is_admin = await is_user_admin(user_id)
         basic_params = format_basic_astrology_parameters(user_data, lang)
 
-        # Заголовок результата (исправлено: await get_text, затем .format)
+        # Заголовок результата
         if period == 'today':
             header_template = await get_text(user_id, 'horoscope_result_today')
             header = header_template.format(date=display_date)
         elif period == 'month':
             header_template = await get_text(user_id, 'horoscope_result_month')
-            # display_date содержит "месяц год" или "Month Year"
             month_part, year_part = display_date.split()
             header = header_template.format(month=month_part, year=year_part)
         else:
