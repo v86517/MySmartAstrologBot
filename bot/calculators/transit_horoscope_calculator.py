@@ -235,7 +235,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
             return False
 
     def _filter_periods_by_dates(self, periods: List[Dict]) -> List[Dict]:
-        """Фильтрует список активных периодов по диапазону дат."""
+        """Фильтрует список активных периодов по диапазону дат (с учётом UTC)."""
         if not periods or self.start_utc is None or self.end_utc is None:
             return []
         filtered = []
@@ -244,10 +244,11 @@ class TransitHoroscopeCalculator(BaseCalculator):
             end_str = p.get('end')
             if not start_str or not end_str:
                 continue
-            # Проверяем пересечение интервалов
             try:
-                start_dt = datetime.strptime(start_str, '%Y-%m-%d')
-                end_dt = datetime.strptime(end_str, '%Y-%m-%d')
+                # Парсим строки как naive datetime и делаем их offset-aware (UTC)
+                start_dt = datetime.strptime(start_str, '%Y-%m-%d').replace(tzinfo=pytz.UTC)
+                end_dt = datetime.strptime(end_str, '%Y-%m-%d').replace(tzinfo=pytz.UTC)
+                # Сравниваем с self.start_utc и self.end_utc (которые уже offset-aware)
                 if max(start_dt, self.start_utc) <= min(end_dt, self.end_utc):
                     filtered.append(p)
             except ValueError:
