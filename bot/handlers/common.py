@@ -83,3 +83,11 @@ async def handle_menu_commands(message: Message, state: FSMContext):
     elif text == texts['menu_language']:
         logger.info("➡️ Вызов change_language")
         await change_language(message)
+
+@router.callback_query(F.data == "main_menu")
+async def back_to_main_menu(callback: CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer("🏠", reply_markup=get_main_menu(lang))

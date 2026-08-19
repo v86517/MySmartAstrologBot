@@ -244,21 +244,21 @@ def estimate_exact_date(orb: float, speed: float, current_date: datetime) -> Opt
     return exact.strftime('%Y-%m-%d')
 
 
-def get_passes_for_slow_planet(planet_name: str, orb: float, speed: float, current_date: datetime) -> List[Dict]:
-    """
-    Возвращает проходы для медленных планет (Saturn, Jupiter, Uranus, Neptune, Pluto).
-    Возвращает список из трёх приблизительных дат.
-    """
-    slow_planets = ['Saturn', 'Jupiter', 'Uranus', 'Neptune', 'Pluto']
-    if planet_name not in slow_planets or abs(speed) < 0.001:
-        return []
-    passes = []
-    # Проходы с интервалом примерно 120 дней (для упрощения)
-    for i in range(3):
-        date = current_date + timedelta(days=120 * i)
-        direction = "direct" if i % 2 == 0 else "retrograde"
-        passes.append({"number": i + 1, "date": date.strftime('%Y-%m-%d'), "direction": direction})
-    return passes
+# def get_passes_for_slow_planet(planet_name: str, orb: float, speed: float, current_date: datetime) -> List[Dict]:
+#     """
+#     Возвращает проходы для медленных планет (Saturn, Jupiter, Uranus, Neptune, Pluto).
+#     Возвращает список из трёх приблизительных дат.
+#     """
+#     slow_planets = ['Saturn', 'Jupiter', 'Uranus', 'Neptune', 'Pluto']
+#     if planet_name not in slow_planets or abs(speed) < 0.001:
+#         return []
+#     passes = []
+#     # Проходы с интервалом примерно 120 дней (для упрощения)
+#     for i in range(3):
+#         date = current_date + timedelta(days=120 * i)
+#         direction = "direct" if i % 2 == 0 else "retrograde"
+#         passes.append({"number": i + 1, "date": date.strftime('%Y-%m-%d'), "direction": direction})
+#     return passes
 
 
 def get_life_areas(planet1: str, planet2: str) -> List[str]:

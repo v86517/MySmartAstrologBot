@@ -361,7 +361,10 @@ class GeminiService:
             "transit_planets": transit_planets_str,
             "transit_aspects_list": transit_aspects_str,
             "transit_angle_aspects_list": transit_angle_aspects_str,
-            "active_periods": active_periods_str,
+            "transit_passes": self._format_transit_passes(transit_data.get('transit_passes', [])),
+            "transit_ingresses": self._format_transit_ingresses(transit_data.get('transit_ingresses', [])),
+            "transit_stations": self._format_transit_stations(transit_data.get('transit_stations', [])),
+            "active_periods": self._format_active_periods(transit_data.get('active_periods', [])),
             "language_instruction": "",  # добавим позже отдельно
         }
         return replacements
@@ -564,42 +567,44 @@ class GeminiService:
 
     def _format_transit_passes(self, passes: list) -> str:
         if not passes:
-            return "Нет проходов медленных планет."
+            return "Нет проходов медленных планет в указанный период."
         lines = []
         for item in passes:
-            transit = item.get('transit_planet', '')
-            natal = item.get('natal_planet', '')
-            aspect = item.get('aspect', '')
-            passes_list = item.get('passes', [])
-            lines.append(f"{transit} {aspect} {natal}:")
-            for p in passes_list:
-                lines.append(f"  - Проход {p.get('number')}: {p.get('date')} ({p.get('direction')})")
+            lines.append(f"{item['transit_planet']} {item['aspect']} {item['natal_planet']}:")
+            for p in item['passes']:
+                lines.append(f"  - {p['date']} ({p.get('direction', 'direct')})")
         return "\n".join(lines)
 
     def _format_transit_ingresses(self, ingresses: list) -> str:
         if not ingresses:
-            return "Нет ингрессий в ближайшие 30 дней."
+            return "Нет ингрессий в указанный период."
         lines = []
         for i in ingresses:
             planet = i.get('planet', '')
             typ = i.get('type', '')
             from_val = i.get('from', '')
             to_val = i.get('to', '')
-            date = i.get('date_approx', '')
-            lines.append(f"{planet}: {typ} из {from_val} в {to_val} (~{date})")
+            date = i.get('date', '')
+            if typ == 'sign':
+                # Переводим номер знака в название
+                sign_names = ['Овен', 'Телец', 'Близнецы', 'Рак', 'Лев', 'Дева', 'Весы', 'Скорпион', 'Стрелец',
+                              'Козерог', 'Водолей', 'Рыбы']
+                from_sign = sign_names[from_val] if from_val < len(sign_names) else str(from_val)
+                to_sign = sign_names[to_val] if to_val < len(sign_names) else str(to_val)
+                lines.append(f"{planet}: вход в знак {to_sign} (~{date})")
+            else:
+                lines.append(f"{planet}: смена дома с {from_val} на {to_val} (~{date})")
         return "\n".join(lines)
 
     def _format_transit_stations(self, stations: list) -> str:
         if not stations:
-            return "Нет стационарных планет."
+            return "Нет стационарных планет в указанный период."
         lines = []
         for s in stations:
             planet = s.get('planet', '')
-            status = s.get('status', '')
-            speed = s.get('speed', 0.0)
             sign = s.get('sign', '')
             house = s.get('house', 0)
-            lines.append(f"{planet}: {status} (скорость: {speed:.3f}), в {sign}, {house} дом")
+            lines.append(f"{planet}: stationary (в {sign}, {house} доме)")
         return "\n".join(lines)
 
     def _format_active_periods(self, periods: list) -> str:
