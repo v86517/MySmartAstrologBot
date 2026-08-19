@@ -43,20 +43,17 @@ def set_gemini_service(service):
 
 @router.message(F.text == "🔮 Гороскоп")
 async def start_horoscope(message: Message, state: FSMContext):
-    """Обработчик кнопки 'Гороскоп' в главном меню."""
     user_id = message.from_user.id
     lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
 
     if user_data and user_data.get('name'):
-        # Данные есть – показываем выбор периода
         await message.answer(
             await get_text(user_id, 'horoscope_period_choice'),
             reply_markup=get_horoscope_period_keyboard(lang)
         )
         await state.set_state(HoroscopeStates.SELECT_PERIOD)
     else:
-        # Данных нет – запрашиваем имя (как раньше)
         await state.set_state(UserDataStates.WAITING_NAME)
         await message.answer(
             await get_text(user_id, 'horoscope_intro'),
@@ -66,7 +63,6 @@ async def start_horoscope(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("horoscope_"), HoroscopeStates.SELECT_PERIOD)
 async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
-    """Выбор периода (день/месяц/год)."""
     await callback.answer()
     period = callback.data.split("_")[1]  # today, month, year
     user_id = callback.from_user.id
@@ -74,7 +70,6 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
     user_data = await get_user_data(user_id)
 
     if not user_data or not user_data.get('name'):
-        # Если данные отсутствуют (на всякий случай)
         await state.set_state(UserDataStates.WAITING_NAME)
         await callback.message.answer(
             await get_text(user_id, 'horoscope_intro'),
@@ -82,10 +77,6 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
         )
         await callback.message.delete()
         return
-
-    # Сохраняем период и данные в состоянии
-    await state.update_data(period=period, user_data=user_data)
-    await state.set_state(HoroscopeStates.CONFIRM)
 
     # Заголовок в зависимости от периода
     if period == 'today':
@@ -95,7 +86,7 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
     else:
         header = await get_text(user_id, 'horoscope_period_year')
 
-    # Данные пользователя
+    # Данные пользователя (без дублирования заголовка)
     zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
     zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
     gender_display = await get_text(user_id, 'astro_gender_male') if user_data.get('gender') == 'M' else await get_text(user_id, 'astro_gender_female')
@@ -110,49 +101,43 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
         zodiac=zodiac_name
     )
 
-    # Собираем финальное сообщение
-    final_text = f"🔮 {header}!\n\n{profile_text}"
+    # Финальное сообщение: только заголовок и данные
+    final_text = f"🔮 {header}\n\n{profile_text}"
 
     await callback.message.delete()
     await callback.message.answer(
         final_text,
-        reply_markup=get_horoscope_confirm_keyboard(lang, show_cancel=False)  # без кнопки отмены
+        reply_markup=get_horoscope_confirm_keyboard(lang, period, show_cancel=False)
     )
+    await state.clear()  # не нужен FSM, так как период уже в callback
 
 
-@router.callback_query(F.data == "confirm_horoscope", HoroscopeStates.CONFIRM)
-async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
-    """Генерация гороскопа после подтверждения данных."""
+@router.callback_query(F.data.startswith("confirm_horoscope_"))
+async def confirm_horoscope(callback: CallbackQuery):
+    """Генерация гороскопа для выбранного периода."""
     await callback.answer()
     await callback.message.delete()
 
+    period = callback.data.split("_")[2]  # today, month, year
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-
-    # Получаем данные из состояния
-    data = await state.get_data()
-    period = data.get('period', 'today')
-    user_data = data.get('user_data') or await get_user_data(user_id)
+    user_data = await get_user_data(user_id)
 
     if not user_data or not user_data.get('name'):
         await callback.message.answer(await get_text(user_id, 'error_not_found'))
-        await state.clear()
         return
 
     if not _gemini_service:
         await callback.message.answer(await get_text(user_id, 'error_service_unavailable'))
-        await state.clear()
         return
 
     is_subscribed = await check_subscription_db(user_id)
 
-    # Проверка лимитов для бесплатных пользователей
     if not is_subscribed and not await can_use_feature_db(user_id, 'horoscope'):
         await callback.message.answer(
             await get_text(user_id, 'horoscope_limit_reached'),
             reply_markup=get_subscription_keyboard(lang)
         )
-        await state.clear()
         return
 
     await callback.message.answer(
@@ -201,9 +186,6 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         start_utc = start_local.replace(tzinfo=pytz.UTC)
         end_utc = end_local.replace(tzinfo=pytz.UTC)
 
-        # Сохраняем display_date и period для дальнейшего использования
-        await state.update_data(display_date=display_date, period=period)
-
         # Прогресс-сообщения
         await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
         await asyncio.sleep(1)
@@ -241,13 +223,18 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
         is_admin = await is_user_admin(user_id)
         basic_params = format_basic_astrology_parameters(user_data, lang)
 
-        # Заголовок результата
+        # Заголовок результата (исправлено: await get_text, затем .format)
         if period == 'today':
-            header = await get_text(user_id, 'horoscope_result_today').format(date=display_date)
+            header_template = await get_text(user_id, 'horoscope_result_today')
+            header = header_template.format(date=display_date)
         elif period == 'month':
-            header = await get_text(user_id, 'horoscope_result_month').format(month=display_date.split()[0] if lang == 'ru' else display_date.split()[0], year=start_local.year)
+            header_template = await get_text(user_id, 'horoscope_result_month')
+            # display_date содержит "месяц год" или "Month Year"
+            month_part, year_part = display_date.split()
+            header = header_template.format(month=month_part, year=year_part)
         else:
-            header = await get_text(user_id, 'horoscope_result_year').format(year=display_date)
+            header_template = await get_text(user_id, 'horoscope_result_year')
+            header = header_template.format(year=display_date)
 
         if is_admin:
             full_params = format_full_astrology_parameters(natal_data, transit_data, lang)
@@ -277,7 +264,6 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
 
         await status_msg.delete()
 
-        # Отправляем результат
         await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
 
         if not is_subscribed:
@@ -286,22 +272,18 @@ async def confirm_horoscope(callback: CallbackQuery, state: FSMContext):
                 reply_markup=get_subscription_promo_keyboard(lang)
             )
 
-        await state.clear()
-
     except Exception as e:
         logger.error(f"Ошибка в confirm_horoscope: {e}", exc_info=True)
         try:
             await status_msg.edit_text(f"❌ Произошла ошибка при генерации гороскопа. Пожалуйста, попробуйте позже.")
         except:
             await callback.message.answer(f"❌ Произошла ошибка: {str(e)}")
-        await state.clear()
 
 
-@router.callback_query(F.data == "cancel_horoscope", HoroscopeStates.CONFIRM)
-async def cancel_horoscope(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "cancel_horoscope")
+async def cancel_horoscope(callback: CallbackQuery):
     await callback.answer()
     await callback.message.delete()
-    await state.clear()
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
     await callback.message.answer("🏠", reply_markup=get_main_menu_button(lang))

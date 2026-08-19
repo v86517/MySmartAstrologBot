@@ -397,6 +397,9 @@ TEXTS = {
         'kb_go_pay': "💳 Перейти к оплате",
         'kb_fill_and_save': "📝 Заполнить и Сохранить",
         'kb_get_horoscope': "🔮 Получить гороскоп на сегодня",
+        'kb_get_horoscope_today': "🔮 Получить гороскоп на сегодня",
+        'kb_get_horoscope_month': "🔮 Получить гороскоп на месяц",
+        'kb_get_horoscope_year': "🔮 Получить гороскоп на год",
 
         'zodiac_signs': {
             'Овен': 'Овен',
@@ -722,6 +725,9 @@ TEXTS = {
         'kb_go_pay': "💳 Go to payment",
         'kb_fill_and_save': "📝 Fill and Save",
         'kb_get_horoscope': "🔮 Get today's horoscope",
+        'kb_get_horoscope_today': "🔮 Get today's horoscope",
+        'kb_get_horoscope_month': "🔮 Get this month's horoscope",
+        'kb_get_horoscope_year': "🔮 Get this year's horoscope",
 
         'zodiac_signs': {
             'Овен': 'Aries',

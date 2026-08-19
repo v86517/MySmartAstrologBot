@@ -320,11 +320,20 @@ def get_fill_profile_keyboard(lang: str = 'ru'):
     return builder.as_markup()
 
 
-def get_horoscope_confirm_keyboard(lang: str = 'ru', show_cancel: bool = True):
-    """Клавиатура подтверждения для гороскопа"""
+def get_horoscope_confirm_keyboard(lang: str = 'ru', period: str = 'today', show_cancel: bool = True):
+    """
+    Клавиатура подтверждения для гороскопа с динамическим текстом кнопки.
+    period: 'today', 'month', 'year'
+    """
     builder = InlineKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['kb_get_horoscope'], callback_data="confirm_horoscope")
+    key_map = {
+        'today': 'kb_get_horoscope_today',
+        'month': 'kb_get_horoscope_month',
+        'year': 'kb_get_horoscope_year',
+    }
+    button_text = texts.get(key_map.get(period, 'kb_get_horoscope_today'), '🔮 Получить гороскоп')
+    builder.button(text=button_text, callback_data=f"confirm_horoscope_{period}")
     if show_cancel:
         builder.button(text=texts['kb_cancel'], callback_data="cancel_horoscope")
     builder.adjust(1)
