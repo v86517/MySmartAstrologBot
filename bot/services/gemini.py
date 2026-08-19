@@ -188,8 +188,8 @@ class GeminiService:
 
     async def generate_horoscope_with_data(self, user_id: int, user_data: Dict[str, Any],
                                            natal_data: Dict[str, Any], transit_data: Dict[str, Any],
-                                           lang: str) -> str:
-        """Генерирует гороскоп на основе структурированных данных с поддержкой эмуляции."""
+                                           lang: str, period: str = 'today',
+                                           display_date: str = None, start_utc=None, end_utc=None) -> str:
         from bot.db import get_emulation_mode
         emulation = await get_emulation_mode(user_id)
         template = self._load_prompt_template('prompt_horoscope_v2.txt')
@@ -197,7 +197,8 @@ class GeminiService:
             logger.error("Шаблон prompt_horoscope_v2.txt не найден, используем старый метод")
             return self.generate_horoscope(user_data, lang)
 
-        replacements = self._prepare_horoscope_replacements(user_data, natal_data, transit_data, lang)
+        replacements = self._prepare_horoscope_replacements(
+            user_data, natal_data, transit_data, lang, period=period, display_date=display_date, start_utc=start_utc, end_utc=end_utc)
         if lang == 'en':
             replacements[
                 'language_instruction'] = "IMPORTANT: Respond in English only. All your output must be in English."
@@ -239,13 +240,13 @@ class GeminiService:
 
     # ---- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ПОДГОТОВКИ ЗАМЕН ----
 
-    def _prepare_horoscope_replacements(self, user_data: Dict, natal_data: Dict, transit_data: Dict, lang: str) -> Dict[
-        str, str]:
-        """Подготавливает замены для промпта гороскопа."""
+    def _prepare_horoscope_replacements(self, user_data: Dict, natal_data: Dict, transit_data: Dict,
+                                        lang: str, period: str = 'today',
+                                        display_date: str = None, start_utc=None, end_utc=None) -> Dict[str, str]:
         from datetime import datetime
         from bot.utils.zodiac import get_zodiac_sign_localized
 
-        # Извлекаем базовые данные из user_data
+        # Базовые данные
         name = user_data.get('name', 'Пользователь')
         gender = user_data.get('gender', 'M')
         if lang == 'ru':
@@ -255,71 +256,97 @@ class GeminiService:
         birth_date = user_data.get('birth_date', 'не указана')
         birth_time = user_data.get('birth_time', 'не указано')
         birth_place = user_data.get('birth_place', 'не указано')
-        forecast_date = transit_data.get('target_date', datetime.now().strftime('%d.%m.%Y'))
+
+        # Формируем строку периода
+        if period == 'today':
+            if start_utc and end_utc:
+                period_str = f"с {start_utc.strftime('%Y-%m-%d %H:%M')} по {end_utc.strftime('%Y-%m-%d %H:%M')} UTC"
+            else:
+                period_str = f"на {display_date or datetime.now().strftime('%d.%m.%Y')}"
+        elif period == 'month':
+            if start_utc and end_utc:
+                period_str = f"с {start_utc.strftime('%Y-%m-%d')} по {end_utc.strftime('%Y-%m-%d')} UTC"
+            else:
+                period_str = "на текущий месяц"
+        else:  # year
+            if start_utc and end_utc:
+                period_str = f"с {start_utc.strftime('%Y-%m-%d')} по {end_utc.strftime('%Y-%m-%d')} UTC"
+            else:
+                period_str = "на текущий год"
 
         # Натальные секции
         natal = natal_data.get('natal', {})
         planets = natal.get('planets', [])
-        houses = natal.get('houses', [])
-        rulers = natal.get('house_rulers', [])
-        aspects = natal.get('aspects', [])
+        # Формируем таблицу планет (без колонки Вес, можно убрать)
+        planets_table = self._format_planets_table(planets, include_weight=False)  # добавим параметр
         angles = natal.get('angles', {})
-        themes = natal_data.get('themes', {})  # <-- ИСПРАВЛЕНО: темы на верхнем уровне
+        angles_str = f"ASC: {angles.get('ASC', 0):.2f}°, MC: {angles.get('MC', 0):.2f}°, DSC: {angles.get('DSC', 0):.2f}°, IC: {angles.get('IC', 0):.2f}°"
 
-        # Форматируем углы
-        angles_str = (
-            f"ASC: {angles.get('ASC', 0):.2f}°, "
-            f"MC: {angles.get('MC', 0):.2f}°, "
-            f"DSC: {angles.get('DSC', 0):.2f}°, "
-            f"IC: {angles.get('IC', 0):.2f}°"
-        ) if angles else "Нет данных об углах."
+        # Натальные аспекты с орбисом <= 3°
+        aspects = natal.get('aspects', [])
+        natal_aspects_filtered = [a for a in aspects if a.get('orb', 10) <= 3.0]
+        natal_aspects_str = self._format_aspects(natal_aspects_filtered)
 
-        planets_table = self._format_planets_table(planets)
-        cusps_str = self._format_cusps(houses)
-        house_rulers_str = self._format_house_rulers(rulers)
-        natal_aspects_str = self._format_aspects(aspects)
-        themes_str = self._format_themes(themes)
-
-        # Транзитные секции
+        # Транзитные секции (получаем из transit_data, но фильтруем по дате)
         transit_planets = transit_data.get('transit_planets', [])
-        transit_aspects = transit_data.get('transit_aspects', [])
-        transit_angle_aspects = transit_data.get('transit_angle_aspects', [])
-        transit_passes = transit_data.get('transit_passes', [])
-        transit_ingresses = transit_data.get('transit_ingresses', [])
-        transit_stations = transit_data.get('transit_stations', [])
-        active_periods = transit_data.get('active_periods', [])
-        transit_themes = transit_data.get('transit_themes', {})
-
         transit_planets_str = self._format_transit_planets(transit_planets)
+
+        # Фильтруем транзитные аспекты по дате, если есть start_utc/end_utc
+        transit_aspects = transit_data.get('transit_aspects', [])
+        if start_utc and end_utc:
+            filtered_aspects = []
+            for a in transit_aspects:
+                exact_date = a.get('exact_date')
+                if exact_date:
+                    try:
+                        dt = datetime.strptime(exact_date, '%Y-%m-%d')
+                        if start_utc.date() <= dt.date() <= end_utc.date():
+                            filtered_aspects.append(a)
+                    except:
+                        pass
+                else:
+                    # Если точной даты нет, можно включить, если аспект имеет маленький орбис, но для фильтрации по периоду лучше не включать
+                    # Для сегодня можно включить все, для месяца/года – лучше не включать без даты.
+                    # Для простоты включим все (можно настроить позже)
+                    filtered_aspects.append(a)
+            transit_aspects = filtered_aspects
         transit_aspects_str = self._format_transit_aspects(transit_aspects)
+
+        # Аспекты к углам
+        transit_angle_aspects = transit_data.get('transit_angle_aspects', [])
+        if start_utc and end_utc:
+            filtered_angle = []
+            for a in transit_angle_aspects:
+                exact_date = a.get('exact_date')
+                if exact_date:
+                    try:
+                        dt = datetime.strptime(exact_date, '%Y-%m-%d')
+                        if start_utc.date() <= dt.date() <= end_utc.date():
+                            filtered_angle.append(a)
+                    except:
+                        pass
+                else:
+                    filtered_angle.append(a)
+            transit_angle_aspects = filtered_angle
         transit_angle_aspects_str = self._format_transit_angle_aspects(transit_angle_aspects)
-        transit_passes_str = self._format_transit_passes(transit_passes)
-        transit_ingresses_str = self._format_transit_ingresses(transit_ingresses)
-        transit_stations_str = self._format_transit_stations(transit_stations)
+
+        # Активные периоды (фильтруем по пересечению)
+        active_periods = transit_data.get('active_periods', [])
+        if start_utc and end_utc:
+            filtered_periods = []
+            for p in active_periods:
+                try:
+                    start_dt = datetime.strptime(p['start'], '%Y-%m-%d')
+                    end_dt = datetime.strptime(p['end'], '%Y-%m-%d')
+                    # Проверяем пересечение
+                    if not (end_dt < start_utc or start_dt > end_utc):
+                        filtered_periods.append(p)
+                except:
+                    pass
+            active_periods = filtered_periods
         active_periods_str = self._format_active_periods(active_periods)
-        transit_themes_str = self._format_transit_themes(transit_themes)
 
-        # Timeline
-        timeline_items = []
-        for asp in transit_aspects:
-            if asp.get('exact_date'):
-                timeline_items.append(
-                    f"{asp['exact_date']}: {asp['transit_planet']} {asp['aspect']} {asp['natal_planet']}"
-                )
-        timeline_str = "\n".join(timeline_items[:10]) if timeline_items else "Нет значимых событий в ближайшее время."
-
-        # Метаданные
-        meta = natal_data.get('metadata', {})
-        settings = meta.get('settings', {})
-        metadata_settings = (
-            f"Зодиак: {settings.get('zodiac', 'tropical')}\n"
-            f"Система домов: {settings.get('house_system', 'Placidus')}\n"
-            f"Эфемериды: {settings.get('ephemeris', 'kerykeion')}\n"
-            f"Лунный узел: {settings.get('lunar_node', 'true')}\n"
-            f"Система координат: {settings.get('coordinate_system', 'geocentric')}\n"
-            f"Тип прогрессий: {settings.get('progression_type', 'secondary')}\n"
-            f"Орбы аспектов: {settings.get('aspect_orb', {})}"
-        )
+        # Убираем ненужные разделы: метаданные, управители, темы, проходы, ингрессии, станции, timeline, сводные темы.
 
         replacements = {
             "person_name": name,
@@ -327,25 +354,16 @@ class GeminiService:
             "birth_date": birth_date,
             "birth_time": birth_time,
             "birth_place": birth_place,
-            "forecast_date": forecast_date,
-            "metadata_settings": metadata_settings,
+            "period": period_str,
             "planets_table": planets_table,
             "angles": angles_str,
-            "cusps": cusps_str,
-            "house_rulers_list": house_rulers_str,
             "natal_aspects_list": natal_aspects_str,
-            "themes_with_evidence": themes_str,
             "transit_planets": transit_planets_str,
             "transit_aspects_list": transit_aspects_str,
             "transit_angle_aspects_list": transit_angle_aspects_str,
-            "transit_passes": transit_passes_str,
-            "transit_ingresses": transit_ingresses_str,
-            "transit_stations": transit_stations_str,
             "active_periods": active_periods_str,
-            "transit_themes": transit_themes_str,
-            "timeline": timeline_str,
+            "language_instruction": "",  # добавим позже отдельно
         }
-
         return replacements
 
     def _prepare_compatibility_replacements(self, user_data_a: Dict, user_data_b: Dict,
@@ -403,23 +421,38 @@ class GeminiService:
 
     # ---- ФОРМАТТЕРЫ ДЛЯ РАЗЛИЧНЫХ СЕКЦИЙ (для промптов) ----
 
-    def _format_planets_table(self, planets: list) -> str:
+    def _format_planets_table(self, planets: list, include_weight: bool = True) -> str:
         if not planets:
             return "Нет данных о планетах."
         lines = []
-        for p in planets:
-            name = p.get('name_local', p.get('name', ''))
-            sign = p.get('sign', '')
-            degree = p.get('degree', 0.0)
-            house = p.get('house', 0)
-            retrograde = p.get('retrograde', False)
-            speed = p.get('speed', 0.0)
-            weight = p.get('weight', 0)
-            lines.append(
-                f"| {name:12} | {sign:10} | {degree:6.2f}° | {house:3} | {'Да' if retrograde else 'Нет':3} | {speed:6.3f} | {weight:3} |"
-            )
-        header = "| Планета     | Знак      | Градус | Дом | Ретр | Скорость | Вес |\n|-------------|-----------|--------|-----|------|----------|-----|"
-        return header + "\n" + "\n".join(lines)
+        header = "| Планета     | Знак      | Градус | Дом | Ретр | Скорость |"
+        if include_weight:
+            header += " Вес |"
+            lines.append(header)
+            lines.append("|-------------|-----------|--------|-----|------|----------|-----|")
+            for p in planets:
+                name = p.get('name_local', p.get('name', ''))
+                sign = p.get('sign', '')
+                degree = p.get('degree', 0.0)
+                house = p.get('house', 0)
+                retro = p.get('retrograde', False)
+                speed = p.get('speed', 0.0)
+                weight = p.get('weight', 0)
+                lines.append(
+                    f"| {name:12} | {sign:10} | {degree:6.2f}° | {house:3} | {'Да' if retro else 'Нет':3} | {speed:6.3f} | {weight:3} |")
+        else:
+            lines.append(header)
+            lines.append("|-------------|-----------|--------|-----|------|----------|")
+            for p in planets:
+                name = p.get('name_local', p.get('name', ''))
+                sign = p.get('sign', '')
+                degree = p.get('degree', 0.0)
+                house = p.get('house', 0)
+                retro = p.get('retrograde', False)
+                speed = p.get('speed', 0.0)
+                lines.append(
+                    f"| {name:12} | {sign:10} | {degree:6.2f}° | {house:3} | {'Да' if retro else 'Нет':3} | {speed:6.3f} |")
+        return "\n".join(lines)
 
     def _format_cusps(self, houses: list) -> str:
         if not houses:

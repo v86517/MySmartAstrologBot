@@ -52,7 +52,8 @@ class AstrologyStates(StatesGroup):
     PAYMENT = State()
 
 class HoroscopeStates(StatesGroup):
-    CONFIRM = State()
+    CONFIRM = State()          # подтверждение данных перед генерацией
+    SELECT_PERIOD = State()    # выбор периода (день/месяц/год)
 
 class SubscriptionStates(StatesGroup):
     WAITING_TIMEZONE = State()

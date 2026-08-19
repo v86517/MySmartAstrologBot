@@ -320,11 +320,13 @@ def get_fill_profile_keyboard(lang: str = 'ru'):
     return builder.as_markup()
 
 
-def get_horoscope_confirm_keyboard(lang: str = 'ru'):
+def get_horoscope_confirm_keyboard(lang: str = 'ru', show_cancel: bool = True):
+    """Клавиатура подтверждения для гороскопа"""
     builder = InlineKeyboardBuilder()
     texts = TEXTS.get(lang, TEXTS['ru'])
     builder.button(text=texts['kb_get_horoscope'], callback_data="confirm_horoscope")
-    builder.button(text=texts['kb_cancel'], callback_data="cancel_horoscope")
+    if show_cancel:
+        builder.button(text=texts['kb_cancel'], callback_data="cancel_horoscope")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -351,5 +353,15 @@ def get_compatibility_confirm_keyboard(lang: str = 'ru'):
     texts = TEXTS.get(lang, TEXTS['ru'])
     builder.button(text=texts['kb_confirm_compatibility'], callback_data="confirm_compatibility")
     builder.button(text=texts['kb_cancel_compatibility'], callback_data="cancel_compatibility")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_horoscope_period_keyboard(lang: str = 'ru'):
+    """Клавиатура выбора периода гороскопа (без кнопки Отмена)"""
+    builder = InlineKeyboardBuilder()
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    builder.button(text=texts['horoscope_today'], callback_data="horoscope_today")
+    builder.button(text=texts['horoscope_month'], callback_data="horoscope_month")
+    builder.button(text=texts['horoscope_year'], callback_data="horoscope_year")
     builder.adjust(1)
     return builder.as_markup()

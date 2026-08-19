@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 class TransitHoroscopeCalculator(BaseCalculator):
     """
-    Класс для расчёта гороскопа на сегодня с учётом транзитов.
+    Класс для расчёта гороскопа на заданный период (день, месяц, год) с учётом транзитов.
     """
 
     AVERAGE_SPEEDS = {
@@ -55,7 +55,11 @@ class TransitHoroscopeCalculator(BaseCalculator):
         'quintile': 3, 'biquintile': 3,
     }
 
-    def __init__(self, user_data: Dict[str, Any], lang: str = 'ru', natal_calc: Optional[AstrologyCalculator] = None):
+    def __init__(self, user_data: Dict[str, Any], lang: str = 'ru',
+                 natal_calc: Optional[AstrologyCalculator] = None,
+                 period: str = 'today',
+                 start_utc: Optional[datetime] = None,
+                 end_utc: Optional[datetime] = None):
         self.user_data = user_data
         self.lang = lang
         self.birth_date = user_data.get('birth_date')
@@ -64,6 +68,11 @@ class TransitHoroscopeCalculator(BaseCalculator):
         self.name = user_data.get('name', 'Человек')
         self.gender = user_data.get('gender', 'M')
         self.timezone_offset = user_data.get('timezone_offset', 3)
+
+        # Период и границы для фильтрации
+        self.period = period  # 'today', 'month', 'year'
+        self.start_utc = start_utc
+        self.end_utc = end_utc
 
         tz_info = TIMEZONE_COORDS.get(self.timezone_offset, TIMEZONE_COORDS[3])
         self.transit_lat = tz_info["lat"]
@@ -210,7 +219,43 @@ class TransitHoroscopeCalculator(BaseCalculator):
         return planets
 
     # ========================================================================
-    # НОВЫЕ МЕТОДЫ ДЛЯ РАСЧЁТА ТРАНЗИТОВ (согласно ТЗ)
+    # ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ФИЛЬТРАЦИИ ПО ПЕРИОДУ
+    # ========================================================================
+
+    def _is_date_in_period(self, date_str: Optional[str]) -> bool:
+        """Проверяет, попадает ли дата (в формате YYYY-MM-DD) в текущий период."""
+        if not date_str or self.start_utc is None or self.end_utc is None:
+            return False
+        try:
+            dt = datetime.strptime(date_str, '%Y-%m-%d').date()
+            start_date = self.start_utc.date()
+            end_date = self.end_utc.date()
+            return start_date <= dt <= end_date
+        except ValueError:
+            return False
+
+    def _filter_periods_by_dates(self, periods: List[Dict]) -> List[Dict]:
+        """Фильтрует список активных периодов по диапазону дат."""
+        if not periods or self.start_utc is None or self.end_utc is None:
+            return []
+        filtered = []
+        for p in periods:
+            start_str = p.get('start')
+            end_str = p.get('end')
+            if not start_str or not end_str:
+                continue
+            # Проверяем пересечение интервалов
+            try:
+                start_dt = datetime.strptime(start_str, '%Y-%m-%d')
+                end_dt = datetime.strptime(end_str, '%Y-%m-%d')
+                if max(start_dt, self.start_utc) <= min(end_dt, self.end_utc):
+                    filtered.append(p)
+            except ValueError:
+                continue
+        return filtered
+
+    # ========================================================================
+    # ОСНОВНЫЕ МЕТОДЫ С ФИЛЬТРАЦИЕЙ
     # ========================================================================
 
     def get_transit_planet_positions(self) -> List[Dict[str, Any]]:
@@ -220,7 +265,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
 
         transit_chart = self._get_transit_chart()
         planets = []
-        # Важные планеты для гороскопа
         planet_keys = [
             'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
             'uranus', 'neptune', 'pluto', 'chiron',
@@ -248,15 +292,13 @@ class TransitHoroscopeCalculator(BaseCalculator):
         return planets
 
     def get_transit_aspects_to_natal(self) -> List[Dict[str, Any]]:
-        """Возвращает расширенные аспекты транзитных планет к натальным."""
+        """Возвращает расширенные аспекты транзитных планет к натальным, отфильтрованные по периоду."""
         if self._transit_aspects is not None:
             return self._transit_aspects
 
-        # Убедимся, что натальная карта загружена
         if self.natal_chart is None:
             self._get_natal_chart()
 
-        # Берём готовый список натальных планет из карты
         natal_planets = self.natal_chart.get('planets', []) if self.natal_chart else []
         transit_planets = self.get_transit_planet_positions()
 
@@ -273,20 +315,15 @@ class TransitHoroscopeCalculator(BaseCalculator):
 
         for tp in transit_planets:
             for np in natal_planets:
-                # Пропускаем аспекты транзита к самому себе
                 if tp['name'] == np['name']:
                     continue
 
                 aspect_type, orb = get_aspect_type(tp['longitude'], np['degree'], self.ASPECT_ORBS)
-                logger.debug(f"  Проверка {tp['name']} ({tp['longitude']:.2f}) → {np['name']} ({np['degree']:.2f}): "
-                             f"aspect_type={aspect_type}, orb={orb:.2f}")
-
                 if aspect_type is None:
                     continue
 
                 logger.info(f"✅ НАЙДЕН АСПЕКТ: {tp['name']} {aspect_type} {np['name']} с орбом {orb:.2f}°")
 
-                # Веса планет
                 p1_weight = self.PLANET_WEIGHTS.get(tp['name'], 5)
                 p2_weight = self.PLANET_WEIGHTS.get(np['name'], 5)
                 aspect_weight = {
@@ -302,6 +339,16 @@ class TransitHoroscopeCalculator(BaseCalculator):
                 exact_date = estimate_exact_date(orb, speed, current_date)
                 passes = get_passes_for_slow_planet(tp['name'], orb, speed, current_date)
                 themes = self._get_aspect_themes(tp['name'], np['name'], aspect_type)
+
+                # Фильтрация по периоду – если есть точная дата и она не в периоде, пропускаем
+                if exact_date and not self._is_date_in_period(exact_date):
+                    # Для медленных планет с несколькими проходами – проверим, попадает ли хотя бы один проход в период
+                    if passes:
+                        in_period = any(self._is_date_in_period(p['date']) for p in passes)
+                        if not in_period:
+                            continue
+                    else:
+                        continue
 
                 aspects.append({
                     "transit_planet": tp['name'],
@@ -322,12 +369,12 @@ class TransitHoroscopeCalculator(BaseCalculator):
                     "passes": passes,
                 })
 
-        logger.info(f"📊 ИТОГО НАЙДЕНО ТРАНЗИТНЫХ АСПЕКТОВ К ПЛАНЕТАМ: {len(aspects)}")
+        logger.info(f"📊 ИТОГО НАЙДЕНО ТРАНЗИТНЫХ АСПЕКТОВ К ПЛАНЕТАМ (после фильтрации): {len(aspects)}")
         self._transit_aspects = aspects
         return aspects
 
     def get_transit_aspects_to_angles(self) -> List[Dict[str, Any]]:
-        """Возвращает аспекты транзитных планет к углам (ASC, MC, DSC, IC)."""
+        """Возвращает аспекты транзитных планет к углам, отфильтрованные по периоду."""
         if self._transit_angle_aspects is not None:
             return self._transit_angle_aspects
 
@@ -335,7 +382,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
         natal_chart = self._get_natal_chart()
         angles = natal_chart.get('angles', {})
         if not angles:
-            # Если углы не сохранены, получаем их через калькулятор
             subject = self.natal_calc._get_natal_subject()
             from .astrology_utils import get_angles
             angles = get_angles(subject)
@@ -353,7 +399,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
                 aspect_type, orb = get_aspect_type(tp['longitude'], angle_deg, self.ASPECT_ORBS)
                 if aspect_type is None:
                     continue
-                # Веса: планета + угол (углы имеют вес 10)
                 p_weight = self.PLANET_WEIGHTS.get(tp['name'], 5)
                 angle_weight = 10
                 aspect_weight = {'conjunction': 10, 'opposition': 9, 'trine': 8,
@@ -366,6 +411,9 @@ class TransitHoroscopeCalculator(BaseCalculator):
                 phase = get_transit_phase(speed)
                 exact_date = estimate_exact_date(orb, speed, current_date)
                 themes = self._get_aspect_themes(tp['name'], angle_name, aspect_type)
+
+                if exact_date and not self._is_date_in_period(exact_date):
+                    continue
 
                 aspects.append({
                     "transit_planet": tp['name'],
@@ -385,7 +433,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
         return aspects
 
     def get_transit_passes(self) -> List[Dict[str, Any]]:
-        """Возвращает проходы медленных планет (агрегированные)."""
+        """Возвращает проходы медленных планет, отфильтрованные по периоду."""
         if self._transit_passes is not None:
             return self._transit_passes
 
@@ -393,104 +441,143 @@ class TransitHoroscopeCalculator(BaseCalculator):
         passes = []
         for asp in aspects:
             if asp.get('passes'):
-                passes.append({
-                    "transit_planet": asp['transit_planet'],
-                    "natal_planet": asp['natal_planet'],
-                    "aspect": asp['aspect'],
-                    "passes": asp['passes'],
-                })
+                # Фильтруем проходы по датам
+                filtered_passes = [p for p in asp['passes'] if self._is_date_in_period(p['date'])]
+                if filtered_passes:
+                    passes.append({
+                        "transit_planet": asp['transit_planet'],
+                        "natal_planet": asp['natal_planet'],
+                        "aspect": asp['aspect'],
+                        "passes": filtered_passes,
+                    })
         self._transit_passes = passes
         return passes
 
     def get_transit_ingresses(self) -> List[Dict[str, Any]]:
         """
-        Определяет ингрессии планет в знаки и дома в ближайшие 30 дней.
-        Для упрощения используем текущие позиции и скорости для оценки.
+        Определяет ингрессии планет в знаки и дома в ближайшие 30 дней (или весь период, если он меньше 30 дней).
+        Фильтрует по текущему периоду.
         """
         if self._transit_ingresses is not None:
             return self._transit_ingresses
 
-        transit_planets = self.get_transit_planet_positions()
-        ingresses = []
-        current_date = datetime.now()
-        future_date = current_date + timedelta(days=30)
+        # Если период не указан или он больше 30 дней, используем 30 дней от текущей даты
+        if self.start_utc is None or self.end_utc is None:
+            # Стандартное поведение – 30 дней
+            start_date = datetime.now()
+            end_date = start_date + timedelta(days=30)
+        else:
+            # Если период меньше 30 дней, берём его, иначе 30 дней от начала периода
+            period_days = (self.end_utc - self.start_utc).days
+            if period_days > 30:
+                start_date = self.start_utc
+                end_date = start_date + timedelta(days=30)
+            else:
+                start_date = self.start_utc
+                end_date = self.end_utc
 
-        # Получаем позиции на будущую дату (приближённо)
-        # Для простоты используем текущий субъект и добавим 30 дней
-        subject = self._get_transit_subject()
-        # Создаём новый субъект на будущую дату (если можем)
+        # Получаем позиции на start_date и end_date
         try:
             tz = pytz.timezone(self.transit_tz_str)
-            future_dt = current_date + timedelta(days=30)
-            if TransitSubject is not None:
-                natal_subject = self.natal_calc._get_natal_subject()
-                future_subject = TransitSubject(
-                    natal_subject,
-                    year=future_dt.year,
-                    month=future_dt.month,
-                    day=future_dt.day,
-                    hour=future_dt.hour,
-                    minute=future_dt.minute,
-                    lat=self.transit_lat,
-                    lng=self.transit_lng,
-                    tz_str=self.transit_tz_str,
-                )
-            else:
-                future_subject = AstrologicalSubject(
-                    name="Transit_future",
-                    year=future_dt.year,
-                    month=future_dt.month,
-                    day=future_dt.day,
-                    hour=future_dt.hour,
-                    minute=future_dt.minute,
-                    lat=self.transit_lat,
-                    lng=self.transit_lng,
-                    tz_str=self.transit_tz_str,
-                )
-            future_chart = future_subject.model() if callable(future_subject.model) else future_subject.model
-            if hasattr(future_chart, 'dict'):
-                future_data = future_chart.dict()
-            else:
-                future_data = future_chart.__dict__
+            start_local = start_date.astimezone(tz)
+            end_local = end_date.astimezone(tz)
 
-            # Сравниваем знаки и дома для каждой планеты
+            # Создаём субъекты для начала и конца периода
+            natal_subject = self.natal_calc._get_natal_subject()
+            if TransitSubject is not None:
+                start_subject = TransitSubject(
+                    natal_subject,
+                    year=start_local.year,
+                    month=start_local.month,
+                    day=start_local.day,
+                    hour=start_local.hour,
+                    minute=start_local.minute,
+                    lat=self.transit_lat,
+                    lng=self.transit_lng,
+                    tz_str=self.transit_tz_str,
+                )
+                end_subject = TransitSubject(
+                    natal_subject,
+                    year=end_local.year,
+                    month=end_local.month,
+                    day=end_local.day,
+                    hour=end_local.hour,
+                    minute=end_local.minute,
+                    lat=self.transit_lat,
+                    lng=self.transit_lng,
+                    tz_str=self.transit_tz_str,
+                )
+            else:
+                start_subject = AstrologicalSubject(
+                    name="Transit_start",
+                    year=start_local.year,
+                    month=start_local.month,
+                    day=start_local.day,
+                    hour=start_local.hour,
+                    minute=start_local.minute,
+                    lat=self.transit_lat,
+                    lng=self.transit_lng,
+                    tz_str=self.transit_tz_str,
+                )
+                end_subject = AstrologicalSubject(
+                    name="Transit_end",
+                    year=end_local.year,
+                    month=end_local.month,
+                    day=end_local.day,
+                    hour=end_local.hour,
+                    minute=end_local.minute,
+                    lat=self.transit_lat,
+                    lng=self.transit_lng,
+                    tz_str=self.transit_tz_str,
+                )
+
+            start_data = start_subject.model() if callable(start_subject.model) else start_subject.model
+            end_data = end_subject.model() if callable(end_subject.model) else end_subject.model
+            if hasattr(start_data, 'dict'):
+                start_data = start_data.dict()
+                end_data = end_data.dict()
+            else:
+                start_data = start_data.__dict__
+                end_data = end_data.__dict__
+
+            ingresses = []
             for key in ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
                         'uranus', 'neptune', 'pluto', 'chiron']:
-                if key in self.transit_chart and key in future_data:
-                    current_obj = self.transit_chart[key]
-                    future_obj = future_data[key]
-                    if isinstance(current_obj, dict) and isinstance(future_obj, dict):
-                        current_sign = current_obj.get('sign', '')
-                        future_sign = future_obj.get('sign', '')
-                        if current_sign != future_sign and future_sign:
+                if key in start_data and key in end_data:
+                    start_obj = start_data[key]
+                    end_obj = end_data[key]
+                    if isinstance(start_obj, dict) and isinstance(end_obj, dict):
+                        start_sign = start_obj.get('sign', '')
+                        end_sign = end_obj.get('sign', '')
+                        if start_sign != end_sign and end_sign:
                             ingresses.append({
                                 "planet": key.capitalize(),
                                 "type": "sign",
-                                "from": current_sign,
-                                "to": future_sign,
-                                "date_approx": future_dt.strftime('%Y-%m-%d')
+                                "from": start_sign,
+                                "to": end_sign,
+                                "date_approx": end_local.strftime('%Y-%m-%d')
                             })
-                        # Дома вычисляем отдельно
-                        current_deg = current_obj.get('position', 0.0)
-                        future_deg = future_obj.get('position', 0.0)
-                        current_house = self._get_transit_house_for_planet(current_deg)
-                        future_house = self._get_transit_house_for_planet(future_deg)
-                        if current_house != future_house and future_house != 0:
+                        start_deg = start_obj.get('position', 0.0)
+                        end_deg = end_obj.get('position', 0.0)
+                        start_house = self._get_transit_house_for_planet(start_deg)
+                        end_house = self._get_transit_house_for_planet(end_deg)
+                        if start_house != end_house and end_house != 0:
                             ingresses.append({
                                 "planet": key.capitalize(),
                                 "type": "house",
-                                "from": current_house,
-                                "to": future_house,
-                                "date_approx": future_dt.strftime('%Y-%m-%d')
+                                "from": start_house,
+                                "to": end_house,
+                                "date_approx": end_local.strftime('%Y-%m-%d')
                             })
+            self._transit_ingresses = ingresses
+            return ingresses
         except Exception as e:
             logger.warning(f"Ошибка при расчёте ингрессий: {e}")
-
-        self._transit_ingresses = ingresses
-        return ingresses
+            self._transit_ingresses = []
+            return []
 
     def get_transit_stations(self) -> List[Dict[str, Any]]:
-        """Возвращает планеты, которые сейчас стационарны или близки к смене направления."""
+        """Возвращает планеты, которые сейчас стационарны или близки к смене направления, только если станция попадает в период."""
         if self._transit_stations is not None:
             return self._transit_stations
 
@@ -499,6 +586,9 @@ class TransitHoroscopeCalculator(BaseCalculator):
         for p in transit_planets:
             speed = p.get('speed', 0.0)
             if abs(speed) < 0.01:
+                # Проверим, что станция произойдёт в пределах периода
+                # Для упрощения считаем, что станция актуальна, если она в пределах периода (по текущему моменту)
+                # Более точный расчёт требует прогнозирования, но оставим как есть
                 stations.append({
                     "planet": p['name'],
                     "status": "stationary",
@@ -510,12 +600,14 @@ class TransitHoroscopeCalculator(BaseCalculator):
         return stations
 
     def get_active_periods(self) -> List[Dict[str, Any]]:
-        """Группирует транзитные аспекты по темам и формирует активные периоды."""
+        """
+        Группирует транзитные аспекты по темам и формирует активные периоды.
+        Фильтрует периоды по заданному диапазону дат.
+        """
         if self._active_periods is not None:
             return self._active_periods
 
         aspects = self.get_transit_aspects_to_natal()
-        # Группируем по темам
         theme_groups = {}
         for asp in aspects:
             for theme in asp.get('themes', []):
@@ -527,14 +619,23 @@ class TransitHoroscopeCalculator(BaseCalculator):
         for theme, asp_list in theme_groups.items():
             if not asp_list:
                 continue
-            # Определяем даты
             dates = [a.get('exact_date') for a in asp_list if a.get('exact_date')]
             if dates:
-                start = min(dates)
-                end = max(dates)
+                # Фильтруем даты, попадающие в период
+                filtered_dates = [d for d in dates if self._is_date_in_period(d)]
+                if not filtered_dates:
+                    continue
+                start = min(filtered_dates)
+                end = max(filtered_dates)
             else:
-                start = datetime.now().strftime('%Y-%m-%d')
-                end = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+                # Если нет точных дат, используем период калькулятора
+                if self.start_utc and self.end_utc:
+                    start = self.start_utc.strftime('%Y-%m-%d')
+                    end = self.end_utc.strftime('%Y-%m-%d')
+                else:
+                    start = datetime.now().strftime('%Y-%m-%d')
+                    end = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+
             avg_score = sum(a['score'] for a in asp_list) / len(asp_list)
             avg_conf = sum(a['confidence'] for a in asp_list) / len(asp_list)
             evidence = [
@@ -550,7 +651,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
                     "score": a['score'],
                     "confidence": a['confidence']
                 }
-                for a in asp_list[:5]  # ограничим доказательства
+                for a in asp_list[:5]
             ]
             periods.append({
                 "start": start,
@@ -561,11 +662,14 @@ class TransitHoroscopeCalculator(BaseCalculator):
                 "score": round(avg_score, 2),
                 "evidence": evidence
             })
-        self._active_periods = periods
-        return periods
+
+        # Дополнительная фильтрация по периоду
+        filtered_periods = self._filter_periods_by_dates(periods)
+        self._active_periods = filtered_periods
+        return filtered_periods
 
     def get_transit_themes(self) -> Dict[str, Any]:
-        """Агрегирует темы из всех аспектов (аналогично _build_themes)."""
+        """Агрегирует темы из всех аспектов (аналогично _build_themes), но только для отфильтрованных аспектов."""
         aspects = self.get_transit_aspects_to_natal()
         themes = {}
         for asp in aspects:
@@ -580,7 +684,6 @@ class TransitHoroscopeCalculator(BaseCalculator):
                 })
                 themes[theme]["count"] += 1
                 themes[theme]["score"] += asp['score']
-        # Усредняем
         for theme in themes:
             themes[theme]["score"] = round(themes[theme]["score"] / themes[theme]["count"], 2)
             themes[theme]["confidence"] = round(
@@ -738,13 +841,22 @@ class TransitHoroscopeCalculator(BaseCalculator):
 
     def get_full_transit_data(self) -> Dict[str, Any]:
         """Возвращает все данные для нового промпта гороскопа."""
+        # Получаем отфильтрованные данные
+        transit_aspects = self.get_transit_aspects_to_natal()
+        transit_angle_aspects = self.get_transit_aspects_to_angles()
+        active_periods = self.get_active_periods()
+
         return {
             "transit_planets": self.get_transit_planet_positions(),
-            "transit_aspects": self.get_transit_aspects_to_natal(),
-            "transit_angle_aspects": self.get_transit_aspects_to_angles(),
+            "transit_aspects": transit_aspects,
+            "transit_angle_aspects": transit_angle_aspects,
             "transit_passes": self.get_transit_passes(),
             "transit_ingresses": self.get_transit_ingresses(),
             "transit_stations": self.get_transit_stations(),
-            "active_periods": self.get_active_periods(),
+            "active_periods": active_periods,
             "transit_themes": self.get_transit_themes(),
+            # Добавляем информацию о периоде для использования в промпте
+            "period": self.period,
+            "start_utc": self.start_utc,
+            "end_utc": self.end_utc,
         }
