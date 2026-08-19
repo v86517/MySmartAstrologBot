@@ -918,14 +918,19 @@ class TransitHoroscopeCalculator(BaseCalculator):
             return pos
         return None
 
-
-    # ========================================================================
-    # СТАРЫЙ МЕТОД calculate (сохраняется для совместимости)
-    # ========================================================================
-
     def calculate(self) -> Dict[str, Any]:
-        # Оставляем как есть, но можно не использовать
-        pass
+        """
+        Возвращает данные в старом формате для обратной совместимости (используется в astrology_data_builder).
+        """
+        aspects = self.get_transit_aspects_to_natal()
+        if aspects:
+            transit_aspects_str = "\n".join(
+                f"Transit {a['transit_planet']} → Natal {a['natal_planet']} → {a['aspect']} → {a['orb']:.2f}°"
+                for a in aspects
+            )
+        else:
+            transit_aspects_str = "Нет значимых транзитных аспектов"
+        return {"transit_aspects": transit_aspects_str}
 
     # ========================================================================
     # НОВЫЙ МЕТОД ДЛЯ ПОЛУЧЕНИЯ ВСЕХ ДАННЫХ
