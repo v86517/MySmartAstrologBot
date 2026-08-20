@@ -219,6 +219,9 @@ class AstrologyContextBuilder:
             return False
         try:
             dt = datetime.strptime(date_str, '%Y-%m-%d').date()
+            # Приводим target_date к naive, если он offset-aware
+            if target_date.tzinfo is not None:
+                target_date = target_date.replace(tzinfo=None)
             return dt == target_date.date()
         except ValueError:
             return False
@@ -229,6 +232,11 @@ class AstrologyContextBuilder:
             return False
         try:
             dt = datetime.strptime(date_str, '%Y-%m-%d')
+            # Приводим start и end к naive, если они offset-aware
+            if start.tzinfo is not None:
+                start = start.replace(tzinfo=None)
+            if end.tzinfo is not None:
+                end = end.replace(tzinfo=None)
             return start <= dt <= end
         except ValueError:
             return False
@@ -589,13 +597,19 @@ class AstrologyContextBuilder:
         return score
 
     def _overlaps_period(self, start_str: str, end_str: str, period_start: datetime, period_end: datetime) -> bool:
+        """Проверяет, пересекается ли интервал [start_str, end_str] с [period_start, period_end]."""
         if not start_str or not end_str:
             return False
         try:
             s = datetime.strptime(start_str, '%Y-%m-%d')
             e = datetime.strptime(end_str, '%Y-%m-%d')
+            # Приводим period_start и period_end к naive
+            if period_start.tzinfo is not None:
+                period_start = period_start.replace(tzinfo=None)
+            if period_end.tzinfo is not None:
+                period_end = period_end.replace(tzinfo=None)
             return max(s, period_start) <= min(e, period_end)
-        except:
+        except ValueError:
             return False
 
     # ----- КЛАСТЕРИЗАЦИЯ ТЕМ С DIMINISHING RETURNS -----
