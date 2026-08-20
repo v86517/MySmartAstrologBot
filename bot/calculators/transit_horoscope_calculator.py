@@ -76,7 +76,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
                  natal_calc: Optional[AstrologyCalculator] = None,
                  period: str = 'today',
                  start_utc: Optional[datetime] = None,
-                 end_utc: Optional[datetime] = None):
+                 end_utc: Optional[datetime] = None, telegram_id: Optional[int] = None):
         self.user_data = user_data
         self.lang = lang
         self.birth_date = user_data.get('birth_date')
@@ -85,6 +85,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
         self.name = user_data.get('name', 'Человек')
         self.gender = user_data.get('gender', 'M')
         self.timezone_offset = user_data.get('timezone_offset', 3)
+        self.telegram_id = telegram_id
 
         self.period = period
         self.start_utc = start_utc

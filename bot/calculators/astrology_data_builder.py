@@ -76,7 +76,7 @@ class AstrologyDataBuilder:
         }
 
         if self.include_transits:
-            result["transits"] = self._build_transits()
+            result["transits"] = self._build_transits(telegram_id=self.telegram_id)
             result["progressions"] = self._build_progressions()
             result["timeline"] = self._build_timeline()
         else:
@@ -869,8 +869,13 @@ class AstrologyDataBuilder:
 
     # ==================== TRANSITS ====================
 
-    def _build_transits(self) -> Dict[str, Any]:
-        transit_calc = TransitHoroscopeCalculator(self.user_data, self.lang, natal_calc=self.natal_calc)
+    def _build_transits(self, telegram_id: Optional[int] = None) -> Dict[str, Any]:
+        transit_calc = TransitHoroscopeCalculator(
+            self.user_data,
+            self.lang,
+            natal_calc=self.natal_calc,
+            telegram_id=telegram_id
+        )
         transit_data = transit_calc.calculate()
 
         transit_planets = self._build_transit_planets(transit_calc)
@@ -1229,7 +1234,7 @@ class AstrologyDataBuilder:
 
         # 6. Транзиты (только если include_transits)
         if include_transits:
-            transit_data = self._build_transits()
+            transit_data = self._build_transits(telegram_id=self.telegram_id)
             for ta in transit_data.get('aspects', []):
                 score_val = float(ta.get('score', 0))
                 if score_val > 6:
@@ -1286,7 +1291,7 @@ class AstrologyDataBuilder:
 
     def _build_timeline(self) -> List[Dict[str, Any]]:
         timeline = []
-        transit_data = self._build_transits()
+        transit_data = self._build_transits(telegram_id=self.telegram_id)
         for ta in transit_data.get('aspects', []):
             if ta.get('exact_date'):
                 timeline.append({

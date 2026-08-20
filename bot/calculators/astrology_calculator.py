@@ -79,97 +79,99 @@ class AstrologyCalculator:
         """
         # 1. Проверяем, есть ли сохранённые координаты в БД
         if self.telegram_id:
-            user_data = _get_user_data(self.telegram_id)
-            if user_data:
-                lat = user_data.get('birth_lat')
-                lng = user_data.get('birth_lng')
-                tz = user_data.get('birth_timezone')
-                if lat is not None and lng is not None and tz:
-                    logger.info(f"✅ Используем сохранённые координаты для {self.telegram_id}: ({lat}, {lng}, {tz})")
-                    return lat, lng, tz
+            try:
+                user_data = _get_user_data(self.telegram_id)
+                if user_data:
+                    lat = user_data.get('birth_lat')
+                    lng = user_data.get('birth_lng')
+                    tz = user_data.get('birth_timezone')
+                    if lat is not None and lng is not None and tz:
+                        logger.info(f"✅ Используем сохранённые координаты для {self.telegram_id}: ({lat}, {lng}, {tz})")
+                        return lat, lng, tz
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения координат из БД: {e}")
 
         # 2. Если данных нет — выполняем полный поиск
         city, country = self._parse_birth_place()
         logger.info(f"🌐 Выполняем геокодинг для {city}, {country}")
 
-        lat, lng, tz = self._perform_geocoding(city, country)
+        try:
+            lat, lng, tz = self._perform_geocoding(city, country)
+        except Exception as e:
+            logger.error(f"❌ Ошибка геокодинга: {e}")
+            # Fallback — Москва
+            logger.warning("⚠️ Используем координаты Москвы как fallback")
+            return self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
 
         # 3. Уточняем часовой пояс через Gemini (если доступен)
-        refined_tz = self._refine_timezone(tz, city, country, lat, lng)
-        if refined_tz:
-            logger.info(f"✅ Таймзона уточнена через Gemini: {refined_tz} (было: {tz})")
-            tz = refined_tz
+        try:
+            refined_tz = self._refine_timezone(tz, city, country, lat, lng)
+            if refined_tz:
+                logger.info(f"✅ Таймзона уточнена через Gemini: {refined_tz} (было: {tz})")
+                tz = refined_tz
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка уточнения таймзоны: {e}")
 
         # 4. Сохраняем координаты и часовой пояс в БД
         if self.telegram_id:
-            _save_user_coords(self.telegram_id, lat, lng, tz)
-            logger.info(f"✅ Координаты сохранены в БД для {self.telegram_id}: ({lat}, {lng}, {tz})")
+            try:
+                _save_user_coords(self.telegram_id, lat, lng, tz)
+                logger.info(f"✅ Координаты сохранены в БД для {self.telegram_id}: ({lat}, {lng}, {tz})")
+            except Exception as e:
+                logger.error(f"❌ Ошибка сохранения координат: {e}")
 
         return lat, lng, tz
 
     def _perform_geocoding(self, city: str, country: str) -> Tuple[float, float, str]:
-        """
-        Выполняет геокодинг через последовательные попытки:
-        1. Nominatim (OpenStreetMap)
-        2. Open-Meteo API
-        3. Запрос к Gemini (если доступен)
-        4. Fallback — Москва
-        Возвращает (lat, lng, tz_str).
-        """
         # 1. Nominatim
-        coords = self._get_coordinates_geocoder(city, country)
-        if coords:
-            lat, lng = coords['lat'], coords['lng']
-            tz_str = self._get_timezone_from_coords(lat, lng)
-            if tz_str:
-                logger.info(f"✅ Найдено через геокодер: {city}, {country} ({lat}, {lng}, {tz_str})")
-                return lat, lng, tz_str
-
-        # 2. Open-Meteo API (резервный геокодер)
-        url = "https://geocoding-api.open-meteo.com/v1/search"
-        params = {"name": city, "count": 1, "format": "json", "language": "ru"}
-        if country:
-            params["countryCode"] = country.upper()
         try:
-            resp = requests.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
-            results = data.get("results")
-            if results:
-                loc = results[0]
-                lat, lng = loc["latitude"], loc["longitude"]
+            time.sleep(1)  # задержка
+            coords = self._get_coordinates_geocoder(city, country)
+            if coords:
+                lat, lng = coords['lat'], coords['lng']
                 tz_str = self._get_timezone_from_coords(lat, lng)
                 if tz_str:
-                    logger.info(
-                        f"✅ Найдено через Open-Meteo: {loc.get('name', city)}, {loc.get('country', '')} ({lat}, {lng}, {tz_str})")
+                    logger.info(f"✅ Найдено через геокодер: {city}, {country} ({lat}, {lng}, {tz_str})")
                     return lat, lng, tz_str
+        except GeocoderRateLimited:
+            logger.warning("⚠️ Nominatim rate limited (429), пробуем Open-Meteo...")
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка Nominatim: {e}")
+
+        # 2. Open-Meteo API
+        try:
+            time.sleep(1)
+            url = "https://geocoding-api.open-meteo.com/v1/search"
+            params = {"name": city, "count": 1, "format": "json", "language": "ru"}
+            if country:
+                params["countryCode"] = country.upper()
+            resp = requests.get(url, params=params, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                results = data.get("results")
+                if results:
+                    loc = results[0]
+                    lat, lng = loc["latitude"], loc["longitude"]
+                    tz_str = self._get_timezone_from_coords(lat, lng)
+                    if tz_str:
+                        logger.info(
+                            f"✅ Найдено через Open-Meteo: {loc.get('name', city)}, {loc.get('country', '')} ({lat}, {lng}, {tz_str})")
+                        return lat, lng, tz_str
         except Exception as e:
             logger.warning(f"⚠️ Ошибка Open-Meteo: {e}")
 
         # 3. Gemini (если доступен)
         if self.__class__.gemini_service:
-            result = self._ask_gemini_for_coords(city, country)
-            if result and 'lat' in result and 'lng' in result and 'timezone' in result:
-                lat, lng, tz_str = result['lat'], result['lng'], result['timezone']
-                logger.info(f"✅ Найдено через нейросеть: {city}, {country} ({lat}, {lng}, {tz_str})")
-                return lat, lng, tz_str
-            else:
-                logger.warning(f"❌ Нейросеть не дала координат для {city}, {country}")
-        else:
-            logger.warning("⚠️ Gemini сервис не доступен для определения координат")
-
-        # 4. Поиск столицы (если не удалось найти город)
-        if country and country != "RU":
-            logger.info(f"🌐 Пробуем найти столицу страны {country} через геокодер...")
-            capital_coords = self._get_capital_coords(country)
-            if capital_coords:
-                lat, lng = capital_coords['lat'], capital_coords['lng']
-                tz_str = self._get_timezone_from_coords(lat, lng)
-                if tz_str:
-                    logger.info(f"✅ Найдена столица {country}: ({lat}, {lng}, {tz_str})")
+            try:
+                result = self._ask_gemini_for_coords(city, country)
+                if result and 'lat' in result and 'lng' in result and 'timezone' in result:
+                    lat, lng, tz_str = result['lat'], result['lng'], result['timezone']
+                    logger.info(f"✅ Найдено через нейросеть: {city}, {country} ({lat}, {lng}, {tz_str})")
                     return lat, lng, tz_str
+            except Exception as e:
+                logger.warning(f"⚠️ Ошибка Gemini: {e}")
 
-        # 5. Fallback — Москва
+        # 4. Fallback — Москва
         logger.warning(f"❌ Не удалось определить координаты для {city}, {country}. Используем Москву.")
         return self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
 
