@@ -1,3 +1,4 @@
+# bot/handlers/profile.py
 import logging
 import os
 from aiogram import Router, F

@@ -43,6 +43,16 @@ def _save_user_data(telegram_id, data):
         user = User(telegram_id=telegram_id)
         logger.info(f"👤 Создан новый пользователь {telegram_id}")
 
+    # Проверяем изменения
+    place_changed = False
+    date_changed = False
+
+    if data.get('birth_place') and user.birth_place != data.get('birth_place'):
+        place_changed = True
+    if data.get('birth_date') and user.date_of_birth != datetime.strptime(data.get('birth_date'), '%d.%m.%Y').date():
+        date_changed = True
+
+    # Сохраняем поля
     if data.get('name'):
         user.name = data.get('name')
     if data.get('birth_date'):
@@ -55,8 +65,17 @@ def _save_user_data(telegram_id, data):
         user.gender = data.get('gender')
     if data.get('zodiac'):
         user.zodiac_sign = data.get('zodiac')
-    if data.get('timezone_offset') is not None:  # <-- добавлено
+    if data.get('timezone_offset') is not None:
         user.timezone_offset = data.get('timezone_offset')
+
+    # Если изменились место или дата — сбрасываем координаты
+    if place_changed or date_changed:
+        user.birth_lat = None
+        user.birth_lng = None
+        user.birth_timezone = None
+        user.birth_coords_updated_at = None
+        logger.info(f"🔄 Координаты сброшены для {telegram_id} (изменены место или дата)")
+
     user.save()
     logger.info(f"✅ Данные пользователя {telegram_id} сохранены")
     return True
@@ -77,6 +96,10 @@ def _get_user_data(telegram_id):
             'numerology_count': user.numerology_count,
             'astrology_count': user.astrology_count,
             'timezone_offset': user.timezone_offset,
+            'birth_lat': user.birth_lat,
+            'birth_lng': user.birth_lng,
+            'birth_timezone': user.birth_timezone,
+            'birth_coords_updated_at': user.birth_coords_updated_at,
         }
     except User.DoesNotExist:
         return None
@@ -345,11 +368,35 @@ def _clear_user_birth_timezone_sync(telegram_id: int) -> bool:
     except User.DoesNotExist:
         return False
 
+def _save_user_coords(telegram_id, lat, lng, timezone):
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        user.birth_lat = lat
+        user.birth_lng = lng
+        user.birth_timezone = timezone
+        user.birth_coords_updated_at = timezone.now()
+        user.save()
+        return True
+    except User.DoesNotExist:
+        return False
+
+def _clear_user_coords(telegram_id):
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
+        user.birth_lat = None
+        user.birth_lng = None
+        user.birth_timezone = None
+        user.birth_coords_updated_at = None
+        user.save()
+        return True
+    except User.DoesNotExist:
+        return False
+
 # ==================== АСИНХРОННЫЕ ОБЁРТКИ ====================
 
 get_or_create_user = sync_to_async(_get_or_create_user)
 save_user_data = sync_to_async(_save_user_data)
-get_user_data = sync_to_async(_get_user_data)
+#get_user_data = sync_to_async(_get_user_data)
 check_subscription_db = sync_to_async(_check_subscription)
 activate_subscription_db = sync_to_async(_activate_subscription)
 can_use_feature_db = sync_to_async(_can_use_feature)
@@ -372,3 +419,5 @@ set_service_price = sync_to_async(_set_service_price)
 get_user_birth_timezone = sync_to_async(_get_user_birth_timezone_sync)
 set_user_birth_timezone = sync_to_async(_set_user_birth_timezone_sync)
 clear_user_birth_timezone = sync_to_async(_clear_user_birth_timezone_sync)
+#save_user_coords = sync_to_async(_save_user_coords)
+clear_user_coords = sync_to_async(_clear_user_coords)

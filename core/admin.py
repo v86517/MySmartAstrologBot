@@ -10,7 +10,9 @@ class UserAdmin(admin.ModelAdmin):
         'telegram_id', 'username', 'name', 'zodiac_sign',
         'numerology_count', 'astrology_count',
         'is_subscribed', 'timezone_offset', 'language',
-        'is_admin', 'emulation_mode',  # новые поля
+        'is_admin', 'emulation_mode',
+        'birth_timezone',           # <-- добавлено
+        'birth_lat', 'birth_lng',   # <-- добавлено (опционально)
         'created_at'
     ]
     list_filter = [
@@ -22,8 +24,12 @@ class UserAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {'fields': ('telegram_id', 'username', 'first_name', 'last_name')}),
         ('Личные данные', {'fields': ('name', 'date_of_birth', 'birth_time', 'birth_place', 'gender', 'zodiac_sign')}),
+        ('Координаты и часовой пояс места рождения', {   # <-- новый блок
+            'fields': ('birth_lat', 'birth_lng', 'birth_timezone', 'birth_coords_updated_at'),
+            'classes': ('collapse',),  # опционально — сворачиваемый блок
+        }),
         ('Статусы', {'fields': ('is_subscribed', 'subscription_until', 'numerology_count', 'astrology_count', 'timezone_offset', 'language')}),
-        ('Администрирование', {'fields': ('is_admin', 'emulation_mode')}),  # новая секция
+        ('Администрирование', {'fields': ('is_admin', 'emulation_mode')}),
     )
 
 

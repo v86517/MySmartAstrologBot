@@ -1,3 +1,4 @@
+# bot/handlers/compatibility.py
 import asyncio
 import logging
 import re
