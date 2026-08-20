@@ -730,8 +730,7 @@ class GeminiService:
         prompt = prompt.replace('{language_instruction}', language_instruction)
         return prompt
 
-    def get_astrology_display_data(self, user_data: Dict[str, Any], lang: str, is_admin: bool = False) -> Dict[
-        str, str]:
+    def get_astrology_display_data(self, user_data: Dict[str, Any], lang: str, is_admin: bool = False, telegram_id: Optional[int] = None) -> Dict[str, str]:
         """
         Возвращает basic и full данные для отображения пользователю и администратору.
         basic — всегда, full — только для администратора.
@@ -747,7 +746,7 @@ class GeminiService:
             texts = TEXTS.get(lang, TEXTS['ru'])
 
             # Создаём билдер БЕЗ ТРАНЗИТОВ (для натальной карты они не нужны)
-            builder = AstrologyDataBuilder(user_data, lang, include_transits=False)
+            builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=telegram_id)
             data = builder.build()
             natal = data.get('natal', {})
             planets = natal.get('planets', [])
