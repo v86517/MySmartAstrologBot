@@ -508,3 +508,83 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
     # Медицинские показатели — УДАЛЕНЫ
 
     return "\n".join(lines)
+
+def format_natal_section(natal_data: dict, lang: str = 'ru') -> str:
+    """
+    Форматирует натальные данные для вставки в контекст гороскопа.
+    Возвращает текст с разделами: планеты, углы, куспиды, управители, аспекты.
+    """
+    texts = TEXTS.get(lang, TEXTS['ru'])
+    natal = natal_data.get('natal', {})
+    lines = []
+
+    # Планеты
+    planets = natal.get('planets', [])
+    if planets:
+        lines.append("### Натальные планеты")
+        lines.append("| Планета | Знак | Градус | Дом | Ретроградность |")
+        lines.append("|---------|------|--------|-----|----------------|")
+        for p in planets:
+            name = p.get('name_local', p.get('name', ''))
+            sign = p.get('sign', '')
+            degree = p.get('degree', 0.0)
+            house = p.get('house', 0)
+            retro = 'Да' if p.get('retrograde', False) else 'Нет'
+            lines.append(f"| {name} | {sign} | {degree:.2f}° | {house} | {retro} |")
+        lines.append("")
+
+    # Углы
+    angles = natal.get('angles', {})
+    if angles:
+        lines.append("### Углы")
+        asc = angles.get('ASC', 0.0)
+        mc = angles.get('MC', 0.0)
+        dsc = angles.get('DSC', 0.0)
+        ic = angles.get('IC', 0.0)
+        lines.append(f"ASC: {asc:.2f}°")
+        lines.append(f"MC: {mc:.2f}°")
+        lines.append(f"DSC: {dsc:.2f}°")
+        lines.append(f"IC: {ic:.2f}°")
+        lines.append("")
+
+    # Куспиды домов
+    houses = natal.get('houses', [])
+    if houses:
+        lines.append("### Куспиды домов")
+        for h in houses:
+            number = h.get('number', 0)
+            sign = h.get('cusp', '')
+            degree = h.get('cusp_degree', 0.0)
+            lines.append(f"Дом {number}: {sign} {degree:.2f}°")
+        lines.append("")
+
+    # Управители домов
+    rulers = natal.get('house_rulers', [])
+    if rulers:
+        lines.append("### Управители домов")
+        for r in rulers:
+            house = r.get('house', 0)
+            cusp = r.get('cusp', '')
+            ruler = r.get('ruler', '')
+            ruler_sign = r.get('ruler_sign', '')
+            ruler_house = r.get('ruler_house', 0)
+            retro = ' ℞' if r.get('ruler_retrograde', False) else ''
+            lines.append(f"Дом {house}: {cusp} -> управитель {ruler} (в {ruler_sign}, {ruler_house} доме{retro})")
+        lines.append("")
+
+    # Натальные аспекты (выводим только с орбом <= 3° для компактности)
+    aspects = natal.get('aspects', [])
+    if aspects:
+        lines.append("### Натальные аспекты")
+        aspects_sorted = sorted(aspects, key=lambda x: x.get('orb', 10.0))
+        for a in aspects_sorted:
+            orb = a.get('orb', 0.0)
+            if orb > 3.0:
+                continue
+            p1 = a.get('p1_name_local', a.get('p1', ''))
+            p2 = a.get('p2_name_local', a.get('p2', ''))
+            aspect = a.get('aspect_local', a.get('aspect', ''))
+            lines.append(f"{p1} {aspect} {p2}, орб {orb:.2f}°")
+        lines.append("")
+
+    return "\n".join(lines)

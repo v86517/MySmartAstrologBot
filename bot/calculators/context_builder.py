@@ -250,7 +250,6 @@ class AstrologyContextBuilder:
     # ----- РАСЧЁТ ИНТЕРВАЛОВ -----
 
     def _calculate_intervals(self, transit_planet: str, aspect_type: str, peak_date: str, orb_at_peak: float) -> Dict:
-        """Вычисляет full_cycle и active_window на основе средней скорости планеты и орбов."""
         speed = CONFIG['planet_speed'].get(transit_planet, 0.1)
         if speed <= 0:
             speed = 0.1
@@ -359,7 +358,6 @@ class AstrologyContextBuilder:
                 'axis_events': []
             }
 
-            # Валидация: full_start <= peak <= full_end
             if event['full_start'] and event['full_end']:
                 try:
                     fs = datetime.strptime(event['full_start'], '%Y-%m-%d')
@@ -431,7 +429,6 @@ class AstrologyContextBuilder:
             return False
 
     def _get_forecast_overlap(self, event: Dict, forecast_start: datetime, forecast_end: datetime) -> Tuple[Optional[str], Optional[str]]:
-        """Вычисляет пересечение ACTIVE_WINDOW с прогнозным периодом."""
         if not event['active_start'] or not event['active_end']:
             return None, None
         try:
@@ -544,7 +541,7 @@ class AstrologyContextBuilder:
 
         return result
 
-    # ----- СКОРИНГ ПО ГОРИЗОНТУ (без изменения raw_significance) -----
+    # ----- СКОРИНГ ПО ГОРИЗОНТУ -----
 
     def _day_score(self, event: Dict, target_date: datetime) -> float:
         if not self._is_same_day(event['exact_peak_date'], target_date):
@@ -570,7 +567,6 @@ class AstrologyContextBuilder:
         score = event['base_score']
         if self._is_date_in_range(event['exact_peak_date'], month_start, month_end):
             score *= 1.2
-        # Дополнительно учитываем длительность пересечения
         try:
             overlap_start = datetime.strptime(overlap[0], '%Y-%m-%d')
             overlap_end = datetime.strptime(overlap[1], '%Y-%m-%d')
@@ -657,6 +653,13 @@ class AstrologyContextBuilder:
                 excluded.append(e)
         return excluded
 
+    # ----- НАТАЛЬНАЯ ОСНОВА (ДЛЯ ВСТАВКИ В КОНТЕКСТ) -----
+
+    def _get_natal_section(self) -> str:
+        """Возвращает отформатированный блок натальных данных."""
+        from bot.utils.formatters import format_natal_section
+        return format_natal_section(self.natal_data, self.lang)
+
     # ----- ФИЛЬТРЫ -----
 
     def _filter_day(self) -> Dict[str, Any]:
@@ -690,7 +693,6 @@ class AstrologyContextBuilder:
                     e['included_reason'].append('ACTIVE_IN_PERIOD')
             day_candidates.append(e)
 
-        # Дедупликация осей перед сортировкой
         day_candidates = self._deduplicate_axes(day_candidates)
 
         def sort_key(e):
@@ -764,7 +766,6 @@ class AstrologyContextBuilder:
 
             month_candidates.append(e)
 
-        # Дедупликация осей
         month_candidates = self._deduplicate_axes(month_candidates)
 
         month_candidates.sort(key=lambda x: (x['horizon_score'], -x['orb']), reverse=True)
@@ -843,7 +844,6 @@ class AstrologyContextBuilder:
 
             year_candidates.append(e)
 
-        # Дедупликация осей
         year_candidates = self._deduplicate_axes(year_candidates)
 
         year_candidates.sort(key=lambda x: (x['horizon_score'], -x['orb']), reverse=True)
@@ -901,7 +901,10 @@ class AstrologyContextBuilder:
     # ----- ВЫВОД В ТЕКСТ -----
 
     def _format_day_output(self, data: Dict) -> str:
+        natal_section = self._get_natal_section()
         lines = []
+        lines.append(natal_section)
+        lines.append("")
         lines.append("## КОНТЕКСТ ПРОГНОЗА")
         lines.append("Тип: ДЕНЬ")
         lines.append(f"Дата: {data.get('date', '')}")
@@ -949,7 +952,10 @@ class AstrologyContextBuilder:
         return "\n".join(lines)
 
     def _format_month_output(self, data: Dict) -> str:
+        natal_section = self._get_natal_section()
         lines = []
+        lines.append(natal_section)
+        lines.append("")
         lines.append("## КОНТЕКСТ ПРОГНОЗА")
         lines.append("Тип: МЕСЯЦ")
         period = data.get('period', {})
@@ -1010,7 +1016,10 @@ class AstrologyContextBuilder:
         return "\n".join(lines)
 
     def _format_year_output(self, data: Dict) -> str:
+        natal_section = self._get_natal_section()
         lines = []
+        lines.append(natal_section)
+        lines.append("")
         lines.append("## КОНТЕКСТ ПРОГНОЗА")
         lines.append("Тип: ГОД")
         lines.append(f"Год: {data.get('year', '')}")
