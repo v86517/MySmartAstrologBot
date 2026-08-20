@@ -165,7 +165,7 @@ class GeminiService:
             emulation = await get_emulation_mode(user_id)
             if emulation:
                 from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-                builder = AstrologyDataBuilder(user_data, lang, include_transits=False)  # <-- добавлено
+                builder = AstrologyDataBuilder(user_data, lang, include_transits=False)
                 json_data = builder.build()
                 prompt = self._build_astrology_prompt(json_data, lang)
                 return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
@@ -173,7 +173,7 @@ class GeminiService:
         self.lang = lang
         try:
             from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-            builder = AstrologyDataBuilder(user_data, lang, include_transits=False)  # <-- добавлено
+            builder = AstrologyDataBuilder(user_data, lang, include_transits=False)
             json_data = builder.build()
             prompt = self._build_astrology_prompt(json_data, lang)
             return self._send_prompt(prompt, lang)
@@ -709,9 +709,20 @@ class GeminiService:
 
     # ---- ОСТАЛЬНЫЕ МЕТОДЫ (астрология и пр.) ----
     def _build_astrology_prompt(self, json_data: Dict[str, Any], lang: str) -> str:
-        # Этот метод уже есть в коде, оставляем без изменений
-        # (здесь можно вставить существующий код)
-        pass
+        template = self._load_prompt_template('prompt_astrology_v2.txt')
+        if not template:
+            logger.warning("Шаблон prompt_astrology_v2.txt не найден, используется fallback")
+            return self._build_fallback_prompt(json_data, 'astrology')
+        replacements = self._prepare_astrology_replacements(json_data, lang)
+        prompt = template
+        for key, value in replacements.items():
+            prompt = prompt.replace(f'{{{key}}}', str(value))
+        if lang == 'en':
+            language_instruction = "IMPORTANT: Respond in English only. All your analysis must be in English."
+        else:
+            language_instruction = "ВАЖНО: Отвечай только на русском языке. Весь анализ должен быть на русском."
+        prompt = prompt.replace('{language_instruction}', language_instruction)
+        return prompt
 
     def get_astrology_display_data(self, user_data: Dict[str, Any], lang: str, is_admin: bool = False) -> Dict[
         str, str]:
@@ -843,3 +854,99 @@ class GeminiService:
         if emulation:
             return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
         return self._send_prompt(prompt, lang)
+
+    def _prepare_astrology_replacements(self, json_data: Dict[str, Any], lang: str) -> Dict[str, str]:
+        """Подготавливает замены для промпта астрологии (натальной карты)."""
+        from datetime import datetime
+        from bot.utils.zodiac import get_zodiac_sign_localized
+
+        # Извлекаем данные
+        natal = json_data.get('natal', {})
+        metadata = json_data.get('metadata', {})
+        user_data = self.user_data or {}
+
+        name = user_data.get('name', 'Человек')
+        gender = user_data.get('gender', 'M')
+        if lang == 'ru':
+            gender_text = "Мужчина" if gender == 'M' else "Женщина" if gender == 'F' else "Не указан"
+        else:
+            gender_text = "Male" if gender == 'M' else "Female" if gender == 'F' else "Not specified"
+        birth_date = user_data.get('birth_date', 'не указана')
+        birth_time = user_data.get('birth_time', 'не указано')
+        birth_place = user_data.get('birth_place', 'не указано')
+        analysis_date = datetime.now().strftime('%d.%m.%Y')
+
+        # Натальные секции
+        planets = natal.get('planets', [])
+        houses = natal.get('houses', [])
+        rulers = natal.get('house_rulers', [])
+        aspects = natal.get('aspects', [])
+        themes = json_data.get('themes', {})
+        angles = natal.get('angles', {})
+
+        # Форматирование
+        planets_table = self._format_planets_table(planets)
+        cusps_str = self._format_cusps(houses)
+        house_rulers_str = self._format_house_rulers(rulers)
+        natal_aspects_str = self._format_aspects(aspects)
+        themes_str = self._format_themes(themes)
+        angles_str = (
+            f"ASC: {angles.get('ASC', 0):.2f}°, "
+            f"MC: {angles.get('MC', 0):.2f}°, "
+            f"DSC: {angles.get('DSC', 0):.2f}°, "
+            f"IC: {angles.get('IC', 0):.2f}°"
+        ) if angles else "Нет данных об углах."
+
+        # Метаданные
+        settings = metadata.get('settings', {})
+        metadata_settings = (
+            f"Зодиак: {settings.get('zodiac', 'tropical')}\n"
+            f"Система домов: {settings.get('house_system', 'Placidus')}\n"
+            f"Эфемериды: {settings.get('ephemeris', 'kerykeion')}\n"
+            f"Лунный узел: {settings.get('lunar_node', 'true')}\n"
+            f"Система координат: {settings.get('coordinate_system', 'geocentric')}\n"
+            f"Тип прогрессий: {settings.get('progression_type', 'secondary')}\n"
+            f"Орбы аспектов: {settings.get('aspect_orb', {})}"
+        )
+
+        # Дополнительные блоки (транзиты, прогрессии, медицинские показатели)
+        transits = json_data.get('transits', {})
+        transit_aspects = transits.get('aspects', [])
+        transit_aspects_str = self._format_transit_aspects(transit_aspects)
+
+        progressions = json_data.get('progressions', {})
+        progression_aspects = progressions.get('aspects', [])
+        progression_aspects_str = self._format_transit_aspects(progression_aspects)  # используем тот же форматтер
+
+        # Медицинские показатели (заглушка, можно дополнить)
+        health_indicators_str = "6-й дом (здоровье) и 8-й дом (кризисы) — см. натальные дома."
+
+        # Астрокартография (заглушка)
+        astrocartography_str = "Астрокартографические линии: см. натальную карту."
+
+        # Языковая инструкция добавляется в _build_astrology_prompt отдельно
+
+        replacements = {
+            "person_name": name,
+            "person_gender": gender_text,
+            "birth_date": birth_date,
+            "birth_time": birth_time,
+            "birth_place": birth_place,
+            "analysis_date": analysis_date,
+            "metadata_settings": metadata_settings,
+            "planets_table": planets_table,
+            "angles": angles_str,
+            "cusps": cusps_str,
+            "house_rulers_list": house_rulers_str,
+            "natal_aspects_list": natal_aspects_str,
+            "themes_with_evidence": themes_str,
+            "transit_aspects_list": transit_aspects_str,
+            "progression_aspects_list": progression_aspects_str,
+            "health_indicators_list": health_indicators_str,
+            "astrocartography_lines": astrocartography_str,
+            "extra_info": "",
+            "pronoun": "он" if gender == 'M' else "она",
+            "possessive": "его" if gender == 'M' else "её",
+        }
+
+        return replacements
