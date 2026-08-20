@@ -33,18 +33,38 @@ CONFIG = {
         "separating": 0.80,
     },
     "theme_diminishing_returns": [1.0, 0.5, 0.25, 0.125],
-    "fast_duration_limit": 7,          # дней
-    "medium_duration_limit": 120,      # дней
-    # остальное – long
-    "max_orb": {
+    # Орбы для интервалов (не меняют существующие орбы аспектов)
+    "full_orb": {
         "conjunction": 8.0,
         "opposition": 8.0,
         "square": 6.0,
         "trine": 6.0,
         "sextile": 5.0,
     },
-    "chiron_orb_limit": 1.5,
-    "chiron_significance_threshold": 6.0,
+    "active_orb": {
+        "conjunction": 3.0,
+        "opposition": 3.0,
+        "square": 2.5,
+        "trine": 2.5,
+        "sextile": 2.0,
+    },
+    # Средние скорости планет (градусов в день) для расчёта интервалов
+    "planet_speed": {
+        'Moon': 13.176,
+        'Sun': 0.986,
+        'Mercury': 1.383,
+        'Venus': 1.2,
+        'Mars': 0.524,
+        'Jupiter': 0.083,
+        'Saturn': 0.033,
+        'Uranus': 0.012,
+        'Neptune': 0.006,
+        'Pluto': 0.004,
+    },
+    # Минимальный порог значимости для включения в тему
+    "min_theme_event_score": 6.0,
+    # Debug режим
+    "debug": True,
 }
 
 
@@ -55,7 +75,7 @@ CONFIG = {
 class AstrologyContextBuilder:
     """
     Класс для построения контекста для трёх типов прогнозов: ДЕНЬ, МЕСЯЦ, ГОД.
-    Реализует полный pipeline фильтрации согласно FINAL PATCH SPECIFICATION v1.0.
+    Реализует полный pipeline фильтрации согласно FINAL PATCH v2.
     """
 
     # Веса планет (транзитных) – для базовой значимости
@@ -70,7 +90,6 @@ class AstrologyContextBuilder:
         'Sun': 10, 'Moon': 10, 'ASC': 10, 'MC': 9,
         'Mercury': 8, 'Venus': 8, 'Mars': 8, 'Saturn': 6,
         'Jupiter': 6, 'Uranus': 5, 'Neptune': 5, 'Pluto': 5,
-        # secondary – низкий вес
         'Chiron': 3, 'NorthNode': 3, 'SouthNode': 3, 'Lilith': 2
     }
 
@@ -93,7 +112,7 @@ class AstrologyContextBuilder:
     # Основные натальные цели (для фильтрации)
     PRIMARY_TARGETS = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                        'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto',
-                       'ASC', 'MC'}
+                       'ASC', 'MC', 'DSC', 'IC'}
 
     # Вторичные точки (исключаются по умолчанию)
     SECONDARY_TARGETS = {'Chiron', 'NorthNode', 'SouthNode', 'Lilith',
@@ -213,92 +232,76 @@ class AstrologyContextBuilder:
     def _format_theme(self, name: str) -> str:
         return self.THEME_NAMES_RU.get(name, name)
 
-    def _is_same_day(self, date_str: str, target_date: datetime) -> bool:
-        """Проверяет, совпадает ли дата события с целевой датой."""
-        if not date_str or not target_date:
-            return False
-        try:
-            dt = datetime.strptime(date_str, '%Y-%m-%d').date()
-            # Приводим target_date к naive, если он offset-aware
-            if target_date.tzinfo is not None:
-                target_date = target_date.replace(tzinfo=None)
-            return dt == target_date.date()
-        except ValueError:
-            return False
-
-    def _is_date_in_range(self, date_str: str, start: datetime, end: datetime) -> bool:
-        """Проверяет, попадает ли дата в интервал [start, end] (включительно)."""
-        if not date_str or not start or not end:
-            return False
-        try:
-            dt = datetime.strptime(date_str, '%Y-%m-%d')
-            # Приводим start и end к naive, если они offset-aware
-            if start.tzinfo is not None:
-                start = start.replace(tzinfo=None)
-            if end.tzinfo is not None:
-                end = end.replace(tzinfo=None)
-            return start <= dt <= end
-        except ValueError:
-            return False
-
     def _get_orb_factor(self, orb: float, aspect: str) -> float:
-        """Нормализованный коэффициент орба (0..1)."""
-        max_orb = CONFIG['max_orb'].get(aspect, 8.0)
+        max_orb = CONFIG['full_orb'].get(aspect, 8.0)
         if max_orb <= 0:
             return 0.0
         factor = 1.0 - (orb / max_orb)
         return max(0.0, min(1.0, factor))
 
     def _is_valid_target(self, target: str) -> bool:
-        """Проверяет, является ли натальная точка основной."""
         if target in self.PRIMARY_TARGETS:
             return True
-        # Вторичные разрешены только если включены в конфиге
         if CONFIG['secondary_points_enabled']:
             return True
         return False
 
     def _is_major_aspect(self, aspect: str) -> bool:
-        """Проверяет, является ли аспект мажорным."""
         if not CONFIG['minor_aspects_enabled']:
             return aspect in self.MAJOR_ASPECTS
-        return True  # если разрешены минорные, пропускаем все
+        return True
 
-    def _normalize_target(self, target: str) -> str:
-        """Нормализует цель для дедупликации осей."""
-        if target in ('ASC', 'DSC'):
-            return 'ASC_DSC_AXIS'
-        if target in ('MC', 'IC'):
-            return 'MC_IC_AXIS'
-        return target
+    # ----- РАСЧЁТ ИНТЕРВАЛОВ -----
 
-    def _get_axis_primary(self, target: str, aspect: str, is_conjunct: bool = None) -> str:
+    def _calculate_intervals(self, transit_planet: str, aspect_type: str, peak_date: str, orb_at_peak: float) -> Dict:
         """
-        Возвращает предпочтительное представление для оси.
-        Если есть соединение с ASC, выводим ASC, иначе DSC.
-        Для MC/IC аналогично.
+        Вычисляет full_cycle_start/end и active_start/end на основе средней скорости планеты и орбов.
+        Возвращает словарь с интервалами.
         """
-        if target == 'ASC_DSC_AXIS':
-            return 'ASC' if is_conjunct else 'DSC'
-        if target == 'MC_IC_AXIS':
-            return 'MC' if is_conjunct else 'IC'
-        return target
+        # Получаем среднюю скорость планеты (градусов в день)
+        speed = CONFIG['planet_speed'].get(transit_planet, 0.1)
+        if speed <= 0:
+            speed = 0.1
 
-    def _get_duration_class(self, days: int) -> str:
-        if days <= CONFIG['fast_duration_limit']:
-            return 'FAST'
-        elif days <= CONFIG['medium_duration_limit']:
-            return 'MEDIUM'
-        else:
-            return 'LONG'
+        # Полные орбы
+        full_orb = CONFIG['full_orb'].get(aspect_type, 8.0)
+        active_orb = CONFIG['active_orb'].get(aspect_type, 3.0)
+
+        # Рассчитываем длительность в днях (с обеих сторон от пика)
+        full_duration = (full_orb / speed) * 2  # *2 потому что орб растёт и уменьшается
+        active_duration = (active_orb / speed) * 2
+
+        # Преобразуем peak_date в datetime
+        try:
+            peak_dt = datetime.strptime(peak_date, '%Y-%m-%d')
+        except ValueError:
+            return {
+                'full_start': None,
+                'full_end': None,
+                'active_start': None,
+                'active_end': None,
+                'full_duration_days': 0,
+                'active_duration_days': 0
+            }
+
+        # Вычисляем границы
+        full_start_dt = peak_dt - timedelta(days=full_duration / 2)
+        full_end_dt = peak_dt + timedelta(days=full_duration / 2)
+        active_start_dt = peak_dt - timedelta(days=active_duration / 2)
+        active_end_dt = peak_dt + timedelta(days=active_duration / 2)
+
+        return {
+            'full_start': full_start_dt.strftime('%Y-%m-%d'),
+            'full_end': full_end_dt.strftime('%Y-%m-%d'),
+            'active_start': active_start_dt.strftime('%Y-%m-%d'),
+            'active_end': active_end_dt.strftime('%Y-%m-%d'),
+            'full_duration_days': int(full_duration),
+            'active_duration_days': int(active_duration)
+        }
 
     # ----- НОРМАЛИЗАЦИЯ И ПЕРВИЧНАЯ ФИЛЬТРАЦИЯ -----
 
     def _normalize(self) -> List[Dict]:
-        """
-        Приводит все аспекты к единому формату, применяет object eligibility,
-        aspect type filter, orb filter, phase/motion validation.
-        """
         if self._normalized is not None:
             return self._normalized
 
@@ -306,7 +309,6 @@ class AstrologyContextBuilder:
         normalized = []
 
         for asp in all_aspects:
-            # Проверка обязательных полей
             transit = asp.get('transit_planet')
             if transit not in self.ALLOWED_TRANSITS:
                 continue
@@ -320,13 +322,11 @@ class AstrologyContextBuilder:
                 continue
 
             orb = asp.get('orb', 10.0)
-            max_orb = CONFIG['max_orb'].get(aspect, 8.0)
+            max_orb = CONFIG['full_orb'].get(aspect, 8.0)
             if orb > max_orb:
                 continue
 
-            # Проверка фазы (движение)
             phase = asp.get('phase', '')
-            # если фаза неизвестна, пропускаем
             if phase not in ('applying', 'exact', 'separating'):
                 continue
 
@@ -339,35 +339,63 @@ class AstrologyContextBuilder:
                 if target == 'Chiron':
                     if orb > CONFIG['chiron_orb_limit']:
                         continue
-                    # significance threshold будет применён позже
                 else:
-                    continue  # остальные вторичные исключаем
+                    continue
 
             is_angle = 'angle' in asp
-            # Базовый скоринг (используется для event_score)
+            # Базовый скоринг
             base_score = self._calculate_base_score(transit, target, aspect, orb, phase, is_angle)
 
-            normalized.append({
+            # Вычисляем интервалы
+            intervals = self._calculate_intervals(transit, aspect, exact_date, orb)
+
+            event = {
                 'transit_planet': transit,
                 'natal_target': target,
                 'aspect': aspect,
                 'orb': orb,
                 'phase': phase,
-                'exact_date': exact_date,
+                'exact_peak_date': exact_date,
                 'is_angle': is_angle,
                 'angle': asp.get('angle'),
                 'house': asp.get('transit_house'),
                 'sign': asp.get('transit_sign'),
                 'base_score': base_score,
-                'raw': asp
-            })
+                'raw': asp,
+                'full_start': intervals['full_start'],
+                'full_end': intervals['full_end'],
+                'active_start': intervals['active_start'],
+                'active_end': intervals['active_end'],
+                'full_duration_days': intervals['full_duration_days'],
+                'active_duration_days': intervals['active_duration_days'],
+                'included_reason': []  # будет заполнено позже
+            }
+
+            # Валидация интервалов
+            if event['full_start'] and event['full_end']:
+                try:
+                    fs = datetime.strptime(event['full_start'], '%Y-%m-%d')
+                    fe = datetime.strptime(event['full_end'], '%Y-%m-%d')
+                    peak = datetime.strptime(event['exact_peak_date'], '%Y-%m-%d')
+                    # ASSERT: full_start <= peak <= full_end
+                    if not (fs <= peak <= fe):
+                        # Если peak вне full цикла, корректируем
+                        # Такое может быть если орб в peak меньше full_orb, но из-за приближения вышло
+                        # В этом случае просто расширяем интервал до peak
+                        if peak < fs:
+                            event['full_start'] = peak.strftime('%Y-%m-%d')
+                        if peak > fe:
+                            event['full_end'] = peak.strftime('%Y-%m-%d')
+                except:
+                    pass
+
+            normalized.append(event)
 
         self._normalized = normalized
         return normalized
 
     def _calculate_base_score(self, transit: str, target: str, aspect: str,
                               orb: float, phase: str, is_angle: bool) -> float:
-        """Базовый скоринг (общий для всех горизонтов)."""
         pw = self.PLANET_WEIGHT.get(transit, 1)
         tw = self.TARGET_WEIGHT.get(target, 1)
         aw = self.ASPECT_WEIGHT.get(aspect, 0.5)
@@ -378,309 +406,138 @@ class AstrologyContextBuilder:
             score *= CONFIG['angle_multiplier']
         return score
 
-    # ----- НОРМАЛИЗАЦИЯ ОСЕЙ И ДЕДУПЛИКАЦИЯ -----
+    # ----- ВСПОМОГАТЕЛЬНЫЕ ДЛЯ ДАТ -----
 
-    def _normalize_axes(self, events: List[Dict]) -> List[Dict]:
-        """
-        Объединяет пары ASC/DSC и MC/IC в один объект.
-        Возвращает список событий с нормализованными целями.
-        """
-        # Группируем по оси
-        axis_groups = defaultdict(list)
-        others = []
+    def _to_naive(self, dt: datetime) -> datetime:
+        if dt.tzinfo is not None:
+            return dt.replace(tzinfo=None)
+        return dt
 
-        for e in events:
-            target = e['natal_target']
-            if target in ('ASC', 'DSC'):
-                key = (e['transit_planet'], e['aspect'], 'ASC_DSC')
-                axis_groups[key].append(e)
-            elif target in ('MC', 'IC'):
-                key = (e['transit_planet'], e['aspect'], 'MC_IC')
-                axis_groups[key].append(e)
-            else:
-                others.append(e)
+    def _is_same_day(self, date_str: str, target_date: datetime) -> bool:
+        if not date_str or not target_date:
+            return False
+        try:
+            dt = datetime.strptime(date_str, '%Y-%m-%d').date()
+            target_naive = self._to_naive(target_date)
+            return dt == target_naive.date()
+        except ValueError:
+            return False
 
-        merged = []
-        for key, items in axis_groups.items():
-            if len(items) == 1:
-                merged.append(items[0])
-                continue
-
-            # Объединяем несколько событий на одной оси
-            # Выбираем основное (соединение с ASC/MC если есть)
-            primary = None
-            secondary = []
-            for item in items:
-                if item['natal_target'] in ('ASC', 'MC') and item['aspect'] == 'conjunction':
-                    primary = item
-                else:
-                    secondary.append(item)
-
-            if primary is None:
-                # если нет соединения с основным углом, берём первое
-                primary = items[0]
-                secondary = items[1:]
-
-            # Копируем основное, но меняем цель на нормализованную
-            new_event = primary.copy()
-            new_event['natal_target'] = self._normalize_target(primary['natal_target'])
-            new_event['axis_primary'] = primary['natal_target']  # сохраняем для вывода
-            new_event['secondary_axis'] = [s['natal_target'] for s in secondary]
-            new_event['base_score'] = max(primary['base_score'], max(s['base_score'] for s in secondary) if secondary else 0)
-            # Используем наибольший скоринг (не суммируем)
-            merged.append(new_event)
-
-        # Добавляем остальные события
-        merged.extend(others)
-
-        # Теперь нормализуем все оставшиеся цели (для единообразия)
-        for e in merged:
-            if e['natal_target'] not in ('ASC_DSC_AXIS', 'MC_IC_AXIS'):
-                e['natal_target'] = self._normalize_target(e['natal_target'])
-
-        return merged
-
-    # ----- КЛАССИФИКАЦИЯ ПО ВРЕМЕНИ -----
-
-    def _classify_duration(self, event: Dict) -> str:
-        """
-        Определяет класс длительности транзита.
-        Для простоты используем среднюю скорость планеты для оценки длительности.
-        """
-        transit = event['transit_planet']
-        # Средние скорости (градусов в день)
-        speeds = {
-            'Moon': 13.176, 'Sun': 0.986, 'Mercury': 1.383,
-            'Venus': 1.2, 'Mars': 0.524, 'Jupiter': 0.083,
-            'Saturn': 0.033, 'Uranus': 0.012, 'Neptune': 0.006,
-            'Pluto': 0.004
-        }
-        speed = speeds.get(transit, 0.1)
-        orb = event['orb']
-        if speed <= 0:
-            return 'FAST'  # fallback
-
-        # Оцениваем длительность в днях по орбу и скорости (приблизительно)
-        duration_days = (2 * orb) / speed  # две стороны от пика
-        if duration_days <= CONFIG['fast_duration_limit']:
-            return 'FAST'
-        elif duration_days <= CONFIG['medium_duration_limit']:
-            return 'MEDIUM'
-        else:
-            return 'LONG'
-
-    # ----- ВЫЧИСЛЕНИЕ ДОЛГОСРОЧНЫХ ПРОЦЕССОВ (для MONTH и YEAR) -----
-
-    def _merge_retrograde_passes(self, aspects: List[Dict]) -> List[Dict]:
-        """Объединяет повторные проходы одного транзита в процессы."""
-        groups = defaultdict(list)
-        for asp in aspects:
-            key = (asp['transit_planet'], asp['natal_target'], asp['aspect'])
-            groups[key].append(asp)
-
-        processes = []
-        for key, items in groups.items():
-            if not items:
-                continue
-            items.sort(key=lambda x: x['exact_date'])
-            peaks = [i['exact_date'] for i in items]
-            # Определяем полный интервал (от первого до последнего пика)
-            full_start = peaks[0]
-            full_end = peaks[-1]
-            # Вычисляем длительность (приблизительно)
-            try:
-                start_dt = datetime.strptime(full_start, '%Y-%m-%d')
-                end_dt = datetime.strptime(full_end, '%Y-%m-%d')
-                duration_days = (end_dt - start_dt).days
-            except:
-                duration_days = 0
-
-            # Берём лучший скоринг (максимальный)
-            best = max(items, key=lambda x: x['base_score'])
-            # Расширяем интервал до активного (с учётом орба и скорости)
-            # Для простоты расширим на 30% длительности
-            extra = max(1, int(duration_days * 0.3))
-            if extra > 60:
-                extra = 60
-            try:
-                start_dt = datetime.strptime(full_start, '%Y-%m-%d') - timedelta(days=extra)
-                end_dt = datetime.strptime(full_end, '%Y-%m-%d') + timedelta(days=extra)
-                active_start = start_dt.strftime('%Y-%m-%d')
-                active_end = end_dt.strftime('%Y-%m-%d')
-                active_duration = (end_dt - start_dt).days
-            except:
-                active_start = full_start
-                active_end = full_end
-                active_duration = duration_days
-
-            process = {
-                'transit_planet': best['transit_planet'],
-                'natal_target': best['natal_target'],
-                'aspect': best['aspect'],
-                'full_start': full_start,
-                'full_end': full_end,
-                'active_start': active_start,
-                'active_end': active_end,
-                'peak_dates': peaks,
-                'duration_days': duration_days,
-                'active_duration_days': active_duration,
-                'duration_class': self._get_duration_class(active_duration),
-                'base_score': best['base_score'],
-                'is_angle': best.get('is_angle', False),
-                'angle': best.get('angle'),
-                'house': best.get('house'),
-                'all_aspects': items
-            }
-            processes.append(process)
-
-        return processes
-
-    # ----- СКОРИНГ ПО ГОРИЗОНТУ -----
-
-    def _day_score(self, event: Dict, target_date: datetime) -> float:
-        """Скоринг для дневного прогноза."""
-        # Является ли событие активным сегодня?
-        if not self._is_same_day(event['exact_date'], target_date):
-            return 0.0
-
-        # Базовый скоринг
-        score = event['base_score']
-        # Приоритет для быстрых транзитов
-        duration_class = self._classify_duration(event)
-        if duration_class == 'FAST':
-            score *= 1.3
-        else:
-            # Медленные транзиты получают бонус только если точны сегодня
-            if event['phase'] == 'exact' or event['orb'] < 0.5:
-                score *= 1.1
-            else:
-                score *= 0.7
-        # Углы получают бонус
-        if event.get('is_angle'):
-            score *= 1.2
-        return score
-
-    def _month_score(self, process: Dict, month_start: datetime, month_end: datetime) -> float:
-        """Скоринг для месячного прогноза (на основе процесса)."""
-        # Проверяем, пересекает ли процесс месяц
-        if not self._overlaps_period(process['active_start'], process['active_end'], month_start, month_end):
-            return 0.0
-
-        score = process['base_score']
-        # Бонус за длительность (MEDIUM/LONG)
-        duration_class = process['duration_class']
-        if duration_class in ('MEDIUM', 'LONG'):
-            score *= 1.2
-        # Бонус за пик внутри месяца
-        peaks_in_month = [p for p in process['peak_dates'] if self._is_date_in_range(p, month_start, month_end)]
-        if peaks_in_month:
-            score *= 1.3
-        return score
-
-    def _year_score(self, process: Dict, year_start: datetime, year_end: datetime) -> float:
-        """Скоринг для годового прогноза (на основе процесса)."""
-        # Проверяем пересечение с годом
-        if not self._overlaps_period(process['active_start'], process['active_end'], year_start, year_end):
-            return 0.0
-
-        score = process['base_score']
-        # Бонус за длительность (LONG)
-        if process['duration_class'] == 'LONG':
-            score *= 1.5
-        # Бонус за количество пиков
-        if len(process['peak_dates']) > 1:
-            score *= 1.2
-        # Бонус за пик внутри года
-        peaks_in_year = [p for p in process['peak_dates'] if self._is_date_in_range(p, year_start, year_end)]
-        if peaks_in_year:
-            score *= 1.1
-        return score
+    def _is_date_in_range(self, date_str: str, start: datetime, end: datetime) -> bool:
+        if not date_str or not start or not end:
+            return False
+        try:
+            dt = datetime.strptime(date_str, '%Y-%m-%d')
+            start_naive = self._to_naive(start)
+            end_naive = self._to_naive(end)
+            return start_naive <= dt <= end_naive
+        except ValueError:
+            return False
 
     def _overlaps_period(self, start_str: str, end_str: str, period_start: datetime, period_end: datetime) -> bool:
-        """Проверяет, пересекается ли интервал [start_str, end_str] с [period_start, period_end]."""
         if not start_str or not end_str:
             return False
         try:
             s = datetime.strptime(start_str, '%Y-%m-%d')
             e = datetime.strptime(end_str, '%Y-%m-%d')
-            # Приводим period_start и period_end к naive
-            if period_start.tzinfo is not None:
-                period_start = period_start.replace(tzinfo=None)
-            if period_end.tzinfo is not None:
-                period_end = period_end.replace(tzinfo=None)
-            return max(s, period_start) <= min(e, period_end)
+            ps = self._to_naive(period_start)
+            pe = self._to_naive(period_end)
+            return max(s, ps) <= min(e, pe)
         except ValueError:
             return False
 
-    # ----- КЛАСТЕРИЗАЦИЯ ТЕМ С DIMINISHING RETURNS -----
+    def _intersection(self, start_str: str, end_str: str, period_start: datetime, period_end: datetime) -> Tuple[Optional[str], Optional[str]]:
+        if not start_str or not end_str:
+            return None, None
+        try:
+            s = datetime.strptime(start_str, '%Y-%m-%d')
+            e = datetime.strptime(end_str, '%Y-%m-%d')
+            ps = self._to_naive(period_start)
+            pe = self._to_naive(period_end)
+            overlap_start = max(s, ps)
+            overlap_end = min(e, pe)
+            if overlap_start <= overlap_end:
+                return overlap_start.strftime('%Y-%m-%d'), overlap_end.strftime('%Y-%m-%d')
+            return None, None
+        except ValueError:
+            return None, None
 
-    def _assign_theme(self, transit: str, target: str) -> str:
-        """Возвращает тему по фиксированной таблице."""
-        key = (transit, target)
-        theme = self.THEME_MAP.get(key)
-        if theme is None:
-            # Пробуем обратный порядок (если таблица не покрывает)
-            key_rev = (target, transit)
-            theme = self.THEME_MAP.get(key_rev)
-        return theme if theme else 'OTHER'
+    # ----- ДЕДУПЛИКАЦИЯ (только для точных дубликатов) -----
 
-    def _cluster_themes(self, events: List[Dict], max_themes: int = 5) -> List[Dict]:
+    def _deduplicate_exact(self, events: List[Dict]) -> List[Dict]:
         """
-        Группирует события по темам, применяет diminishing returns.
-        Возвращает список тем с их скорингом.
+        Удаляет абсолютно идентичные события (один transit, target, aspect, exact_date).
         """
-        # Определяем темы для каждого события
-        themed_events = []
+        seen = set()
+        unique = []
         for e in events:
-            theme = self._assign_theme(e['transit_planet'], e['natal_target'])
-            if theme == 'OTHER':
-                continue
-            themed_events.append((theme, e['base_score']))
+            key = (e['transit_planet'], e['natal_target'], e['aspect'], e['exact_peak_date'])
+            if key not in seen:
+                seen.add(key)
+                unique.append(e)
+        return unique
 
-        if not themed_events:
-            return []
+    # ----- СКОРИНГ ПО ГОРИЗОНТУ (без изменения raw_significance) -----
 
-        # Группируем по темам
-        groups = defaultdict(list)
-        for theme, score in themed_events:
-            groups[theme].append(score)
+    def _day_score(self, event: Dict, target_date: datetime) -> float:
+        """Скоринг для дневного прогноза (используется для сортировки)."""
+        # Проверяем, активно ли событие в этот день
+        if not self._is_same_day(event['exact_peak_date'], target_date):
+            # Если есть active window, проверяем пересечение
+            if event['active_start'] and event['active_end']:
+                if not self._is_date_in_range(event['exact_peak_date'], target_date, target_date):
+                    # Если пик не сегодня, но active window пересекает день
+                    if self._is_date_in_range(event['active_start'], target_date, target_date) or \
+                       self._is_date_in_range(event['active_end'], target_date, target_date):
+                        # Если active window пересекает день, даём небольшой бонус
+                        return event['base_score'] * 0.7
+                    return 0.0
+            else:
+                return 0.0
 
-        # Сортируем скоринги внутри каждой темы по убыванию
-        theme_scores = []
-        for theme, scores in groups.items():
-            sorted_scores = sorted(scores, reverse=True)
-            # Применяем diminishing returns
-            total = 0.0
-            for i, s in enumerate(sorted_scores):
-                weight = CONFIG['theme_diminishing_returns'][i] if i < len(CONFIG['theme_diminishing_returns']) else 0.125
-                total += s * weight
-            theme_scores.append({
-                'name': theme,
-                'score': total,
-                'events_count': len(scores)
-            })
+        # Базовый скоринг
+        score = event['base_score']
+        # Бонус за угол
+        if event['is_angle']:
+            score *= 1.2
+        # Бонус за точный пик
+        if event['phase'] == 'exact' or event['orb'] < 0.5:
+            score *= 1.15
+        # Бонус за быстрые транзиты (для дня они важнее)
+        if event['transit_planet'] in ['Moon', 'Sun', 'Mercury', 'Venus', 'Mars']:
+            score *= 1.1
+        return score
 
-        # Сортируем по убыванию скоринга
-        theme_scores.sort(key=lambda x: x['score'], reverse=True)
+    def _month_score(self, event: Dict, month_start: datetime, month_end: datetime) -> float:
+        """Скоринг для месячного прогноза."""
+        # Проверяем пересечение active window с месяцем
+        if not self._overlaps_period(event['active_start'], event['active_end'], month_start, month_end):
+            return 0.0
+        score = event['base_score']
+        # Бонус за пик внутри месяца
+        if self._is_date_in_range(event['exact_peak_date'], month_start, month_end):
+            score *= 1.2
+        # Бонус за длительность активного периода
+        duration = event['active_duration_days']
+        if duration > 30:
+            score *= 1.15
+        return score
 
-        # Формируем описания
-        result = []
-        for ts in theme_scores[:max_themes]:
-            # Собираем описания из событий, относящихся к этой теме
-            descriptions = []
-            for e in events:
-                if self._assign_theme(e['transit_planet'], e['natal_target']) == ts['name']:
-                    descriptions.append(
-                        f"{self._format_planet(e['transit_planet'])} {self._format_aspect(e['aspect'])} {self._format_planet(e['natal_target'])}"
-                    )
-            result.append({
-                'name': self._format_theme(ts['name']),
-                'score': ts['score'],
-                'description': ', '.join(descriptions[:3]),  # не более 3
-                'raw_theme': ts['name']
-            })
-
-        return result
+    def _year_score(self, event: Dict, year_start: datetime, year_end: datetime) -> float:
+        """Скоринг для годового прогноза."""
+        if not self._overlaps_period(event['active_start'], event['active_end'], year_start, year_end):
+            return 0.0
+        score = event['base_score']
+        # Бонус за длительность
+        duration = event['full_duration_days']
+        if duration > 120:
+            score *= 1.3
+        elif duration > 60:
+            score *= 1.15
+        # Бонус за пик внутри года
+        if self._is_date_in_range(event['exact_peak_date'], year_start, year_end):
+            score *= 1.1
+        return score
 
     # ----- ФИЛЬТРЫ -----
 
@@ -690,37 +547,60 @@ class AstrologyContextBuilder:
             return {}
 
         normalized = self._normalize()
-        # Применяем дневной фильтр: только события, активные сегодня
-        day_events = []
+        # Применяем дневной фильтр
+        day_candidates = []
         for e in normalized:
-            # Проверяем, что событие точно сегодня
-            if not self._is_same_day(e['exact_date'], target_date):
-                continue
-            # Вычисляем дневной скоринг
             score = self._day_score(e, target_date)
             if score <= 0:
                 continue
             e['horizon_score'] = score
-            day_events.append(e)
+            e['included_reason'] = []
+            # Определяем причину включения
+            if self._is_same_day(e['exact_peak_date'], target_date):
+                if e['is_angle']:
+                    e['included_reason'].append('ANGLE')
+                if e['phase'] == 'exact' or e['orb'] < 0.5:
+                    e['included_reason'].append('EXACT_PEAK')
+                if e['base_score'] > 15:
+                    e['included_reason'].append('HIGH_SIGNIFICANCE')
+                if e['transit_planet'] in ['Pluto', 'Neptune', 'Uranus', 'Saturn', 'Jupiter']:
+                    e['included_reason'].append('SLOW_TRANSIT')
+                if not e['included_reason']:
+                    e['included_reason'].append('ACTIVE_IN_PERIOD')
+            else:
+                # Если active window пересекает день
+                if self._overlaps_period(e['active_start'], e['active_end'], target_date, target_date):
+                    e['included_reason'].append('ACTIVE_IN_PERIOD')
+                else:
+                    # Не должно случиться, так как score > 0
+                    e['included_reason'].append('ACTIVE_IN_PERIOD')
+            day_candidates.append(e)
 
-        # Нормализация осей
-        day_events = self._normalize_axes(day_events)
+        # Сортировка: сначала углы, потом точные пики, потом медленные, потом по значимости и орбу
+        def sort_key(e):
+            priority = 0
+            if e['is_angle']:
+                priority += 1000
+            if e['phase'] == 'exact' or e['orb'] < 0.5:
+                priority += 100
+            if e['transit_planet'] in ['Pluto', 'Neptune', 'Uranus', 'Saturn', 'Jupiter']:
+                priority += 10
+            return (priority, e['horizon_score'], -e['orb'])
 
-        # Сортировка по horizon_score
-        day_events.sort(key=lambda x: x['horizon_score'], reverse=True)
+        day_candidates.sort(key=sort_key, reverse=True)
 
-        # Ограничение количества
+        # Ограничиваем количество
         max_events = CONFIG['day']['max_events']
         absolute_max = CONFIG['day']['absolute_max_events']
-        top_events = day_events[:absolute_max]
+        top_events = day_candidates[:absolute_max]
 
-        # Дополнительная фильтрация: если событий меньше min, оставляем сколько есть
-        # (не добавляем слабые)
+        # Дедупликация точных дубликатов
+        top_events = self._deduplicate_exact(top_events)
 
         # Угловые события
         angle_events = [e for e in top_events if e.get('is_angle')]
 
-        # Темы
+        # Темы (из отфильтрованных событий)
         themes = self._cluster_themes(top_events, max_themes=4)
 
         return {
@@ -738,38 +618,33 @@ class AstrologyContextBuilder:
             return {}
 
         normalized = self._normalize()
-        # Фильтруем по дате: события, пересекающие месяц
-        # Для месяца используем процессы, поэтому сначала собираем все аспекты за месяц
-        month_aspects = []
+        month_candidates = []
         for e in normalized:
-            if self._is_date_in_range(e['exact_date'], start_date, end_date):
-                month_aspects.append(e)
+            score = self._month_score(e, start_date, end_date)
+            if score <= 0:
+                continue
+            e['horizon_score'] = score
+            e['included_reason'] = ['ACTIVE_IN_PERIOD']
+            if self._is_date_in_range(e['exact_peak_date'], start_date, end_date):
+                e['included_reason'].append('EXACT_PEAK')
+            month_candidates.append(e)
 
-        # Строим процессы из этих аспектов
-        processes = self._merge_retrograde_passes(month_aspects)
+        # Сортировка по significance, длительности, точности
+        month_candidates.sort(key=lambda x: (x['horizon_score'], x['active_duration_days'], -x['orb']), reverse=True)
 
-        # Вычисляем месячный скоринг для каждого процесса
-        for p in processes:
-            p['horizon_score'] = self._month_score(p, start_date, end_date)
-
-        # Фильтруем процессы с нулевым скорингом
-        processes = [p for p in processes if p['horizon_score'] > 0]
-
-        # Сортировка по horizon_score
-        processes.sort(key=lambda x: x['horizon_score'], reverse=True)
-
-        # Ограничиваем количество
         max_events = CONFIG['month']['max_events']
-        main_processes = processes[:max_events]
+        main_events = month_candidates[:max_events]
+
+        # Дедупликация
+        main_events = self._deduplicate_exact(main_events)
 
         # Ключевые даты (пики внутри месяца)
         key_dates = defaultdict(list)
-        for p in main_processes:
-            for peak in p['peak_dates']:
-                if self._is_date_in_range(peak, start_date, end_date):
-                    key_dates[peak].append(
-                        f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_target'])} (пик)"
-                    )
+        for e in main_events:
+            if self._is_date_in_range(e['exact_peak_date'], start_date, end_date):
+                key_dates[e['exact_peak_date']].append(
+                    f"{self._format_planet(e['transit_planet'])} {self._format_aspect(e['aspect'])} {self._format_planet(e['natal_target'])} (пик)"
+                )
 
         # Ингрессии
         important_ingresses = []
@@ -783,15 +658,12 @@ class AstrologyContextBuilder:
                 important_ingresses.append(ing)
 
         # Темы
-        all_events = []
-        for p in main_processes:
-            all_events.extend(p['all_aspects'])
-        themes = self._cluster_themes(all_events, max_themes=5)
+        themes = self._cluster_themes(main_events, max_themes=5)
 
         return {
             'type': 'MONTH',
             'period': {'start': start_date.strftime('%Y-%m-%d'), 'end': end_date.strftime('%Y-%m-%d')},
-            'main_processes': main_processes,
+            'main_events': main_events,
             'key_dates': dict(key_dates),
             'important_ingresses': important_ingresses,
             'themes': themes
@@ -806,38 +678,42 @@ class AstrologyContextBuilder:
         normalized = self._normalize()
         # Оставляем только медленные планеты для года
         slow_planets = ['Pluto', 'Neptune', 'Uranus', 'Saturn', 'Jupiter']
-        year_aspects = [e for e in normalized if e['transit_planet'] in slow_planets]
-        # Фильтруем по диапазону (любое пересечение с годом)
-        year_aspects = [e for e in year_aspects if self._is_date_in_range(e['exact_date'], start_date, end_date)]
+        year_candidates = []
+        for e in normalized:
+            if e['transit_planet'] not in slow_planets:
+                continue
+            score = self._year_score(e, start_date, end_date)
+            if score <= 0:
+                continue
+            e['horizon_score'] = score
+            e['included_reason'] = ['ACTIVE_IN_PERIOD']
+            if self._is_date_in_range(e['exact_peak_date'], start_date, end_date):
+                e['included_reason'].append('EXACT_PEAK')
+            year_candidates.append(e)
 
-        # Строим процессы
-        processes = self._merge_retrograde_passes(year_aspects)
+        # Сортировка
+        year_candidates.sort(key=lambda x: (x['horizon_score'], x['full_duration_days'], -x['orb']), reverse=True)
 
-        # Вычисляем годовой скоринг
-        for p in processes:
-            p['horizon_score'] = self._year_score(p, start_date, end_date)
-
-        # Фильтруем процессы с нулевым скорингом
-        processes = [p for p in processes if p['horizon_score'] > 0]
-
-        # Сортировка по horizon_score
-        processes.sort(key=lambda x: x['horizon_score'], reverse=True)
-
-        # Ограничиваем количество
         max_events = CONFIG['year']['max_events']
-        main_processes = processes[:max_events]
+        main_events = year_candidates[:max_events]
 
-        # Ключевые периоды (каждый процесс как период)
+        # Дедупликация
+        main_events = self._deduplicate_exact(main_events)
+
+        # Ключевые периоды (каждое событие как период)
         key_periods = []
-        for p in main_processes:
+        for e in main_events:
+            full_cycle = f"{e['full_start']} – {e['full_end']}" if e['full_start'] and e['full_end'] else "не рассчитан"
+            active_in_year = self._intersection(e['active_start'], e['active_end'], start_date, end_date)
+            active_str = f"{active_in_year[0]} – {active_in_year[1]}" if active_in_year[0] and active_in_year[1] else "не пересекается"
             key_periods.append({
-                'start': p['active_start'],
-                'end': p['active_end'],
-                'process': f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_target'])}",
-                'theme': self._assign_theme(p['transit_planet'], p['natal_target']),
-                'score': p['horizon_score'],
-                'full_cycle': f"{p['full_start']} – {p['full_end']}",
-                'peaks': p['peak_dates']
+                'full_cycle': full_cycle,
+                'active_in_period': active_str,
+                'peak': e['exact_peak_date'],
+                'process': f"{self._format_planet(e['transit_planet'])} {self._format_aspect(e['aspect'])} {self._format_planet(e['natal_target'])}",
+                'theme': self._assign_theme(e['transit_planet'], e['natal_target']),
+                'score': e['horizon_score'],
+                'duration': e['full_duration_days']
             })
 
         # Ингрессии
@@ -849,10 +725,7 @@ class AstrologyContextBuilder:
                 major_ingresses.append(ing)
 
         # Темы
-        all_events = []
-        for p in main_processes:
-            all_events.extend(p['all_aspects'])
-        themes = self._cluster_themes(all_events, max_themes=6)
+        themes = self._cluster_themes(main_events, max_themes=6)
 
         # Месячная агрегация
         monthly_summary = []
@@ -862,15 +735,12 @@ class AstrologyContextBuilder:
                 break
             month_end = min(end_date, month_start.replace(day=28) + timedelta(days=4) - timedelta(days=1))
             month_themes = []
-            for p in main_processes:
-                if p['active_start'] and p['active_end']:
-                    try:
-                        p_start = datetime.strptime(p['active_start'], '%Y-%m-%d')
-                        p_end = datetime.strptime(p['active_end'], '%Y-%m-%d')
-                        if p_start <= month_end and p_end >= month_start:
-                            month_themes.append(self._format_theme(self._assign_theme(p['transit_planet'], p['natal_target'])))
-                    except:
-                        pass
+            for e in main_events:
+                if e['active_start'] and e['active_end']:
+                    if self._overlaps_period(e['active_start'], e['active_end'], month_start, month_end):
+                        theme = self._assign_theme(e['transit_planet'], e['natal_target'])
+                        if theme:
+                            month_themes.append(self._format_theme(theme))
             if month_themes:
                 monthly_summary.append({
                     'month': month_start.strftime('%B'),
@@ -880,12 +750,71 @@ class AstrologyContextBuilder:
         return {
             'type': 'YEAR',
             'year': start_date.year,
-            'main_processes': main_processes,
+            'main_events': main_events,
             'key_periods': key_periods,
             'major_ingresses': major_ingresses,
             'themes': themes,
             'monthly_summary': monthly_summary
         }
+
+    # ----- ТЕМЫ -----
+
+    def _assign_theme(self, transit: str, target: str) -> str:
+        key = (transit, target)
+        theme = self.THEME_MAP.get(key)
+        if theme is None:
+            key_rev = (target, transit)
+            theme = self.THEME_MAP.get(key_rev)
+        return theme if theme else 'OTHER'
+
+    def _cluster_themes(self, events: List[Dict], max_themes: int = 5) -> List[Dict]:
+        # Фильтруем события по минимальному порогу
+        min_score = CONFIG['min_theme_event_score']
+        filtered_events = [e for e in events if e['base_score'] >= min_score]
+
+        if not filtered_events:
+            return []
+
+        # Группируем по теме
+        groups = defaultdict(list)
+        for e in filtered_events:
+            theme = self._assign_theme(e['transit_planet'], e['natal_target'])
+            if theme == 'OTHER':
+                continue
+            groups[theme].append(e['base_score'])
+
+        # Применяем diminishing returns
+        theme_scores = []
+        for theme, scores in groups.items():
+            sorted_scores = sorted(scores, reverse=True)
+            total = 0.0
+            for i, s in enumerate(sorted_scores):
+                weight = CONFIG['theme_diminishing_returns'][i] if i < len(CONFIG['theme_diminishing_returns']) else 0.125
+                total += s * weight
+            theme_scores.append({
+                'name': theme,
+                'score': total,
+                'events_count': len(scores)
+            })
+
+        theme_scores.sort(key=lambda x: x['score'], reverse=True)
+
+        result = []
+        for ts in theme_scores[:max_themes]:
+            descriptions = []
+            for e in filtered_events:
+                if self._assign_theme(e['transit_planet'], e['natal_target']) == ts['name']:
+                    descriptions.append(
+                        f"{self._format_planet(e['transit_planet'])} {self._format_aspect(e['aspect'])} {self._format_planet(e['natal_target'])}"
+                    )
+            result.append({
+                'name': self._format_theme(ts['name']),
+                'score': ts['score'],
+                'description': ', '.join(descriptions[:3]),
+                'raw_theme': ts['name']
+            })
+
+        return result
 
     # ----- ВЫВОД В ТЕКСТ -----
 
@@ -905,10 +834,10 @@ class AstrologyContextBuilder:
                 orb = e['orb']
                 phase = e['phase']
                 score = e.get('horizon_score', e['base_score'])
+                reasons = ', '.join(e.get('included_reason', []))
                 line = f"{i}. {planet} {aspect} {target}, орб {orb:.2f}°, фаза {phase}, значимость {score:.1f}"
-                if e.get('secondary_axis'):
-                    supp = [self._format_planet(s) for s in e['secondary_axis']]
-                    line += f" (объединено с {', '.join(supp)})"
+                if reasons:
+                    line += f" [{reasons}]"
                 lines.append(line)
             lines.append("")
 
@@ -939,21 +868,25 @@ class AstrologyContextBuilder:
         lines.append(f"Период: {period.get('start', '')} – {period.get('end', '')}")
         lines.append("")
 
-        if data.get('main_processes'):
+        if data.get('main_events'):
             lines.append("## ГЛАВНЫЕ ПРОЦЕССЫ МЕСЯЦА")
-            for i, p in enumerate(data['main_processes'], 1):
-                planet = self._format_planet(p['transit_planet'])
-                target = self._format_planet(p['natal_target'])
-                aspect = self._format_aspect(p['aspect'])
+            for i, e in enumerate(data['main_events'], 1):
+                planet = self._format_planet(e['transit_planet'])
+                target = self._format_planet(e['natal_target'])
+                aspect = self._format_aspect(e['aspect'])
                 lines.append(f"{i}. {planet} {aspect} {target}")
-                lines.append(f"   Полный цикл: {p['full_start']} – {p['full_end']}")
-                lines.append(f"   Активно в периоде: {p['active_start']} – {p['active_end']}")
-                lines.append(f"   Пики: {', '.join(p['peak_dates'])}")
-                lines.append(f"   Длительность полного цикла: {p['duration_days']} дней")
-                lines.append(f"   Длительность в прогнозном периоде: {p['active_duration_days']} дней")
-                lines.append(f"   Значимость: {p.get('horizon_score', p['base_score']):.1f}")
-                theme_name = self._assign_theme(p['transit_planet'], p['natal_target'])
-                lines.append(f"   Тема: {self._format_theme(theme_name)}")
+                lines.append(f"   Полный цикл: {e['full_start']} – {e['full_end']}" if e['full_start'] and e['full_end'] else "   Полный цикл: не рассчитан")
+                lines.append(f"   Активно в периоде: {e['active_start']} – {e['active_end']}" if e['active_start'] and e['active_end'] else "   Активно в периоде: не рассчитано")
+                lines.append(f"   Пик: {e['exact_peak_date']}")
+                lines.append(f"   Длительность полного цикла: {e['full_duration_days']} дней")
+                lines.append(f"   Длительность в прогнозном периоде: {e['active_duration_days']} дней")
+                lines.append(f"   Значимость: {e.get('horizon_score', e['base_score']):.1f}")
+                theme = self._assign_theme(e['transit_planet'], e['natal_target'])
+                if theme != 'OTHER':
+                    lines.append(f"   Тема: {self._format_theme(theme)}")
+                reasons = ', '.join(e.get('included_reason', []))
+                if reasons:
+                    lines.append(f"   Причина включения: {reasons}")
             lines.append("")
 
         if data.get('key_dates'):
@@ -987,31 +920,41 @@ class AstrologyContextBuilder:
         lines.append(f"Год: {data.get('year', '')}")
         lines.append("")
 
-        if data.get('main_processes'):
+        if data.get('main_events'):
             lines.append("## ГЛАВНЫЕ ДОЛГОСРОЧНЫЕ ПРОЦЕССЫ ГОДА")
-            for i, p in enumerate(data['main_processes'], 1):
-                planet = self._format_planet(p['transit_planet'])
-                target = self._format_planet(p['natal_target'])
-                aspect = self._format_aspect(p['aspect'])
+            for i, e in enumerate(data['main_events'], 1):
+                planet = self._format_planet(e['transit_planet'])
+                target = self._format_planet(e['natal_target'])
+                aspect = self._format_aspect(e['aspect'])
                 lines.append(f"{i}. {planet} {aspect} {target}")
-                lines.append(f"   Полный цикл: {p['full_start']} – {p['full_end']}")
-                lines.append(f"   Активно в {data.get('year')}: {p['active_start']} – {p['active_end']}")
-                lines.append(f"   Пики в {data.get('year')}: {', '.join(p['peak_dates'])}")
-                lines.append(f"   Длительность полного цикла: {p['duration_days']} дней")
-                lines.append(f"   Длительность в прогнозном периоде: {p['active_duration_days']} дней")
-                lines.append(f"   Значимость: {p.get('horizon_score', p['base_score']):.1f}")
-                theme_name = self._assign_theme(p['transit_planet'], p['natal_target'])
-                lines.append(f"   Тема: {self._format_theme(theme_name)}")
+                lines.append(f"   Полный цикл: {e['full_start']} – {e['full_end']}" if e['full_start'] and e['full_end'] else "   Полный цикл: не рассчитан")
+                # Активная часть в году
+                active_in_year = self._intersection(e['active_start'], e['active_end'], self.start_utc, self.end_utc) if self.start_utc and self.end_utc else (None, None)
+                if active_in_year[0] and active_in_year[1]:
+                    lines.append(f"   Активно в {data.get('year')}: {active_in_year[0]} – {active_in_year[1]}")
+                else:
+                    lines.append(f"   Активно в {data.get('year')}: не пересекается")
+                lines.append(f"   Пик: {e['exact_peak_date']}")
+                lines.append(f"   Длительность полного цикла: {e['full_duration_days']} дней")
+                lines.append(f"   Значимость: {e.get('horizon_score', e['base_score']):.1f}")
+                theme = self._assign_theme(e['transit_planet'], e['natal_target'])
+                if theme != 'OTHER':
+                    lines.append(f"   Тема: {self._format_theme(theme)}")
+                reasons = ', '.join(e.get('included_reason', []))
+                if reasons:
+                    lines.append(f"   Причина включения: {reasons}")
             lines.append("")
 
         if data.get('key_periods'):
             lines.append("## КЛЮЧЕВЫЕ ПЕРИОДЫ ГОДА")
             for p in data['key_periods']:
-                lines.append(f"{p['start']} – {p['end']}: {p['process']} (тема: {self._format_theme(p['theme'])}), значимость {p['score']:.1f}")
-                if 'peaks' in p:
-                    lines.append(f"   Пики: {', '.join(p['peaks'])}")
-                if 'full_cycle' in p:
-                    lines.append(f"   Полный цикл: {p['full_cycle']}")
+                lines.append(f"Полный цикл: {p['full_cycle']}")
+                lines.append(f"Активно в периоде: {p['active_in_period']}")
+                lines.append(f"Пик: {p['peak']}")
+                lines.append(f"Процесс: {p['process']}")
+                lines.append(f"Тема: {self._format_theme(p['theme']) if p['theme'] != 'OTHER' else 'Не определена'}")
+                lines.append(f"Значимость: {p['score']:.1f}")
+                lines.append("")
             lines.append("")
 
         if data.get('major_ingresses'):
