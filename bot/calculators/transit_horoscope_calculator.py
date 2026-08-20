@@ -99,7 +99,7 @@ class TransitHoroscopeCalculator(BaseCalculator):
         if natal_calc is not None:
             self.natal_calc = natal_calc
         else:
-            self.natal_calc = AstrologyCalculator(user_data)
+            self.natal_calc = AstrologyCalculator(user_data, telegram_id=telegram_id)
         self.natal_chart = None
         self.transit_subject = None
         self.transit_chart = None
