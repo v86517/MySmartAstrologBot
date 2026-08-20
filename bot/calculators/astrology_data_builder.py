@@ -18,14 +18,10 @@ logger = logging.getLogger(__name__)
 
 
 class AstrologyDataBuilder:
-    """
-    Класс для построения структурированных данных JSON v2
-    для передачи в LLM.
-    """
-
-    def __init__(self, user_data: Dict[str, Any], lang: str = 'ru'):
+    def __init__(self, user_data: Dict[str, Any], lang: str = 'ru', include_transits: bool = True):
         self.user_data = user_data
         self.lang = lang
+        self.include_transits = include_transits  # <-- новый параметр
         self.natal_calc = AstrologyCalculator(user_data)
         self.chart = self.natal_calc._calculate_chart()
 
@@ -55,7 +51,8 @@ class AstrologyDataBuilder:
             "location": chart.get('location'),
             "utc_datetime": chart.get('utc_datetime'),
         })
-        return {
+
+        result = {
             "metadata": metadata,
             "natal": {
                 "planets": self._build_natal_planets(),
@@ -73,11 +70,19 @@ class AstrologyDataBuilder:
                 "summary": self._build_summary(),
                 "angles": self.chart.get('angles', {}),
             },
-            "transits": self._build_transits(),
-            "progressions": self._build_progressions(),
-            "themes": self._build_themes(),
-            "timeline": self._build_timeline()
+            "themes": self._build_themes(include_transits=self.include_transits),
         }
+
+        if self.include_transits:
+            result["transits"] = self._build_transits()
+            result["progressions"] = self._build_progressions()
+            result["timeline"] = self._build_timeline()
+        else:
+            result["transits"] = {"planets": [], "aspects": [], "active_periods": []}
+            result["progressions"] = {"planets": [], "aspects": []}
+            result["timeline"] = []
+
+        return result
 
     # ---------- METADATA ----------
     def _build_metadata(self) -> Dict[str, Any]:
@@ -1176,17 +1181,17 @@ class AstrologyDataBuilder:
 
     # ==================== THEMES ====================
 
-    def _build_themes(self) -> Dict[str, Any]:
+    def _build_themes(self, include_transits: bool = True) -> Dict[str, Any]:
         themes = {}
 
-        # 1. Натальные планеты
+        # 1. Натальные планеты (всегда)
         for p in self.chart.get('planets', []):
             name = p['name']
             weight = self.planet_weights.get(name, 5)
             for theme in self._get_planet_themes(name, p.get('house', 0), p.get('sign', '')):
                 self._add_evidence(themes, theme, 'natal_planet', name, f"{name} weight {weight}", weight)
 
-        # 2. Дома (управители)
+        # 2. Дома (управители) (всегда)
         for ruler in self._build_house_rulers():
             house = ruler['house']
             ruler_name = ruler['ruler']
@@ -1196,16 +1201,17 @@ class AstrologyDataBuilder:
                 for theme in self._get_planet_themes(ruler_name, 0, ''):
                     self._add_evidence(themes, theme, 'house_ruler', f"House {house}", f"ruler {ruler_name}", 6)
 
-        # 3. Натальные аспекты
+        # 3. Натальные аспекты (всегда)
         for a in self.chart.get('aspects', []):
             orb_val = float(a.get('orb', 10))
             if orb_val <= 3:
                 weight = float(a.get('weight', 5))
                 p1, p2 = a['p1'], a['p2']
                 for theme in self._get_aspect_themes(p1, p2, a['aspect']):
-                    self._add_evidence(themes, theme, 'natal_aspect', f"{p1} {a['aspect']} {p2}", f"orb {orb_val:.2f}°", weight)
+                    self._add_evidence(themes, theme, 'natal_aspect', f"{p1} {a['aspect']} {p2}", f"orb {orb_val:.2f}°",
+                                       weight)
 
-        # 4. Аспекты к углам
+        # 4. Аспекты к углам (всегда)
         for angle_aspect in self._build_angle_aspects():
             weight = float(angle_aspect.get('score', 5))
             theme = angle_aspect.get('themes', ['unknown'])[0]
@@ -1213,31 +1219,33 @@ class AstrologyDataBuilder:
                                f"{angle_aspect['planet']} {angle_aspect['aspect']} {angle_aspect['angle']}",
                                f"orb {angle_aspect.get('orb', 0):.2f}°", weight)
 
-        # 5. Паттерны
+        # 5. Паттерны (всегда)
         for pat in self._build_patterns():
             strength = float(pat.get('strength', 5))
             for theme in pat.get('themes', []):
                 self._add_evidence(themes, theme, 'pattern', pat['type'], f"strength {strength}", strength)
 
-        # 6. Транзиты
-        transit_data = self._build_transits()
-        for ta in transit_data.get('aspects', []):
-            score_val = float(ta.get('score', 0))
-            if score_val > 6:
-                for theme in ta.get('themes', []):
-                    self._add_evidence(themes, theme, 'transit',
-                                       f"{ta['transit_planet']} {ta['aspect']} {ta['natal_planet']}",
-                                       f"score {score_val}", score_val)
+        # 6. Транзиты (только если include_transits)
+        if include_transits:
+            transit_data = self._build_transits()
+            for ta in transit_data.get('aspects', []):
+                score_val = float(ta.get('score', 0))
+                if score_val > 6:
+                    for theme in ta.get('themes', []):
+                        self._add_evidence(themes, theme, 'transit',
+                                           f"{ta['transit_planet']} {ta['aspect']} {ta['natal_planet']}",
+                                           f"score {score_val}", score_val)
 
-        # 7. Прогрессии
-        prog_data = self._build_progressions()
-        for pa in prog_data.get('aspects', []):
-            score_val = float(pa.get('score', 0))
-            if score_val > 6:
-                for theme in pa.get('themes', []):
-                    self._add_evidence(themes, theme, 'progression',
-                                       f"{pa['progressed_planet']} {pa['aspect']} {pa['natal_planet']}",
-                                       f"score {score_val}", score_val)
+        # 7. Прогрессии (только если include_transits)
+        if include_transits:
+            prog_data = self._build_progressions()
+            for pa in prog_data.get('aspects', []):
+                score_val = float(pa.get('score', 0))
+                if score_val > 6:
+                    for theme in pa.get('themes', []):
+                        self._add_evidence(themes, theme, 'progression',
+                                           f"{pa['progressed_planet']} {pa['aspect']} {pa['natal_planet']}",
+                                           f"score {score_val}", score_val)
 
         # Финальный расчёт
         result = {}

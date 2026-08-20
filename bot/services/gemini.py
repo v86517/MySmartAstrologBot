@@ -165,7 +165,7 @@ class GeminiService:
             emulation = await get_emulation_mode(user_id)
             if emulation:
                 from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-                builder = AstrologyDataBuilder(user_data, lang)
+                builder = AstrologyDataBuilder(user_data, lang, include_transits=False)  # <-- добавлено
                 json_data = builder.build()
                 prompt = self._build_astrology_prompt(json_data, lang)
                 return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
@@ -173,7 +173,7 @@ class GeminiService:
         self.lang = lang
         try:
             from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-            builder = AstrologyDataBuilder(user_data, lang)
+            builder = AstrologyDataBuilder(user_data, lang, include_transits=False)  # <-- добавлено
             json_data = builder.build()
             prompt = self._build_astrology_prompt(json_data, lang)
             return self._send_prompt(prompt, lang)

@@ -223,10 +223,43 @@ async def confirm_horoscope(callback: CallbackQuery):
         # ---- КОНЕЦ НОВОЙ ЛОГИКИ ----
 
         # Формируем вывод
-        is_admin = await is_user_admin(user_id)
+        # is_admin = await is_user_admin(user_id)
+        # basic_params = format_basic_astrology_parameters(user_data, lang)
+        #
+        # # Заголовок результата
+        # if period == 'today':
+        #     header_template = await get_text(user_id, 'horoscope_result_today')
+        #     header = header_template.format(date=display_date)
+        # elif period == 'month':
+        #     header_template = await get_text(user_id, 'horoscope_result_month')
+        #     month_part, year_part = display_date.split()
+        #     header = header_template.format(month=month_part, year=year_part)
+        # else:
+        #     header_template = await get_text(user_id, 'horoscope_result_year')
+        #     header = header_template.format(year=display_date)
+        #
+        # if is_admin:
+        #     full_params = format_full_astrology_parameters(natal_data, transit_data, lang)
+        #     final_message = (
+        #         f"{header}\n"
+        #         f"━━━━━━━━━━━━━━━━━━━━━\n"
+        #         f"{basic_params}\n"
+        #         f"━━━━━━━━━━━━━━━━━━━━━\n"
+        #         f"{full_params}\n"
+        #         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        #         f"{horoscope_text}"
+        #     )
+        # else:
+        #     final_message = (
+        #         f"{header}\n"
+        #         f"━━━━━━━━━━━━━━━━━━━━━\n"
+        #         f"{basic_params}\n"
+        #         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        #         f"{horoscope_text}"
+        #     )
+
         basic_params = format_basic_astrology_parameters(user_data, lang)
 
-        # Заголовок результата
         if period == 'today':
             header_template = await get_text(user_id, 'horoscope_result_today')
             header = header_template.format(date=display_date)
@@ -238,25 +271,16 @@ async def confirm_horoscope(callback: CallbackQuery):
             header_template = await get_text(user_id, 'horoscope_result_year')
             header = header_template.format(year=display_date)
 
-        if is_admin:
-            full_params = format_full_astrology_parameters(natal_data, transit_data, lang)
-            final_message = (
-                f"{header}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"{basic_params}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"{full_params}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"{horoscope_text}"
-            )
-        else:
-            final_message = (
-                f"{header}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"{basic_params}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"{horoscope_text}"
-            )
+        final_message = (
+            f"{header}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{basic_params}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{horoscope_text}"
+        )
+
+
+
 
         # Сохраняем в архив
         await save_message_to_archive(user_id, 'horoscope', final_message)

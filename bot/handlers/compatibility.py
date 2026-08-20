@@ -465,43 +465,61 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             compat_text = await _gemini_service.generate_compatibility_with_data(user_id, person1, person2, natal1, natal2, synastry_data, lang)
 
             # 4. Формируем вывод
-            is_admin = await is_user_admin(user_id)
+            # is_admin = await is_user_admin(user_id)
+            #
+            # basic1 = format_basic_astrology_parameters(person1, lang)
+            # basic2 = format_basic_astrology_parameters(person2, lang)
+            #
+            # if is_admin:
+            #     full1 = format_full_astrology_parameters(natal1, None, lang)  # без транзитов
+            #     full2 = format_full_astrology_parameters(natal2, None, lang)
+            #     final_message = (
+            #         f"💕 Анализ совместимости\n"
+            #         f"━━━━━━━━━━━━━━━━━━━━━\n"
+            #         f"👤 ЧЕЛОВЕК 1\n{basic1}\n"
+            #         f"━━━━━━━━━━━━━━━━━━━━━\n"
+            #         f"👤 ЧЕЛОВЕК 2\n{basic2}\n"
+            #         f"━━━━━━━━━━━━━━━━━━━━━\n"
+            #         f"--- ПОЛНЫЕ ДАННЫЕ ЧЕЛОВЕКА 1 ---\n{full1}\n"
+            #         f"--- ПОЛНЫЕ ДАННЫЕ ЧЕЛОВЕКА 2 ---\n{full2}\n"
+            #         f"--- СИНАСТРИЧЕСКИЕ ДАННЫЕ ---\n"
+            #         f"Аспекты A→B: {len(synastry_data.get('synastry_aspects_a_to_b', []))}\n"
+            #         f"Аспекты B→A: {len(synastry_data.get('synastry_aspects_b_to_a', []))}\n"
+            #         f"Планеты A в домах B: {len(synastry_data.get('planets_in_houses', {}).get('a_in_b_houses', []))}\n"
+            #         f"Планеты B в домах A: {len(synastry_data.get('planets_in_houses', {}).get('b_in_a_houses', []))}\n"
+            #         f"Аспекты к углам: {len(synastry_data.get('synastry_angle_aspects', []))}\n"
+            #         f"Взаимные рецепции: {len(synastry_data.get('mutual_receptions', []))}\n"
+            #         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+            #         f"{compat_text}"
+            #     )
+            # else:
+            #     final_message = (
+            #         f"💕 Анализ совместимости\n"
+            #         f"━━━━━━━━━━━━━━━━━━━━━\n"
+            #         f"👤 ЧЕЛОВЕК 1\n{basic1}\n"
+            #         f"━━━━━━━━━━━━━━━━━━━━━\n"
+            #         f"👤 ЧЕЛОВЕК 2\n{basic2}\n"
+            #         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+            #         f"{compat_text}"
+            #     )
 
             basic1 = format_basic_astrology_parameters(person1, lang)
             basic2 = format_basic_astrology_parameters(person2, lang)
 
-            if is_admin:
-                full1 = format_full_astrology_parameters(natal1, None, lang)  # без транзитов
-                full2 = format_full_astrology_parameters(natal2, None, lang)
-                final_message = (
-                    f"💕 Анализ совместимости\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 ЧЕЛОВЕК 1\n{basic1}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 ЧЕЛОВЕК 2\n{basic2}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"--- ПОЛНЫЕ ДАННЫЕ ЧЕЛОВЕКА 1 ---\n{full1}\n"
-                    f"--- ПОЛНЫЕ ДАННЫЕ ЧЕЛОВЕКА 2 ---\n{full2}\n"
-                    f"--- СИНАСТРИЧЕСКИЕ ДАННЫЕ ---\n"
-                    f"Аспекты A→B: {len(synastry_data.get('synastry_aspects_a_to_b', []))}\n"
-                    f"Аспекты B→A: {len(synastry_data.get('synastry_aspects_b_to_a', []))}\n"
-                    f"Планеты A в домах B: {len(synastry_data.get('planets_in_houses', {}).get('a_in_b_houses', []))}\n"
-                    f"Планеты B в домах A: {len(synastry_data.get('planets_in_houses', {}).get('b_in_a_houses', []))}\n"
-                    f"Аспекты к углам: {len(synastry_data.get('synastry_angle_aspects', []))}\n"
-                    f"Взаимные рецепции: {len(synastry_data.get('mutual_receptions', []))}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"{compat_text}"
-                )
-            else:
-                final_message = (
-                    f"💕 Анализ совместимости\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 ЧЕЛОВЕК 1\n{basic1}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 ЧЕЛОВЕК 2\n{basic2}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"{compat_text}"
-                )
+            final_message = (
+                f"💕 Анализ совместимости\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 ЧЕЛОВЕК 1\n{basic1}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 ЧЕЛОВЕК 2\n{basic2}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"{compat_text}"
+            )
+
+
+
+
+
 
             await mark_feature_used_db(user_id, 'compatibility')
             await save_message_to_archive(user_id, 'compatibility', final_message)
