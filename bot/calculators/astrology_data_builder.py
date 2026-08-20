@@ -24,7 +24,7 @@ class AstrologyDataBuilder:
         self.lang = lang
         self.include_transits = include_transits  # <-- новый параметр
         self.telegram_id = telegram_id
-        self.natal_calc = AstrologyCalculator(user_data)
+        self.natal_calc = AstrologyCalculator(user_data, telegram_id=telegram_id)
         self.chart = self.natal_calc._calculate_chart()
 
         self.planet_weights = {
