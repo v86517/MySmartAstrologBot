@@ -4,9 +4,11 @@ import requests
 import json
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import pytz
+from geopy.exc import GeocoderRateLimited, GeocoderTimedOut, GeocoderUnavailable
 
 from kerykeion import AstrologicalSubject
 from timezonefinder import TimezoneFinder
@@ -72,26 +74,18 @@ class AstrologyCalculator:
         return city, country
 
     def _get_coordinates_and_timezone(self) -> Tuple[float, float, str]:
-        """
-        Определяет координаты и часовой пояс места рождения.
-        Сначала проверяет наличие сохранённых данных в БД.
-        Если их нет — выполняет геокодинг и сохраняет результат.
-        """
-        # 1. Проверяем, есть ли сохранённые координаты в БД
+        # 1. Проверяем БД
         if self.telegram_id:
-            try:
-                user_data = _get_user_data(self.telegram_id)
-                if user_data:
-                    lat = user_data.get('birth_lat')
-                    lng = user_data.get('birth_lng')
-                    tz = user_data.get('birth_timezone')
-                    if lat is not None and lng is not None and tz:
-                        logger.info(f"✅ Используем сохранённые координаты для {self.telegram_id}: ({lat}, {lng}, {tz})")
-                        return lat, lng, tz
-            except Exception as e:
-                logger.error(f"❌ Ошибка получения координат из БД: {e}")
+            user_data = _get_user_data(self.telegram_id)
+            if user_data:
+                lat = user_data.get('birth_lat')
+                lng = user_data.get('birth_lng')
+                tz = user_data.get('birth_timezone')
+                if lat is not None and lng is not None and tz:
+                    logger.info(f"✅ Используем сохранённые координаты для {self.telegram_id}: ({lat}, {lng}, {tz})")
+                    return lat, lng, tz
 
-        # 2. Если данных нет — выполняем полный поиск
+        # 2. Определяем координаты (с fallback)
         city, country = self._parse_birth_place()
         logger.info(f"🌐 Выполняем геокодинг для {city}, {country}")
 
@@ -99,9 +93,8 @@ class AstrologyCalculator:
             lat, lng, tz = self._perform_geocoding(city, country)
         except Exception as e:
             logger.error(f"❌ Ошибка геокодинга: {e}")
-            # Fallback — Москва
             logger.warning("⚠️ Используем координаты Москвы как fallback")
-            return self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
+            lat, lng, tz = self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
 
         # 3. Уточняем часовой пояс через Gemini (если доступен)
         try:
@@ -112,7 +105,7 @@ class AstrologyCalculator:
         except Exception as e:
             logger.warning(f"⚠️ Ошибка уточнения таймзоны: {e}")
 
-        # 4. Сохраняем координаты и часовой пояс в БД
+        # 4. Сохраняем координаты (даже если это fallback)
         if self.telegram_id:
             try:
                 _save_user_coords(self.telegram_id, lat, lng, tz)
@@ -125,7 +118,7 @@ class AstrologyCalculator:
     def _perform_geocoding(self, city: str, country: str) -> Tuple[float, float, str]:
         # 1. Nominatim
         try:
-            time.sleep(1)  # задержка
+            time.sleep(1)
             coords = self._get_coordinates_geocoder(city, country)
             if coords:
                 lat, lng = coords['lat'], coords['lng']
@@ -133,8 +126,8 @@ class AstrologyCalculator:
                 if tz_str:
                     logger.info(f"✅ Найдено через геокодер: {city}, {country} ({lat}, {lng}, {tz_str})")
                     return lat, lng, tz_str
-        except GeocoderRateLimited:
-            logger.warning("⚠️ Nominatim rate limited (429), пробуем Open-Meteo...")
+        except (GeocoderRateLimited, GeocoderTimedOut, GeocoderUnavailable) as e:
+            logger.warning(f"⚠️ Геокодер недоступен: {e}")
         except Exception as e:
             logger.warning(f"⚠️ Ошибка Nominatim: {e}")
 
