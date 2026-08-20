@@ -213,6 +213,26 @@ class AstrologyContextBuilder:
     def _format_theme(self, name: str) -> str:
         return self.THEME_NAMES_RU.get(name, name)
 
+    def _is_same_day(self, date_str: str, target_date: datetime) -> bool:
+        """Проверяет, совпадает ли дата события с целевой датой."""
+        if not date_str or not target_date:
+            return False
+        try:
+            dt = datetime.strptime(date_str, '%Y-%m-%d').date()
+            return dt == target_date.date()
+        except ValueError:
+            return False
+
+    def _is_date_in_range(self, date_str: str, start: datetime, end: datetime) -> bool:
+        """Проверяет, попадает ли дата в интервал [start, end] (включительно)."""
+        if not date_str or not start or not end:
+            return False
+        try:
+            dt = datetime.strptime(date_str, '%Y-%m-%d')
+            return start <= dt <= end
+        except ValueError:
+            return False
+
     def _get_orb_factor(self, orb: float, aspect: str) -> float:
         """Нормализованный коэффициент орба (0..1)."""
         max_orb = CONFIG['max_orb'].get(aspect, 8.0)
@@ -575,15 +595,6 @@ class AstrologyContextBuilder:
             s = datetime.strptime(start_str, '%Y-%m-%d')
             e = datetime.strptime(end_str, '%Y-%m-%d')
             return max(s, period_start) <= min(e, period_end)
-        except:
-            return False
-
-    def _is_date_in_range(self, date_str: str, start: datetime, end: datetime) -> bool:
-        if not date_str:
-            return False
-        try:
-            dt = datetime.strptime(date_str, '%Y-%m-%d')
-            return start <= dt <= end
         except:
             return False
 
