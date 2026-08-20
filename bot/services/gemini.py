@@ -159,9 +159,10 @@ class GeminiService:
     def send_raw_prompt(self, prompt: str, lang: str = 'ru') -> str:
         return self._send_prompt(prompt, lang)
 
-    async def generate_astrology_v2(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
+    async def generate_astrology_v2(self, user_data: Dict[str, Any], lang: str = 'ru',
+                                    telegram_id: Optional[int] = None) -> str:
         from bot.db import get_emulation_mode
-        user_id = user_data.get('telegram_id') or user_data.get('user_id')
+        user_id = user_data.get('telegram_id') or user_data.get('user_id') or telegram_id
 
         # Устанавливаем user_data для использования в _prepare_astrology_replacements
         self.user_data = user_data
@@ -171,14 +172,14 @@ class GeminiService:
             emulation = await get_emulation_mode(user_id)
             if emulation:
                 from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-                builder = AstrologyDataBuilder(user_data, lang, include_transits=False)
+                builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=user_id)
                 json_data = builder.build()
                 prompt = self._build_astrology_prompt(json_data, lang)
                 return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
 
         try:
             from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-            builder = AstrologyDataBuilder(user_data, lang, include_transits=False)
+            builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=user_id)
             json_data = builder.build()
             prompt = self._build_astrology_prompt(json_data, lang)
             return self._send_prompt(prompt, lang)

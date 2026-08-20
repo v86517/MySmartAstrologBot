@@ -284,7 +284,7 @@ async def process_astrology_gender(message: Message, state: FSMContext):
 
         if _gemini_service:
             user_data_for_calc['telegram_id'] = user_id
-            interpretation = await _gemini_service.generate_astrology_v2(user_data_for_calc, lang)
+            interpretation = await _gemini_service.generate_astrology_v2(user_data_for_calc, lang, telegram_id=user_id)
 
             is_admin = await is_user_admin(user_id)
             display_data = _gemini_service.get_astrology_display_data(
@@ -385,7 +385,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
 
         if _gemini_service:
             user_data_from_db['telegram_id'] = user_id
-            interpretation = await _gemini_service.generate_astrology_v2(user_data_from_db, lang)
+            interpretation = await _gemini_service.generate_astrology_v2(user_data_from_db, lang, telegram_id=user_id)
 
             is_admin = await is_user_admin(user_id)
             display_data = _gemini_service.get_astrology_display_data(
@@ -520,7 +520,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
 
         if _gemini_service:
             user_data['telegram_id'] = user_id
-            interpretation = await _gemini_service.generate_astrology_v2(user_data, lang)
+            interpretation = await _gemini_service.generate_astrology_v2(user_data, lang, telegram_id=user_id)
 
             is_admin = await is_user_admin(user_id)
             display_data = _gemini_service.get_astrology_display_data(

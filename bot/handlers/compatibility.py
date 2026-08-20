@@ -455,8 +455,8 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         if _gemini_service:
             # --- НОВАЯ ЛОГИКА С ИСПОЛЬЗОВАНИЕМ СИНАСТРИИ И НАТАЛЬНЫХ ДАННЫХ ---
             # 1. Получаем натальные данные для каждого человека (JSON v2)
-            natal1 = AstrologyDataBuilder(person1, lang).build()
-            natal2 = AstrologyDataBuilder(person2, lang).build()
+            natal1 = AstrologyDataBuilder(person1, lang, telegram_id=user_id).build()
+            natal2 = AstrologyDataBuilder(person2, lang, telegram_id=user_id).build()
 
             # 2. Получаем синастрические данные
             comp_calc = CompatibilityCalculator(person1, person2)

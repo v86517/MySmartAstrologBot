@@ -194,7 +194,7 @@ async def confirm_horoscope(callback: CallbackQuery):
         await asyncio.sleep(1)
 
         # Получаем натальные данные
-        natal_builder = AstrologyDataBuilder(user_data, lang)
+        natal_builder = AstrologyDataBuilder(user_data, lang, telegram_id=user_id)
         natal_data = natal_builder.build()
 
         # Получаем транзитные данные с учётом периода
@@ -203,7 +203,8 @@ async def confirm_horoscope(callback: CallbackQuery):
             lang,
             period=period,
             start_utc=start_utc,
-            end_utc=end_utc
+            end_utc=end_utc,
+            telegram_id=user_id
         )
         transit_data = transit_calc.get_full_transit_data()
 
