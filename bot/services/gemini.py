@@ -715,35 +715,41 @@ class GeminiService:
 
     def get_astrology_display_data(self, user_data: Dict[str, Any], lang: str, is_admin: bool = False) -> Dict[
         str, str]:
+        """
+        Возвращает basic и full данные для отображения пользователю и администратору.
+        basic — всегда, full — только для администратора.
+        """
         import logging
         import pytz
         from datetime import datetime
+        from bot.locales import TEXTS
+        from bot.calculators.astrology_data_builder import AstrologyDataBuilder
+
         logger = logging.getLogger(__name__)
         try:
-            from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-            from bot.locales import TEXTS
-            self.user_data = user_data
-            self.lang = lang
             texts = TEXTS.get(lang, TEXTS['ru'])
 
-            # Создаём билдер БЕЗ ТРАНЗИТОВ
+            # Создаём билдер БЕЗ ТРАНЗИТОВ (для натальной карты они не нужны)
             builder = AstrologyDataBuilder(user_data, lang, include_transits=False)
             data = builder.build()
-
-            replacements = self._prepare_astrology_replacements(data, lang)
             natal = data.get('natal', {})
             planets = natal.get('planets', [])
-            metadata = data.get('metadata', {})
-            sun = {}
-            moon = {}
-            for p in planets:
-                if p.get('name') == 'Sun':
-                    sun = p
-                elif p.get('name') == 'Moon':
-                    moon = p
-            angles = natal.get('angles', {})
-            asc_deg = angles.get('ASC', 0.0)
             houses = natal.get('houses', [])
+            angles = natal.get('angles', {})
+            metadata = data.get('metadata', {})
+            location = metadata.get('location', {})
+            lat = location.get('lat', 0.0)
+            lng = location.get('lng', 0.0)
+            timezone = metadata.get('timezone', '')
+            utc_datetime = metadata.get('utc_datetime', '')
+            birth_date = user_data.get('birth_date', '')
+            birth_time = user_data.get('birth_time', '00:00')
+            local_time = f"{birth_date} {birth_time}" if birth_date else 'Unknown'
+
+            # Солнце, Луна, Асцендент
+            sun = next((p for p in planets if p.get('name') == 'Sun'), {})
+            moon = next((p for p in planets if p.get('name') == 'Moon'), {})
+            asc_deg = angles.get('ASC', 0.0)
             asc_sign = houses[0].get('sign', 'Unknown') if houses else 'Unknown'
             if asc_sign == 'Unknown' and asc_deg != 0.0:
                 sign_degrees = [
@@ -757,38 +763,14 @@ class GeminiService:
                         break
                 if asc_sign == 'Unknown':
                     asc_sign = 'Unknown'
-            gender_text = user_data.get('gender', 'M')
-            if gender_text == 'M':
-                gender_display = texts.get('astro_gender_male', 'Male')
-            elif gender_text == 'F':
-                gender_display = texts.get('astro_gender_female', 'Female')
-            else:
-                gender_display = texts.get('astro_gender_unknown', 'Not specified')
-            location = metadata.get('location', {})
-            lat = location.get('lat', 0.0)
-            lng = location.get('lng', 0.0)
-            birth_date = user_data.get('birth_date', '')
-            birth_time = user_data.get('birth_time', '00:00')
-            local_time = f"{birth_date} {birth_time}" if birth_date else 'Unknown'
-            timezone = metadata.get('timezone', '')
-            utc_datetime = metadata.get('utc_datetime', '')
-            if utc_datetime and utc_datetime != 'Unknown':
-                utc_str = utc_datetime
-            else:
-                try:
-                    if timezone and birth_date:
-                        local_dt = datetime.strptime(f"{birth_date} {birth_time}", "%d.%m.%Y %H:%M")
-                        tz = pytz.timezone(timezone)
-                        localized = tz.localize(local_dt, is_dst=None)
-                        utc_dt = localized.astimezone(pytz.UTC)
-                        utc_str = utc_dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-                    else:
-                        utc_str = 'Unknown'
-                except Exception as e:
-                    logger.warning(f"Ошибка вычисления UTC: {e}")
-                    utc_str = 'Unknown'
 
-            # Базовые параметры (всегда)
+            gender = user_data.get('gender', 'M')
+            if lang == 'en':
+                gender_display = "Male" if gender == 'M' else "Female" if gender == 'F' else "Not specified"
+            else:
+                gender_display = "Мужской" if gender == 'M' else "Женский" if gender == 'F' else "Не указан"
+
+            # Формируем basic параметры
             if lang == 'en':
                 basic_params = (
                     f"🌙 Your astrological analysis\n\n"
@@ -797,7 +779,7 @@ class GeminiService:
                     f"{texts.get('astro_gender', '⚥ Gender')}: {gender_display}\n"
                     f"{texts.get('astro_local_time', '📅 Local time')}: {local_time}\n"
                     f"{texts.get('astro_timezone', '🕒 Timezone')}: {timezone or 'Unknown'}\n"
-                    f"{texts.get('astro_utc_time', '🕒 UTC time')}: {utc_str}\n"
+                    f"{texts.get('astro_utc_time', '🕒 UTC time')}: {utc_datetime or 'Unknown'}\n"
                     f"{texts.get('astro_place', '📍 Place')}: {user_data.get('birth_place', '')}\n"
                     f"{texts.get('astro_coordinates', '🌐 Coordinates')}: {lat:.4f}, {lng:.4f}\n"
                     f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -813,7 +795,7 @@ class GeminiService:
                     f"{texts.get('astro_gender', '⚥ Пол')}: {gender_display}\n"
                     f"{texts.get('astro_local_time', '📅 Локальное время')}: {local_time}\n"
                     f"{texts.get('astro_timezone', '🕒 Часовой пояс')}: {timezone or 'Unknown'}\n"
-                    f"{texts.get('astro_utc_time', '🕒 Время UTC')}: {utc_str}\n"
+                    f"{texts.get('astro_utc_time', '🕒 Время UTC')}: {utc_datetime or 'Unknown'}\n"
                     f"{texts.get('astro_place', '📍 Место')}: {user_data.get('birth_place', '')}\n"
                     f"{texts.get('astro_coordinates', '🌐 Координаты')}: {lat:.4f}, {lng:.4f}\n"
                     f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -822,13 +804,15 @@ class GeminiService:
                     f"{texts.get('astro_ascendant', '⬆️ Асцендент')}: {asc_sign}"
                 )
 
+            # Полные параметры для администратора
+            full_params = ""
             if is_admin:
-                # Полные параметры (без транзитов, так как мы их отключили)
+                # Используем данные из data для построения полного блока
+                # Это тот же код, что был в format_full_astrology_parameters, но с учётом структуры данных
                 from bot.utils.formatters import format_full_astrology_parameters
                 full_params = format_full_astrology_parameters(data, transit_data=None, lang=lang)
-                return {'basic': basic_params, 'full': full_params}
-            else:
-                return {'basic': basic_params, 'full': ''}
+
+            return {'basic': basic_params, 'full': full_params}
 
         except Exception as e:
             logger.error(f"❌ Ошибка в get_astrology_display_data: {e}", exc_info=True)
