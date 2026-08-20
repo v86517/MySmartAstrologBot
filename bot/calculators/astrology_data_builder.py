@@ -19,10 +19,11 @@ logger = logging.getLogger(__name__)
 
 
 class AstrologyDataBuilder:
-    def __init__(self, user_data: Dict[str, Any], lang: str = 'ru', include_transits: bool = True):
+    def __init__(self, user_data: Dict[str, Any], lang: str = 'ru', include_transits: bool = True, telegram_id: Optional[int] = None):
         self.user_data = user_data
         self.lang = lang
         self.include_transits = include_transits  # <-- новый параметр
+        self.telegram_id = telegram_id
         self.natal_calc = AstrologyCalculator(user_data)
         self.chart = self.natal_calc._calculate_chart()
 
