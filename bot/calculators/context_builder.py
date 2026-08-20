@@ -233,7 +233,8 @@ class AstrologyContextBuilder:
                 'peak_date': peak_date,
                 'significance': avg_significance,
                 'passes': passes,
-                'is_angle': 'angle' in first
+                'is_angle': 'angle' in first,
+                'aspects': asp_list  # добавлено
             })
         return processes
 
@@ -471,7 +472,8 @@ class AstrologyContextBuilder:
                     'event': f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_point'])} (пик)"
                 })
         # Добавляем краткосрочные события, которые не вошли в процессы, если они сильные
-        short_events = [a for a in month_aspects if a not in [item for sublist in [p['aspects'] for p in processes] for item in sublist]]
+        used_aspect_ids = set(id(a) for p in processes for a in p['aspects'])
+        short_events = [a for a in month_aspects if id(a) not in used_aspect_ids]
         short_events.sort(key=lambda x: x['significance'], reverse=True)
         for e in short_events[:5]:
             if e['exact_date']:
