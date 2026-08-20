@@ -421,25 +421,17 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
     """
     Возвращает строку с полными параметрами для администратора.
     Использует данные из AstrologyDataBuilder (natal_data) и при необходимости transit_data.
+    Локализована.
     """
     texts = TEXTS.get(lang, TEXTS['ru'])
-    lines = []
-
-    # Проверяем, что natal_data не None и является словарём
-    if not natal_data or not isinstance(natal_data, dict):
-        return "❌ Ошибка: данные натальной карты отсутствуют или повреждены."
-
     natal = natal_data.get('natal', {})
-    if not isinstance(natal, dict):
-        natal = {}
+    lines = []
 
     # Планеты
     planets = natal.get('planets', [])
     if planets:
-        lines.append("🪐 Планеты в знаках и домах:")
+        lines.append(texts.get('astro_full_planets_header', '🪐 Планеты в знаках и домах:'))
         for p in planets:
-            if not isinstance(p, dict):
-                continue
             name = p.get('name_local', p.get('name', ''))
             sign = p.get('sign', '')
             degree = p.get('degree', 0.0)
@@ -450,10 +442,8 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
     # Куспиды домов
     houses = natal.get('houses', [])
     if houses:
-        lines.append("🏠 Куспиды домов:")
+        lines.append(texts.get('astro_full_cusps_header', '🏠 Куспиды домов:'))
         for h in houses:
-            if not isinstance(h, dict):
-                continue
             number = h.get('number', 0)
             sign = h.get('cusp', '')
             degree = h.get('cusp_degree', 0.0)
@@ -463,28 +453,25 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
     # Управители домов
     rulers = natal.get('house_rulers', [])
     if rulers:
-        lines.append("### Управители домов")
+        lines.append(texts.get('astro_full_house_rulers_header', '### Управители домов'))
+        retro_symbol = texts.get('astro_retrograde_symbol', ' ℞')
         for r in rulers:
-            if not isinstance(r, dict):
-                continue
             house = r.get('house', 0)
             cusp = r.get('cusp', '')
             ruler = r.get('ruler', '')
             ruler_sign = r.get('ruler_sign', '')
             ruler_house = r.get('ruler_house', 0)
             retro = r.get('ruler_retrograde', False)
-            lines.append(
-                f"Дом {house}: {cusp} -> управитель {ruler} (в {ruler_sign}, {ruler_house} доме{' ℞' if retro else ''})"
-            )
+            retro_str = retro_symbol if retro else ''
+            fmt = texts.get('astro_house_ruler_format', 'Дом {house}: {cusp} -> управитель {ruler} (в {ruler_sign}, {ruler_house} доме{retro})')
+            lines.append(fmt.format(house=house, cusp=cusp, ruler=ruler, ruler_sign=ruler_sign, ruler_house=ruler_house, retro=retro_str))
         lines.append("")
 
     # Натальные аспекты
     aspects = natal.get('aspects', [])
     if aspects:
-        lines.append("🔮 Аспекты между планетами (мажорные, орбис ≤ 5°):")
+        lines.append(texts.get('astro_full_aspects_header', '🔮 Аспекты между планетами (мажорные, орбис ≤ 5°):'))
         for a in aspects:
-            if not isinstance(a, dict):
-                continue
             p1 = a.get('p1_name_local', a.get('p1', ''))
             p2 = a.get('p2_name_local', a.get('p2', ''))
             aspect = a.get('aspect_local', a.get('aspect', ''))
@@ -494,13 +481,11 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
         lines.append("")
 
     # Транзитные аспекты (если переданы)
-    if transit_data and isinstance(transit_data, dict):
+    if transit_data:
         transit_aspects = transit_data.get('transit_aspects', [])
         if transit_aspects:
-            lines.append("🌟 Транзитные аспекты на текущий момент:")
+            lines.append(texts.get('astro_full_transits_header', '🌟 Транзитные аспекты на текущий момент:'))
             for a in transit_aspects:
-                if not isinstance(a, dict):
-                    continue
                 transit_planet = a.get('transit_planet', '')
                 natal_planet = a.get('natal_planet', '')
                 aspect = a.get('aspect', '')
@@ -509,24 +494,17 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
             lines.append("")
 
         # Прогрессии (если есть)
-        progressions = natal_data.get('progressions', {})
-        if isinstance(progressions, dict):
-            prog_aspects = progressions.get('aspects', [])
-            if prog_aspects:
-                lines.append("🔄 Прогрессивные аспекты:")
-                for a in prog_aspects:
-                    if not isinstance(a, dict):
-                        continue
-                    prog = a.get('progressed_planet', '')
-                    natal_pl = a.get('natal_planet', '')
-                    aspect = a.get('aspect', '')
-                    orb = a.get('orb', 0.0)
-                    lines.append(f"Progressed {prog} → Natal {natal_pl} → {aspect} → {orb:.2f}°")
-                lines.append("")
+        progressions = natal_data.get('progressions', {}).get('aspects', [])
+        if progressions:
+            lines.append(texts.get('astro_full_progressions_header', '🔄 Прогрессивные аспекты:'))
+            for a in progressions:
+                prog = a.get('progressed_planet', '')
+                natal_pl = a.get('natal_planet', '')
+                aspect = a.get('aspect', '')
+                orb = a.get('orb', 0.0)
+                lines.append(f"Progressed {prog} → Natal {natal_pl} → {aspect} → {orb:.2f}°")
+            lines.append("")
 
-    # Медицинские показатели (можно взять из natal_data или из дополнительных расчётов)
-    # Для простоты добавим заглушку
-    lines.append("🏥 Медицинские показатели (6-й и 8-й дома, Гигиея):")
-    lines.append("(данные рассчитываются отдельно)")
+    # Медицинские показатели — УДАЛЕНЫ
 
     return "\n".join(lines)

@@ -265,6 +265,14 @@ TEXTS = {
         'astro_gender_male': 'Мужчина',
         'astro_gender_female': 'Женщина',
         'astro_gender_unknown': 'Не указан',
+        'astro_full_planets_header': '🪐 Планеты в знаках и домах:',
+        'astro_full_cusps_header': '🏠 Куспиды домов:',
+        'astro_full_house_rulers_header': '### Управители домов',
+        'astro_full_aspects_header': '🔮 Аспекты между планетами (мажорные, орбис ≤ 5°):',
+        'astro_full_transits_header': '🌟 Транзитные аспекты на текущий момент:',
+        'astro_full_progressions_header': '🔄 Прогрессивные аспекты:',
+        'astro_house_ruler_format': 'Дом {house}: {cusp} -> управитель {ruler} (в {ruler_sign}, {ruler_house} доме{retro})',
+        'astro_retrograde_symbol': ' ℞',
         # Переводы названий планет (для русского)
         'astro_planet_names': {
             'Sun': 'Солнце',
@@ -692,6 +700,14 @@ TEXTS = {
         'astro_gender_male': 'Male',
         'astro_gender_female': 'Female',
         'astro_gender_unknown': 'Not specified',
+        'astro_full_planets_header': '🪐 Planets in signs and houses:',
+        'astro_full_cusps_header': '🏠 House cusps:',
+        'astro_full_house_rulers_header': '### House rulers',
+        'astro_full_aspects_header': '🔮 Major aspects (orb ≤ 5°):',
+        'astro_full_transits_header': '🌟 Current transit aspects:',
+        'astro_full_progressions_header': '🔄 Progressive aspects:',
+        'astro_house_ruler_format': 'House {house}: {cusp} -> ruler {ruler} (in {ruler_sign}, {ruler_house} house{retro})',
+        'astro_retrograde_symbol': ' Rx',
         # For English we keep planet names as they are (no translation needed)
         'astro_planet_names': {},  # empty – will fall back to original
         'astro_sign_abbr': {},  # empty – will keep original codes

@@ -291,9 +291,9 @@ async def process_astrology_gender(message: Message, state: FSMContext):
             )
 
             if is_admin:
-                final_message = display_data['full'] + "\n\n" + interpretation
+                final_message = f"{display_data['basic']}\n\n{display_data['full']}\n\n{interpretation}"
             else:
-                final_message = display_data['basic'] + "\n\n" + interpretation
+                final_message = f"{display_data['basic']}\n\n{interpretation}"
 
             await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
@@ -392,9 +392,9 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
             )
 
             if is_admin:
-                final_message = display_data['full'] + "\n\n" + interpretation
+                final_message = f"{display_data['basic']}\n\n{display_data['full']}\n\n{interpretation}"
             else:
-                final_message = display_data['basic'] + "\n\n" + interpretation
+                final_message = f"{display_data['basic']}\n\n{interpretation}"
 
             await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
@@ -527,9 +527,9 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
             )
 
             if is_admin:
-                final_message = display_data['full'] + "\n\n" + interpretation
+                final_message = f"{display_data['basic']}\n\n{display_data['full']}\n\n{interpretation}"
             else:
-                final_message = display_data['basic'] + "\n\n" + interpretation
+                final_message = f"{display_data['basic']}\n\n{interpretation}"
 
             await save_message_to_archive(user_id, 'astrology', final_message)
             await add_astrology_count(user_id, -1)
