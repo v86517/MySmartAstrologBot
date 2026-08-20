@@ -74,6 +74,8 @@ class AstrologyCalculator:
         return city, country
 
     def _get_coordinates_and_timezone(self) -> Tuple[float, float, str]:
+        logger.info(f"🔍 _get_coordinates_and_timezone: telegram_id={self.telegram_id}")
+
         # 1. Проверяем БД
         if self.telegram_id:
             user_data = _get_user_data(self.telegram_id)
@@ -84,19 +86,24 @@ class AstrologyCalculator:
                 if lat is not None and lng is not None and tz:
                     logger.info(f"✅ Используем сохранённые координаты для {self.telegram_id}: ({lat}, {lng}, {tz})")
                     return lat, lng, tz
+            else:
+                logger.warning(f"⚠️ Пользователь {self.telegram_id} не найден в БД")
+        else:
+            logger.warning("⚠️ telegram_id не передан, геокодинг будет выполняться каждый раз")
 
-        # 2. Определяем координаты (с fallback)
+        # 2. Геокодинг
         city, country = self._parse_birth_place()
         logger.info(f"🌐 Выполняем геокодинг для {city}, {country}")
 
         try:
             lat, lng, tz = self._perform_geocoding(city, country)
+            logger.info(f"🌐 Координаты: {lat}, {lng}, часовой пояс: {tz}")
         except Exception as e:
             logger.error(f"❌ Ошибка геокодинга: {e}")
             logger.warning("⚠️ Используем координаты Москвы как fallback")
             lat, lng, tz = self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
 
-        # 3. Уточняем часовой пояс через Gemini (если доступен)
+        # 3. Уточняем часовой пояс через Gemini
         try:
             refined_tz = self._refine_timezone(tz, city, country, lat, lng)
             if refined_tz:
@@ -105,13 +112,18 @@ class AstrologyCalculator:
         except Exception as e:
             logger.warning(f"⚠️ Ошибка уточнения таймзоны: {e}")
 
-        # 4. Сохраняем координаты (даже если это fallback)
+        # 4. Сохраняем координаты
         if self.telegram_id:
             try:
-                _save_user_coords(self.telegram_id, lat, lng, tz)
-                logger.info(f"✅ Координаты сохранены в БД для {self.telegram_id}: ({lat}, {lng}, {tz})")
+                result = _save_user_coords(self.telegram_id, lat, lng, tz)
+                if result:
+                    logger.info(f"✅ Координаты сохранены в БД для {self.telegram_id}: ({lat}, {lng}, {tz})")
+                else:
+                    logger.error(f"❌ _save_user_coords вернул False для {self.telegram_id}")
             except Exception as e:
-                logger.error(f"❌ Ошибка сохранения координат: {e}")
+                logger.error(f"❌ Ошибка сохранения координат: {e}", exc_info=True)
+        else:
+            logger.warning("⚠️ telegram_id отсутствует, координаты не сохранены")
 
         return lat, lng, tz
 

@@ -376,10 +376,13 @@ def _save_user_coords(telegram_id, lat, lng, timezone):
         user.birth_timezone = timezone
         user.birth_coords_updated_at = timezone.now()
         user.save()
-        logger.info(f"✅ Координаты сохранены для {telegram_id}: lat={lat}, lng={lng}, tz={timezone}")
+        logger.info(f"✅ Координаты сохранены для пользователя {telegram_id}: lat={lat}, lng={lng}, tz={timezone}")
         return True
     except User.DoesNotExist:
-        logger.error(f"❌ Пользователь {telegram_id} не найден")
+        logger.error(f"❌ Пользователь {telegram_id} не найден при сохранении координат")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Ошибка сохранения координат: {e}", exc_info=True)
         return False
 
 def _clear_user_coords(telegram_id):
