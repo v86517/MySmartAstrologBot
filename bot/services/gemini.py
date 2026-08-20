@@ -713,9 +713,126 @@ class GeminiService:
         # (здесь можно вставить существующий код)
         pass
 
-    def get_astrology_display_data(self, user_data: Dict[str, Any], lang: str, is_admin: bool = False) -> Dict[str, str]:
-        # Существующий метод
-        pass
+    def get_astrology_display_data(self, user_data: Dict[str, Any], lang: str, is_admin: bool = False) -> Dict[
+        str, str]:
+        import logging
+        import pytz
+        from datetime import datetime
+        logger = logging.getLogger(__name__)
+        try:
+            from bot.calculators.astrology_data_builder import AstrologyDataBuilder
+            from bot.locales import TEXTS
+            self.user_data = user_data
+            self.lang = lang
+            texts = TEXTS.get(lang, TEXTS['ru'])
+
+            # Создаём билдер БЕЗ ТРАНЗИТОВ
+            builder = AstrologyDataBuilder(user_data, lang, include_transits=False)
+            data = builder.build()
+
+            replacements = self._prepare_astrology_replacements(data, lang)
+            natal = data.get('natal', {})
+            planets = natal.get('planets', [])
+            metadata = data.get('metadata', {})
+            sun = {}
+            moon = {}
+            for p in planets:
+                if p.get('name') == 'Sun':
+                    sun = p
+                elif p.get('name') == 'Moon':
+                    moon = p
+            angles = natal.get('angles', {})
+            asc_deg = angles.get('ASC', 0.0)
+            houses = natal.get('houses', [])
+            asc_sign = houses[0].get('sign', 'Unknown') if houses else 'Unknown'
+            if asc_sign == 'Unknown' and asc_deg != 0.0:
+                sign_degrees = [
+                    (0, 'Ari'), (30, 'Tau'), (60, 'Gem'), (90, 'Can'),
+                    (120, 'Leo'), (150, 'Vir'), (180, 'Lib'), (210, 'Sco'),
+                    (240, 'Sag'), (270, 'Cap'), (300, 'Aqu'), (330, 'Pis')
+                ]
+                for deg, sign in sign_degrees:
+                    if asc_deg >= deg and asc_deg < deg + 30:
+                        asc_sign = sign
+                        break
+                if asc_sign == 'Unknown':
+                    asc_sign = 'Unknown'
+            gender_text = user_data.get('gender', 'M')
+            if gender_text == 'M':
+                gender_display = texts.get('astro_gender_male', 'Male')
+            elif gender_text == 'F':
+                gender_display = texts.get('astro_gender_female', 'Female')
+            else:
+                gender_display = texts.get('astro_gender_unknown', 'Not specified')
+            location = metadata.get('location', {})
+            lat = location.get('lat', 0.0)
+            lng = location.get('lng', 0.0)
+            birth_date = user_data.get('birth_date', '')
+            birth_time = user_data.get('birth_time', '00:00')
+            local_time = f"{birth_date} {birth_time}" if birth_date else 'Unknown'
+            timezone = metadata.get('timezone', '')
+            utc_datetime = metadata.get('utc_datetime', '')
+            if utc_datetime and utc_datetime != 'Unknown':
+                utc_str = utc_datetime
+            else:
+                try:
+                    if timezone and birth_date:
+                        local_dt = datetime.strptime(f"{birth_date} {birth_time}", "%d.%m.%Y %H:%M")
+                        tz = pytz.timezone(timezone)
+                        localized = tz.localize(local_dt, is_dst=None)
+                        utc_dt = localized.astimezone(pytz.UTC)
+                        utc_str = utc_dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+                    else:
+                        utc_str = 'Unknown'
+                except Exception as e:
+                    logger.warning(f"Ошибка вычисления UTC: {e}")
+                    utc_str = 'Unknown'
+
+            # Базовые параметры (всегда)
+            if lang == 'en':
+                basic_params = (
+                    f"🌙 Your astrological analysis\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{texts.get('astro_name', '👤 Name')}: {user_data.get('name', '')}\n"
+                    f"{texts.get('astro_gender', '⚥ Gender')}: {gender_display}\n"
+                    f"{texts.get('astro_local_time', '📅 Local time')}: {local_time}\n"
+                    f"{texts.get('astro_timezone', '🕒 Timezone')}: {timezone or 'Unknown'}\n"
+                    f"{texts.get('astro_utc_time', '🕒 UTC time')}: {utc_str}\n"
+                    f"{texts.get('astro_place', '📍 Place')}: {user_data.get('birth_place', '')}\n"
+                    f"{texts.get('astro_coordinates', '🌐 Coordinates')}: {lat:.4f}, {lng:.4f}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{texts.get('astro_sun', '☀️ Sun')}: {sun.get('sign', 'Unknown')}\n"
+                    f"{texts.get('astro_moon', '🌙 Moon')}: {moon.get('sign', 'Unknown')}\n"
+                    f"{texts.get('astro_ascendant', '⬆️ Ascendant')}: {asc_sign}"
+                )
+            else:
+                basic_params = (
+                    f"🌙 Ваш астрологический разбор\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{texts.get('astro_name', '👤 Имя')}: {user_data.get('name', '')}\n"
+                    f"{texts.get('astro_gender', '⚥ Пол')}: {gender_display}\n"
+                    f"{texts.get('astro_local_time', '📅 Локальное время')}: {local_time}\n"
+                    f"{texts.get('astro_timezone', '🕒 Часовой пояс')}: {timezone or 'Unknown'}\n"
+                    f"{texts.get('astro_utc_time', '🕒 Время UTC')}: {utc_str}\n"
+                    f"{texts.get('astro_place', '📍 Место')}: {user_data.get('birth_place', '')}\n"
+                    f"{texts.get('astro_coordinates', '🌐 Координаты')}: {lat:.4f}, {lng:.4f}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{texts.get('astro_sun', '☀️ Солнце')}: {sun.get('sign', 'Неизвестно')}\n"
+                    f"{texts.get('astro_moon', '🌙 Луна')}: {moon.get('sign', 'Неизвестно')}\n"
+                    f"{texts.get('astro_ascendant', '⬆️ Асцендент')}: {asc_sign}"
+                )
+
+            if is_admin:
+                # Полные параметры (без транзитов, так как мы их отключили)
+                from bot.utils.formatters import format_full_astrology_parameters
+                full_params = format_full_astrology_parameters(data, transit_data=None, lang=lang)
+                return {'basic': basic_params, 'full': full_params}
+            else:
+                return {'basic': basic_params, 'full': ''}
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка в get_astrology_display_data: {e}", exc_info=True)
+            return {'basic': f"❌ Ошибка при формировании данных: {e}", 'full': ""}
 
     async def generate_horoscope_with_context(self, user_id: int, context: str, lang: str,
                                               period: str = 'today', display_date: str = '') -> str:

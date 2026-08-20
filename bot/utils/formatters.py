@@ -423,14 +423,23 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
     Использует данные из AstrologyDataBuilder (natal_data) и при необходимости transit_data.
     """
     texts = TEXTS.get(lang, TEXTS['ru'])
-    natal = natal_data.get('natal', {})
     lines = []
+
+    # Проверяем, что natal_data не None и является словарём
+    if not natal_data or not isinstance(natal_data, dict):
+        return "❌ Ошибка: данные натальной карты отсутствуют или повреждены."
+
+    natal = natal_data.get('natal', {})
+    if not isinstance(natal, dict):
+        natal = {}
 
     # Планеты
     planets = natal.get('planets', [])
     if planets:
         lines.append("🪐 Планеты в знаках и домах:")
         for p in planets:
+            if not isinstance(p, dict):
+                continue
             name = p.get('name_local', p.get('name', ''))
             sign = p.get('sign', '')
             degree = p.get('degree', 0.0)
@@ -443,6 +452,8 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
     if houses:
         lines.append("🏠 Куспиды домов:")
         for h in houses:
+            if not isinstance(h, dict):
+                continue
             number = h.get('number', 0)
             sign = h.get('cusp', '')
             degree = h.get('cusp_degree', 0.0)
@@ -454,6 +465,8 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
     if rulers:
         lines.append("### Управители домов")
         for r in rulers:
+            if not isinstance(r, dict):
+                continue
             house = r.get('house', 0)
             cusp = r.get('cusp', '')
             ruler = r.get('ruler', '')
@@ -470,6 +483,8 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
     if aspects:
         lines.append("🔮 Аспекты между планетами (мажорные, орбис ≤ 5°):")
         for a in aspects:
+            if not isinstance(a, dict):
+                continue
             p1 = a.get('p1_name_local', a.get('p1', ''))
             p2 = a.get('p2_name_local', a.get('p2', ''))
             aspect = a.get('aspect_local', a.get('aspect', ''))
@@ -479,11 +494,13 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
         lines.append("")
 
     # Транзитные аспекты (если переданы)
-    if transit_data:
+    if transit_data and isinstance(transit_data, dict):
         transit_aspects = transit_data.get('transit_aspects', [])
         if transit_aspects:
             lines.append("🌟 Транзитные аспекты на текущий момент:")
             for a in transit_aspects:
+                if not isinstance(a, dict):
+                    continue
                 transit_planet = a.get('transit_planet', '')
                 natal_planet = a.get('natal_planet', '')
                 aspect = a.get('aspect', '')
@@ -492,16 +509,20 @@ def format_full_astrology_parameters(natal_data: dict, transit_data: dict = None
             lines.append("")
 
         # Прогрессии (если есть)
-        progressions = natal_data.get('progressions', {}).get('aspects', [])
-        if progressions:
-            lines.append("🔄 Прогрессивные аспекты:")
-            for a in progressions:
-                prog = a.get('progressed_planet', '')
-                natal_pl = a.get('natal_planet', '')
-                aspect = a.get('aspect', '')
-                orb = a.get('orb', 0.0)
-                lines.append(f"Progressed {prog} → Natal {natal_pl} → {aspect} → {orb:.2f}°")
-            lines.append("")
+        progressions = natal_data.get('progressions', {})
+        if isinstance(progressions, dict):
+            prog_aspects = progressions.get('aspects', [])
+            if prog_aspects:
+                lines.append("🔄 Прогрессивные аспекты:")
+                for a in prog_aspects:
+                    if not isinstance(a, dict):
+                        continue
+                    prog = a.get('progressed_planet', '')
+                    natal_pl = a.get('natal_planet', '')
+                    aspect = a.get('aspect', '')
+                    orb = a.get('orb', 0.0)
+                    lines.append(f"Progressed {prog} → Natal {natal_pl} → {aspect} → {orb:.2f}°")
+                lines.append("")
 
     # Медицинские показатели (можно взять из natal_data или из дополнительных расчётов)
     # Для простоты добавим заглушку
