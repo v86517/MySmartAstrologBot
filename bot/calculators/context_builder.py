@@ -1,71 +1,68 @@
 # bot/calculators/context_builder.py
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from collections import defaultdict
+import math
 
 logger = logging.getLogger(__name__)
 
 
 class AstrologyContextBuilder:
     """
-    Класс для построения текстового контекста для трёх типов прогнозов: ДЕНЬ, МЕСЯЦ, ГОД.
-    Возвращает структурированный текст для вставки в промпт LLM.
+    Класс для построения трёх разных контекстов: DAY, MONTH, YEAR.
+    Каждый метод возвращает текст, который вставляется в промпт.
     """
 
-    # Веса транзитных планет (объектов)
-    TRANSIT_PLANET_WEIGHT = {
+    # Веса транзитных планет (для DAY и MONTH/YEAR)
+    PLANET_WEIGHT = {
         'Pluto': 10, 'Neptune': 9, 'Uranus': 9, 'Saturn': 8,
-        'Jupiter': 7, 'Mars': 5, 'Sun': 4, 'Venus': 3,
-        'Mercury': 3, 'Moon': 1
+        'Jupiter': 7, 'Mars': 6, 'Venus': 5, 'Mercury': 5,
+        'Sun': 5, 'Moon': 4
     }
 
     # Веса натальных точек
-    NATAL_POINT_WEIGHT = {
-        'Sun': 10, 'Moon': 10, 'ASC': 10, 'MC': 10,
-        'Venus': 9, 'Mars': 9, 'Mercury': 8, 'Jupiter': 8,
-        'Saturn': 8, 'Uranus': 7, 'Neptune': 7, 'Pluto': 7,
-        'NorthNode': 6, 'SouthNode': 5, 'Chiron': 4, 'Lilith': 2,
-        'DSC': 10, 'IC': 10
+    NATAL_WEIGHT = {
+        'Sun': 10, 'Moon': 10, 'ASC': 10, 'MC': 9,
+        'Mercury': 8, 'Venus': 8, 'Mars': 8, 'Saturn': 6,
+        'Jupiter': 6, 'Uranus': 5, 'Neptune': 5, 'Pluto': 5,
+        'Chiron': 3, 'NorthNode': 3, 'SouthNode': 3, 'Lilith': 2
     }
 
-    # Коэффициенты аспектов
+    # Веса аспектов
     ASPECT_WEIGHT = {
-        'conjunction': 1.00,
+        'conjunction': 1.0,
         'opposition': 0.95,
         'square': 0.90,
         'trine': 0.80,
         'sextile': 0.65
     }
 
-    # Коэффициенты орба
-    ORB_WEIGHT = {
-        0.0: 1.00,
-        0.5: 0.95,
-        1.0: 0.90,
-        1.5: 0.80,
-        2.0: 0.60,
-        3.0: 0.35,
-        4.0: 0.00
+    # Фазы
+    PHASE_WEIGHT = {
+        'exact': 1.0,
+        'applying': 0.95,
+        'separating': 0.85
     }
 
-    # Углы и бонус к ним
-    ANGLE_BONUS = 2
-    APPLYING_BONUS = 1.0
-
-    # Длительность транзитов (условные веса для MONTH и YEAR)
-    DURATION_WEIGHT = {
-        'Moon': 0.1, 'Sun': 0.2, 'Mercury': 0.3, 'Venus': 0.3,
-        'Mars': 0.5, 'Jupiter': 0.8, 'Saturn': 1.0,
-        'Uranus': 1.0, 'Neptune': 1.0, 'Pluto': 1.0
+    # Длительность (в днях) для классификации
+    DURATION_CLASS = {
+        'event': (0, 1),
+        'short': (2, 7),
+        'medium': (8, 30),
+        'long': (31, float('inf'))
     }
 
-    # Лимиты
-    DAY_LIMIT = 10
-    MONTH_LIMIT = 8
-    YEAR_LIMIT = 10
+    # Ограничения
+    DAY_MAX_EVENTS = 6
+    MONTH_MAX_PROCESSES = 8
+    MONTH_MAX_DATES = 10
+    MONTH_MAX_INGRESSES = 7
+    YEAR_MAX_PROCESSES = 10
+    YEAR_MAX_PERIODS = 8
+    YEAR_MAX_INGRESSES = 7
 
-    # Локализация названий планет и знаков
+    # Локализация
     PLANET_NAMES_RU = {
         'Sun': 'Солнце', 'Moon': 'Луна', 'Mercury': 'Меркурий',
         'Venus': 'Венера', 'Mars': 'Марс', 'Jupiter': 'Юпитер',
@@ -76,9 +73,24 @@ class AstrologyContextBuilder:
     ASPECT_NAMES_RU = {
         'conjunction': 'соединение',
         'opposition': 'оппозиция',
-        'trine': 'трин',
         'square': 'квадрат',
+        'trine': 'трин',
         'sextile': 'секстиль'
+    }
+    # Семантические домены для тем
+    SEMANTIC_DOMAINS = {
+        'identity': ['Sun', 'ASC', 'self', 'personality'],
+        'emotions': ['Moon', 'emotions', 'family', 'intuition'],
+        'communication': ['Mercury', 'communication', 'learning', 'intellect'],
+        'love': ['Venus', 'love', 'beauty', 'values'],
+        'action': ['Mars', 'action', 'drive', 'conflict'],
+        'growth': ['Jupiter', 'growth', 'expansion', 'wisdom'],
+        'structure': ['Saturn', 'structure', 'responsibility', 'discipline'],
+        'change': ['Uranus', 'change', 'innovation', 'freedom'],
+        'spirituality': ['Neptune', 'spirituality', 'intuition', 'illusion'],
+        'transformation': ['Pluto', 'transformation', 'power', 'depth'],
+        'healing': ['Chiron', 'healing', 'wound', 'teaching'],
+        'karma': ['NorthNode', 'SouthNode', 'karma', 'destiny']
     }
 
     def __init__(self, user_data: Dict, natal_data: Dict, transit_data: Dict, lang: str = 'ru'):
@@ -103,11 +115,9 @@ class AstrologyContextBuilder:
 
     def _get_orb_weight(self, orb: float) -> float:
         if orb <= 0.5:
-            return 1.00
+            return 1.0
         elif orb <= 1.0:
             return 0.95
-        elif orb <= 1.5:
-            return 0.90
         elif orb <= 2.0:
             return 0.80
         elif orb <= 3.0:
@@ -119,21 +129,23 @@ class AstrologyContextBuilder:
 
     def _calculate_significance(self, aspect: Dict, transit_planet: str, natal_point: str,
                                 is_angle: bool = False) -> float:
-        obj_w = self.TRANSIT_PLANET_WEIGHT.get(transit_planet, 1)
-        natal_w = self.NATAL_POINT_WEIGHT.get(natal_point, 1)
+        """Расчёт значимости для одного аспекта."""
+        planet_w = self.PLANET_WEIGHT.get(transit_planet, 1)
+        natal_w = self.NATAL_WEIGHT.get(natal_point, 1)
         aspect_w = self.ASPECT_WEIGHT.get(aspect.get('aspect', ''), 0.5)
         orb = aspect.get('orb', 10.0)
         orb_w = self._get_orb_weight(orb)
-        base = obj_w * natal_w * aspect_w * orb_w
-        angle_bonus = self.ANGLE_BONUS if is_angle else 0
         phase = aspect.get('phase', '')
-        applying_bonus = self.APPLYING_BONUS if phase == 'applying' else 0
-        return base + angle_bonus + applying_bonus
+        phase_w = self.PHASE_WEIGHT.get(phase, 0.8)
+        base = planet_w * natal_w * aspect_w * orb_w * phase_w
+        if is_angle:
+            base *= 1.2  # бонус за угол
+        return base
 
-    def _validate_aspect(self, aspect: Dict) -> bool:
+    def _validate_aspect(self, asp: Dict) -> bool:
         required = ['transit_planet', 'aspect', 'orb', 'phase', 'exact_date']
-        for field in required:
-            if field not in aspect or aspect[field] is None:
+        for f in required:
+            if f not in asp or asp[f] is None:
                 return False
         return True
 
@@ -161,152 +173,330 @@ class AstrologyContextBuilder:
     def _format_aspect(self, name: str) -> str:
         return self.ASPECT_NAMES_RU.get(name, name)
 
+    def _get_duration_days(self, start: str, end: str) -> int:
+        try:
+            s = datetime.strptime(start, '%Y-%m-%d')
+            e = datetime.strptime(end, '%Y-%m-%d')
+            return (e - s).days
+        except:
+            return 0
+
+    def _get_duration_class(self, days: int) -> str:
+        if days <= 1:
+            return 'event'
+        elif days <= 7:
+            return 'short'
+        elif days <= 30:
+            return 'medium'
+        else:
+            return 'long'
+
+    # ----- ОБЪЕДИНЕНИЕ ПОВТОРНЫХ АСПЕКТОВ В ПРОЦЕССЫ -----
+
+    def _build_processes(self, aspects: List[Dict], period_type: str) -> List[Dict]:
+        """Группирует аспекты по (transit_planet, natal_point, aspect) в процессы."""
+        groups = defaultdict(list)
+        for asp in aspects:
+            key = (asp['transit_planet'], asp.get('natal_planet') or asp.get('angle'), asp['aspect'])
+            groups[key].append(asp)
+
+        processes = []
+        for (t_planet, n_point, aspect), asp_list in groups.items():
+            if not asp_list:
+                continue
+            asp_list.sort(key=lambda x: x.get('exact_date', ''))
+            first = asp_list[0]
+            last = asp_list[-1]
+            start = first.get('exact_date')
+            end = last.get('exact_date')
+            duration = self._get_duration_days(start, end) if start and end else 0
+            # Находим пик (макс significance)
+            peak_asp = max(asp_list, key=lambda x: x.get('significance', 0))
+            peak_date = peak_asp.get('exact_date')
+            # Собираем все даты проходов
+            passes = [a.get('exact_date') for a in asp_list if a.get('exact_date')]
+            # Усреднённая значимость
+            avg_significance = sum(a.get('significance', 0) for a in asp_list) / len(asp_list)
+            # Добавляем бонус за длительность
+            if period_type == 'month':
+                avg_significance *= (1 + 0.3 * min(duration / 30, 1.0))
+            elif period_type == 'year':
+                avg_significance *= (1 + 0.5 * min(duration / 90, 1.0))
+            processes.append({
+                'transit_planet': t_planet,
+                'natal_point': n_point,
+                'aspect': aspect,
+                'start_date': start,
+                'end_date': end,
+                'duration_days': duration,
+                'duration_class': self._get_duration_class(duration),
+                'peak_date': peak_date,
+                'significance': avg_significance,
+                'passes': passes,
+                'is_angle': 'angle' in first
+            })
+        return processes
+
+    # ----- ДЕДУПЛИКАЦИЯ ОСЕЙ ASC/DSC И MC/IC -----
+
+    def _deduplicate_axes(self, events: List[Dict]) -> List[Dict]:
+        """
+        Объединяет пары ASC/DSC и MC/IC в один конфигурационный блок.
+        """
+        # Группируем по (transit_planet, aspect_type)
+        axes = defaultdict(list)
+        others = []
+        for e in events:
+            natal = e.get('natal_point')
+            if natal in ['ASC', 'DSC']:
+                key = (e['transit_planet'], e['aspect'], 'ASC_DSC')
+                axes[key].append(e)
+            elif natal in ['MC', 'IC']:
+                key = (e['transit_planet'], e['aspect'], 'MC_IC')
+                axes[key].append(e)
+            else:
+                others.append(e)
+
+        merged = []
+        for key, items in axes.items():
+            if len(items) == 1:
+                merged.append(items[0])
+            else:
+                # Объединяем
+                first = items[0]
+                combined = first.copy()
+                combined['natal_point'] = key[2]  # 'ASC_DSC' или 'MC_IC'
+                combined['significance'] = sum(i['significance'] for i in items)
+                # Собираем supporting events
+                combined['supporting'] = [{'natal_point': i['natal_point'], 'aspect': i['aspect']} for i in items]
+                merged.append(combined)
+
+        # Добавляем остальные
+        merged.extend(others)
+        return merged
+
+    # ----- СЕМАНТИЧЕСКАЯ КЛАСТЕРИЗАЦИЯ ТЕМ -----
+
+    def _cluster_themes(self, events: List[Dict], max_themes: int) -> List[Dict]:
+        """
+        Группирует события в темы на основе семантических доменов.
+        """
+        # Сопоставляем планеты с доменами
+        domain_map = {}
+        for domain, keywords in self.SEMANTIC_DOMAINS.items():
+            for kw in keywords:
+                domain_map[kw] = domain
+
+        # Группируем события по домену
+        theme_groups = defaultdict(list)
+        for e in events:
+            # Определяем домен по транзитной планете и натальной точке
+            t_planet = e.get('transit_planet')
+            n_point = e.get('natal_point')
+            domain = None
+            # Сначала ищем по натальной точке
+            for dom, keywords in self.SEMANTIC_DOMAINS.items():
+                if n_point in keywords:
+                    domain = dom
+                    break
+            # Если не найден, по транзитной
+            if not domain:
+                for dom, keywords in self.SEMANTIC_DOMAINS.items():
+                    if t_planet in keywords:
+                        domain = dom
+                        break
+            if not domain:
+                domain = 'other'
+            theme_groups[domain].append(e)
+
+        themes = []
+        for domain, items in theme_groups.items():
+            if domain == 'other':
+                continue
+            # Сортируем по значимости
+            items.sort(key=lambda x: x.get('significance', 0), reverse=True)
+            # Главный драйвер
+            primary = items[0]
+            # Формируем описание темы
+            theme_name = domain.capitalize()
+            theme_desc = f"{self._format_planet(primary['transit_planet'])} {self._format_aspect(primary['aspect'])} {self._format_planet(primary['natal_point'])}"
+            if len(items) > 1:
+                supports = [f"{self._format_planet(i['transit_planet'])} {self._format_aspect(i['aspect'])} {self._format_planet(i['natal_point'])}" for i in items[1:]]
+                theme_desc += f" + {', '.join(supports)}"
+            themes.append({
+                'theme': theme_name,
+                'description': theme_desc,
+                'significance': sum(i['significance'] for i in items) / len(items)
+            })
+
+        themes.sort(key=lambda x: x['significance'], reverse=True)
+        return themes[:max_themes]
+
     # ----- DAY_FILTER -----
 
-    def _day_filter(self) -> Dict[str, Any]:
+    def _build_day_context(self) -> str:
         target_date = self.start_utc
-        all_aspects = self.transit_aspects + self.transit_angle_aspects
+        if not target_date:
+            return ""
+
+        # Собираем все аспекты дня
         day_events = []
-        for asp in all_aspects:
+        for asp in self.transit_aspects + self.transit_angle_aspects:
             if not self._is_same_day(asp.get('exact_date'), target_date):
                 continue
             if not self._validate_aspect(asp):
                 continue
+            transit_planet = asp.get('transit_planet')
+            natal_point = asp.get('natal_planet') or asp.get('angle')
+            if not natal_point:
+                continue
+            # Для дня отсекаем слишком большие орбы
             orb = asp.get('orb', 10.0)
-            transit_planet = asp.get('transit_planet', '')
             if transit_planet in ['Moon', 'Sun', 'Mercury', 'Venus', 'Mars'] and orb > 3.0:
                 continue
             if transit_planet in ['Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'] and orb > 4.0:
                 continue
-            natal_point = asp.get('natal_planet') or asp.get('angle')
-            if not natal_point:
-                continue
-            is_angle = 'angle' in asp
-            significance = self._calculate_significance(asp, transit_planet, natal_point, is_angle)
+            # Рассчитываем значимость
+            significance = self._calculate_significance(asp, transit_planet, natal_point, 'angle' in asp)
             asp['significance'] = significance
+            asp['natal_point'] = natal_point
+            asp['is_angle'] = 'angle' in asp
             day_events.append(asp)
 
+        # Сортируем по значимости
         day_events.sort(key=lambda x: x['significance'], reverse=True)
-        top_events = day_events[:self.DAY_LIMIT]
+        # Оставляем только топ (но с учётом дедупликации)
+        top_events = day_events[:self.DAY_MAX_EVENTS * 2]  # запас
 
-        # Группировка луны
-        lunar_events = [e for e in top_events if e.get('transit_planet') == 'Moon']
-        if len(lunar_events) > 2:
-            top_events = [e for e in top_events if e.get('transit_planet') != 'Moon']
-            top_events.extend(lunar_events[:2])
-            top_events.sort(key=lambda x: x['significance'], reverse=True)
+        # Дедупликация осей
+        deduped = self._deduplicate_axes(top_events)
 
-        result = {
-            "top_events": [],
-            "angle_events": [],
-            "themes": []
-        }
-        for e in top_events:
-            event = {
-                "transit_planet": e.get('transit_planet'),
-                "natal_point": e.get('natal_planet') or e.get('angle'),
-                "aspect": e.get('aspect'),
-                "orb": e.get('orb'),
-                "phase": e.get('phase'),
-                "significance": e.get('significance'),
-                "house": e.get('transit_house'),
-                "is_angle": 'angle' in e,
-                "exact_date": e.get('exact_date')
-            }
-            if event['is_angle']:
-                result["angle_events"].append(event)
-            else:
-                result["top_events"].append(event)
+        # Оставляем топ 5-6
+        final_events = deduped[:self.DAY_MAX_EVENTS]
 
-        # Темы
-        themes = []
-        for e in top_events[:5]:
-            theme_name = f"{e.get('transit_planet')}_{e.get('natal_planet') or e.get('angle')}"
-            theme = {
-                "theme": theme_name,
-                "significance": e.get('significance'),
-                "primary_driver": f"{self._format_planet(e.get('transit_planet'))} {self._format_aspect(e.get('aspect'))} {self._format_planet(e.get('natal_planet') or e.get('angle'))}",
-                "supporting_drivers": []
-            }
-            if not any(t['theme'] == theme['theme'] for t in themes):
-                themes.append(theme)
-        result["themes"] = themes[:5]
-        return result
+        # Формируем темы
+        themes = self._cluster_themes(final_events, max_themes=3)
+
+        # --- Формирование текста ---
+        lines = []
+        lines.append("## КОНТЕКСТ ПРОГНОЗА")
+        lines.append("Тип: ДЕНЬ")
+        lines.append(f"Дата: {target_date.strftime('%d.%m.%Y')}")
+        lines.append("")
+
+        if final_events:
+            lines.append("## КЛЮЧЕВЫЕ СОБЫТИЯ")
+            for i, e in enumerate(final_events, 1):
+                planet = self._format_planet(e['transit_planet'])
+                natal = self._format_planet(e['natal_point'])
+                aspect = self._format_aspect(e['aspect'])
+                orb = e['orb']
+                phase = e['phase']
+                sig = e['significance']
+                lines.append(f"{i}. {planet} {aspect} {natal}, орб {orb:.2f}°, фаза {phase}, значимость {sig:.1f}")
+                if e.get('supporting'):
+                    supp = [f"{self._format_planet(s['natal_point'])} {self._format_aspect(s['aspect'])}" for s in e['supporting']]
+                    lines.append(f"   (объединено с {', '.join(supp)})")
+            lines.append("")
+
+        # Угловые события отдельно
+        angle_events = [e for e in final_events if e.get('is_angle')]
+        if angle_events:
+            lines.append("## ТРАНЗИТЫ К УГЛАМ")
+            for e in angle_events:
+                planet = self._format_planet(e['transit_planet'])
+                angle = e['natal_point']
+                aspect = self._format_aspect(e['aspect'])
+                orb = e['orb']
+                sig = e['significance']
+                lines.append(f"- {planet} {aspect} {angle}, орб {orb:.2f}°, значимость {sig:.1f}")
+            lines.append("")
+
+        if themes:
+            lines.append("## ОСНОВНЫЕ ТЕМЫ")
+            for i, theme in enumerate(themes, 1):
+                lines.append(f"{i}. {theme['theme']}: {theme['description']} (значимость {theme['significance']:.1f})")
+            lines.append("")
+
+        return "\n".join(lines)
 
     # ----- MONTH_FILTER -----
 
-    def _month_filter(self) -> Dict[str, Any]:
+    def _build_month_context(self) -> str:
         start_date = self.start_utc
         end_date = self.end_utc
         if not start_date or not end_date:
-            return {}
+            return ""
 
+        # Собираем аспекты за месяц
         month_aspects = []
         for asp in self.transit_aspects + self.transit_angle_aspects:
             if not self._is_date_in_range(asp.get('exact_date'), start_date, end_date):
                 continue
             if not self._validate_aspect(asp):
                 continue
-            orb = asp.get('orb', 10.0)
-            transit_planet = asp.get('transit_planet', '')
-            if transit_planet in ['Pluto', 'Neptune', 'Uranus', 'Saturn'] and orb > 4.0:
+            transit_planet = asp.get('transit_planet')
+            natal_point = asp.get('natal_planet') or asp.get('angle')
+            if not natal_point:
                 continue
-            if transit_planet in ['Jupiter'] and orb > 5.0:
+            # Орб для месяца более гибкий
+            orb = asp.get('orb', 10.0)
+            if transit_planet in ['Pluto', 'Neptune', 'Uranus', 'Saturn'] and orb > 5.0:
+                continue
+            if transit_planet in ['Jupiter'] and orb > 6.0:
                 continue
             if transit_planet in ['Moon', 'Sun', 'Mercury', 'Venus', 'Mars'] and orb > 5.0:
                 continue
-            significance = self._calculate_significance(asp, transit_planet,
-                                                        asp.get('natal_planet') or asp.get('angle', ''),
-                                                        'angle' in asp)
-            duration_w = self.DURATION_WEIGHT.get(transit_planet, 0.5)
-            significance = significance * (1 + 0.5 * duration_w)
+            significance = self._calculate_significance(asp, transit_planet, natal_point, 'angle' in asp)
             asp['significance'] = significance
+            asp['natal_point'] = natal_point
+            asp['is_angle'] = 'angle' in asp
             month_aspects.append(asp)
 
-        grouped = defaultdict(list)
-        for asp in month_aspects:
-            key = (asp.get('transit_planet'), asp.get('natal_planet') or asp.get('angle'))
-            grouped[key].append(asp)
+        # Строим процессы (группируем повторяющиеся)
+        processes = self._build_processes(month_aspects, 'month')
 
-        processes = []
-        for (t_planet, n_point), aspects in grouped.items():
-            if not aspects:
-                continue
-            aspects.sort(key=lambda x: x.get('exact_date'))
-            first_date = aspects[0].get('exact_date')
-            last_date = aspects[-1].get('exact_date')
-            peak_asp = max(aspects, key=lambda x: x.get('significance', 0))
-            phase = peak_asp.get('phase', '')
-            significance = peak_asp.get('significance', 0)
-            if first_date and last_date:
-                try:
-                    delta = (datetime.strptime(last_date, '%Y-%m-%d') - datetime.strptime(first_date, '%Y-%m-%d')).days
-                    if delta > 7:
-                        significance *= (1 + 0.2 * min(delta / 30, 1.0))
-                except:
-                    pass
-            processes.append({
-                "transit_planet": t_planet,
-                "natal_point": n_point,
-                "aspect": peak_asp.get('aspect'),
-                "start_date": first_date,
-                "peak_date": peak_asp.get('exact_date'),
-                "end_date": last_date,
-                "phase": phase,
-                "significance": significance,
-                "aspects": aspects
-            })
-
+        # Сортируем процессы по значимости с учётом длительности
         processes.sort(key=lambda x: x['significance'], reverse=True)
-        main_processes = processes[:self.MONTH_LIMIT]
 
-        key_dates = {}
+        # Выбираем главные процессы (но не более лимита)
+        main_processes = processes[:self.MONTH_MAX_PROCESSES]
+
+        # Ключевые даты (пики процессов + сильные краткосрочные события)
+        key_dates = []
         for p in main_processes:
             if p['peak_date']:
-                if p['peak_date'] not in key_dates:
-                    key_dates[p['peak_date']] = []
-                key_dates[p['peak_date']].append(f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_point'])}")
+                key_dates.append({
+                    'date': p['peak_date'],
+                    'event': f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_point'])} (пик)"
+                })
+        # Добавляем краткосрочные события, которые не вошли в процессы, если они сильные
+        short_events = [a for a in month_aspects if a not in [item for sublist in [p['aspects'] for p in processes] for item in sublist]]
+        short_events.sort(key=lambda x: x['significance'], reverse=True)
+        for e in short_events[:5]:
+            if e['exact_date']:
+                key_dates.append({
+                    'date': e['exact_date'],
+                    'event': f"{self._format_planet(e['transit_planet'])} {self._format_aspect(e['aspect'])} {self._format_planet(e['natal_point'])}"
+                })
 
+        # Дедупликация дат
+        unique_dates = {}
+        for item in key_dates:
+            date = item['date']
+            if date not in unique_dates:
+                unique_dates[date] = []
+            unique_dates[date].append(item['event'])
+
+        # Формируем список ключевых дат (сортируем)
+        key_dates_list = []
+        for date, events in sorted(unique_dates.items()):
+            key_dates_list.append({
+                'date': date,
+                'events': events
+            })
+
+        # Ингрессии (только значимые)
         important_ingresses = []
         for ing in self.transit_ingresses:
             if not self._is_date_in_range(ing.get('date'), start_date, end_date):
@@ -316,98 +506,124 @@ class AstrologyContextBuilder:
                 important_ingresses.append(ing)
             elif planet == 'Mars' and ing.get('type') == 'house' and int(ing.get('to', 0)) in [1, 4, 5, 7, 8, 10]:
                 important_ingresses.append(ing)
+            # Игнорируем Moon и быстрые
 
-        themes = []
-        for p in main_processes[:5]:
-            themes.append({
-                "theme": f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_point'])}",
-                "significance": p['significance'],
-                "primary_driver": f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_point'])}",
-                "supporting_drivers": []
-            })
+        # Темы (семантическая кластеризация)
+        all_events_for_themes = []
+        for p in main_processes:
+            all_events_for_themes.extend(p['aspects'])
+        all_events_for_themes.extend(short_events[:3])
+        themes = self._cluster_themes(all_events_for_themes, max_themes=5)
 
-        return {
-            "main_processes": main_processes,
-            "key_dates": key_dates,
-            "important_ingresses": important_ingresses,
-            "themes": themes[:7]
-        }
+        # Формируем текст
+        lines = []
+        lines.append("## КОНТЕКСТ ПРОГНОЗА")
+        lines.append("Тип: МЕСЯЦ")
+        lines.append(f"Период: {start_date.strftime('%d.%m.%Y')} – {end_date.strftime('%d.%m.%Y')}")
+        lines.append("")
+
+        if main_processes:
+            lines.append("## ГЛАВНЫЕ ПРОЦЕССЫ МЕСЯЦА")
+            for i, p in enumerate(main_processes, 1):
+                planet = self._format_planet(p['transit_planet'])
+                natal = self._format_planet(p['natal_point'])
+                aspect = self._format_aspect(p['aspect'])
+                start = p['start_date']
+                end = p['end_date']
+                peak = p['peak_date']
+                duration = p['duration_days']
+                sig = p['significance']
+                lines.append(f"{i}. {planet} {aspect} {natal}")
+                lines.append(f"   Начало: {start}, пик: {peak}, окончание: {end}, длительность: {duration} дн., значимость: {sig:.1f}")
+                if len(p['passes']) > 1:
+                    passes_str = ", ".join(p['passes'])
+                    lines.append(f"   Прохождения: {passes_str}")
+            lines.append("")
+
+        if key_dates_list:
+            lines.append("## КЛЮЧЕВЫЕ ДАТЫ")
+            for item in key_dates_list[:self.MONTH_MAX_DATES]:
+                lines.append(f"{item['date']}: {', '.join(item['events'])}")
+            lines.append("")
+
+        if important_ingresses:
+            lines.append("## ЗНАЧИМЫЕ ИНГРЕССИИ")
+            for ing in important_ingresses[:self.MONTH_MAX_INGRESSES]:
+                planet = self._format_planet(ing.get('planet', ''))
+                if ing.get('type') == 'sign':
+                    lines.append(f"{ing.get('date')} — {planet} входит в знак {ing.get('to')}")
+                else:
+                    lines.append(f"{ing.get('date')} — {planet} входит в дом {ing.get('to')}")
+            lines.append("")
+
+        if themes:
+            lines.append("## ОСНОВНЫЕ ТЕМЫ МЕСЯЦА")
+            for i, theme in enumerate(themes, 1):
+                lines.append(f"{i}. {theme['theme']}: {theme['description']} (значимость {theme['significance']:.1f})")
+            lines.append("")
+
+        return "\n".join(lines)
 
     # ----- YEAR_FILTER -----
 
-    def _year_filter(self) -> Dict[str, Any]:
+    def _build_year_context(self) -> str:
         start_date = self.start_utc
         end_date = self.end_utc
         if not start_date or not end_date:
-            return {}
+            return ""
 
+        # Собираем только медленные планеты для года
         year_aspects = []
         for asp in self.transit_aspects:
             if not self._is_date_in_range(asp.get('exact_date'), start_date, end_date):
                 continue
-            transit_planet = asp.get('transit_planet', '')
+            transit_planet = asp.get('transit_planet')
             if transit_planet not in ['Pluto', 'Neptune', 'Uranus', 'Saturn', 'Jupiter']:
                 continue
             if not self._validate_aspect(asp):
                 continue
+            natal_point = asp.get('natal_planet') or asp.get('angle')
+            if not natal_point:
+                continue
+            # Орб для года больше
             orb = asp.get('orb', 10.0)
             if orb > 5.0:
                 continue
-            significance = self._calculate_significance(asp, transit_planet,
-                                                        asp.get('natal_planet') or asp.get('angle', ''),
-                                                        'angle' in asp)
-            duration_w = self.DURATION_WEIGHT.get(transit_planet, 0.5)
-            significance = significance * (1 + duration_w)
+            significance = self._calculate_significance(asp, transit_planet, natal_point, 'angle' in asp)
             asp['significance'] = significance
+            asp['natal_point'] = natal_point
+            asp['is_angle'] = 'angle' in asp
             year_aspects.append(asp)
 
-        grouped = defaultdict(list)
-        for asp in year_aspects:
-            key = (asp.get('transit_planet'), asp.get('natal_planet') or asp.get('angle'))
-            grouped[key].append(asp)
+        # Строим процессы (группируем повторяющиеся)
+        processes = self._build_processes(year_aspects, 'year')
 
-        long_term_processes = []
-        for (t_planet, n_point), aspects in grouped.items():
-            if not aspects:
-                continue
-            aspects.sort(key=lambda x: x.get('exact_date'))
-            first_date = aspects[0].get('exact_date')
-            last_date = aspects[-1].get('exact_date')
-            peak_asp = max(aspects, key=lambda x: x.get('significance', 0))
-            significance = peak_asp.get('significance', 0)
-            duration_months = 0
-            if first_date and last_date:
-                try:
-                    delta = (datetime.strptime(last_date, '%Y-%m-%d') - datetime.strptime(first_date, '%Y-%m-%d')).days
-                    duration_months = delta / 30
-                    significance *= (1 + 0.3 * min(duration_months / 6, 1.0))
-                except:
-                    pass
-            long_term_processes.append({
-                "transit_planet": t_planet,
-                "natal_point": n_point,
-                "aspect": peak_asp.get('aspect'),
-                "start_date": first_date,
-                "peak_period": peak_asp.get('exact_date'),
-                "end_date": last_date,
-                "duration_months": round(duration_months, 1),
-                "significance": significance,
-                "aspects": aspects
-            })
+        # Фильтруем: оставляем только долгосрочные (duration > 1 день) или с несколькими проходами
+        long_processes = [p for p in processes if p['duration_days'] > 1 or len(p['passes']) > 1]
 
-        long_term_processes.sort(key=lambda x: x['significance'], reverse=True)
-        main_processes = long_term_processes[:self.YEAR_LIMIT]
+        # Сортируем по значимости
+        long_processes.sort(key=lambda x: x['significance'], reverse=True)
+        main_processes = long_processes[:self.YEAR_MAX_PROCESSES]
 
+        # Ключевые периоды года (группируем близкие по времени процессы)
         periods = []
-        for p in main_processes:
-            periods.append({
-                "start": p['start_date'],
-                "end": p['end_date'],
-                "theme": f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_point'])}",
-                "drivers": [p['transit_planet']],
-                "significance": p['significance']
-            })
+        if main_processes:
+            # Сортируем по start_date
+            sorted_proc = sorted(main_processes, key=lambda x: x['start_date'] or '')
+            # Группируем по кварталам или по близости
+            current_period = None
+            for p in sorted_proc:
+                if not p['start_date'] or not p['end_date']:
+                    continue
+                # Просто создаём отдельный период для каждого процесса
+                periods.append({
+                    'start': p['start_date'],
+                    'end': p['end_date'],
+                    'theme': f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_point'])}",
+                    'significance': p['significance']
+                })
 
+        # Ингрессии для года (только медленные)
         major_ingresses = []
         for ing in self.transit_ingresses:
             if not self._is_date_in_range(ing.get('date'), start_date, end_date):
@@ -415,162 +631,70 @@ class AstrologyContextBuilder:
             if ing.get('planet') in ['Pluto', 'Neptune', 'Uranus', 'Saturn', 'Jupiter']:
                 major_ingresses.append(ing)
 
-        themes = []
-        for p in main_processes[:8]:
-            themes.append({
-                "theme": f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_point'])}",
-                "significance": p['significance'],
-                "primary_driver": f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_point'])}",
-                "supporting_drivers": []
-            })
+        # Темы (семантическая кластеризация)
+        all_events = []
+        for p in main_processes:
+            all_events.extend(p['aspects'])
+        themes = self._cluster_themes(all_events, max_themes=6)
 
+        # Месячная агрегация (упрощённо)
         monthly_summary = []
         for month in range(1, 13):
             month_start = start_date.replace(month=month, day=1)
             if month_start > end_date:
                 break
+            month_end = min(end_date, month_start.replace(day=28) + timedelta(days=4) - timedelta(days=1))
             month_themes = []
             for p in main_processes:
                 if p['start_date'] and p['end_date']:
                     try:
                         p_start = datetime.strptime(p['start_date'], '%Y-%m-%d')
                         p_end = datetime.strptime(p['end_date'], '%Y-%m-%d')
-                        if p_start <= month_start + timedelta(days=30) and p_end >= month_start:
+                        if p_start <= month_end and p_end >= month_start:
                             month_themes.append(f"{self._format_planet(p['transit_planet'])} {self._format_aspect(p['aspect'])} {self._format_planet(p['natal_point'])}")
                     except:
                         pass
-            monthly_summary.append({
-                "month": month_start.strftime('%B'),
-                "top_themes": month_themes[:3]
-            })
+            if month_themes:
+                monthly_summary.append({
+                    'month': month_start.strftime('%B'),
+                    'themes': month_themes[:3]
+                })
 
-        return {
-            "long_term_processes": main_processes,
-            "major_periods": periods,
-            "major_ingresses": major_ingresses,
-            "themes": themes[:8],
-            "monthly_summary": monthly_summary
-        }
-
-    # ----- ФОРМАТТЕРЫ ДЛЯ ТЕКСТОВОГО ВЫВОДА -----
-
-    def _format_day_result(self, data: Dict) -> str:
-        lines = []
-        lines.append("## КОНТЕКСТ ПРОГНОЗА")
-        lines.append(f"Тип: ДЕНЬ")
-        if self.start_utc:
-            lines.append(f"Дата: {self.start_utc.strftime('%d.%m.%Y')}")
-        lines.append("")
-
-        if data.get("top_events"):
-            lines.append("## КЛЮЧЕВЫЕ СОБЫТИЯ")
-            for i, e in enumerate(data["top_events"], 1):
-                planet = self._format_planet(e['transit_planet'])
-                natal = self._format_planet(e['natal_point'])
-                aspect = self._format_aspect(e['aspect'])
-                orb = e['orb']
-                phase = e['phase']
-                sig = e['significance']
-                lines.append(f"{i}. {planet} {aspect} {natal}, орб {orb:.2f}°, фаза {phase}, значимость {sig:.1f}")
-            lines.append("")
-
-        if data.get("angle_events"):
-            lines.append("## ТРАНЗИТЫ К УГЛАМ")
-            for e in data["angle_events"]:
-                planet = self._format_planet(e['transit_planet'])
-                angle = e['natal_point']
-                aspect = self._format_aspect(e['aspect'])
-                orb = e['orb']
-                sig = e['significance']
-                lines.append(f"- {planet} {aspect} {angle}, орб {orb:.2f}°, значимость {sig:.1f}")
-            lines.append("")
-
-        if data.get("themes"):
-            lines.append("## ТЕМЫ")
-            for i, theme in enumerate(data["themes"], 1):
-                lines.append(f"{i}. {theme['theme']}: {theme['primary_driver']} (значимость {theme['significance']:.1f})")
-            lines.append("")
-
-        return "\n".join(lines)
-
-    def _format_month_result(self, data: Dict) -> str:
-        lines = []
-        lines.append("## КОНТЕКСТ ПРОГНОЗА")
-        lines.append("Тип: МЕСЯЦ")
-        if self.start_utc and self.end_utc:
-            lines.append(f"Период: {self.start_utc.strftime('%d.%m.%Y')} – {self.end_utc.strftime('%d.%m.%Y')}")
-        lines.append("")
-
-        if data.get("main_processes"):
-            lines.append("## ГЛАВНЫЕ ПРОЦЕССЫ МЕСЯЦА")
-            for p in data["main_processes"]:
-                planet = self._format_planet(p['transit_planet'])
-                natal = self._format_planet(p['natal_point'])
-                aspect = self._format_aspect(p['aspect'])
-                start = p['start_date']
-                peak = p['peak_date']
-                end = p['end_date']
-                sig = p['significance']
-                lines.append(f"{planet} {aspect} {natal}")
-                lines.append(f"  Начало: {start}, пик: {peak}, окончание: {end}, значимость: {sig:.1f}")
-            lines.append("")
-
-        if data.get("key_dates"):
-            lines.append("## КЛЮЧЕВЫЕ ДАТЫ")
-            for date, events in sorted(data["key_dates"].items()):
-                lines.append(f"{date}: {', '.join(events)}")
-            lines.append("")
-
-        if data.get("important_ingresses"):
-            lines.append("## ЗНАЧИМЫЕ ИНГРЕССИИ")
-            for ing in data["important_ingresses"]:
-                planet = self._format_planet(ing.get('planet', ''))
-                if ing.get('type') == 'sign':
-                    lines.append(f"{ing.get('date')} — {planet} входит в знак {ing.get('to')}")
-                else:
-                    lines.append(f"{ing.get('date')} — {planet} входит в дом {ing.get('to')}")
-            lines.append("")
-
-        if data.get("themes"):
-            lines.append("## ОСНОВНЫЕ ТЕМЫ МЕСЯЦА")
-            for i, theme in enumerate(data["themes"], 1):
-                lines.append(f"{i}. {theme['theme']} (значимость {theme['significance']:.1f})")
-            lines.append("")
-
-        return "\n".join(lines)
-
-    def _format_year_result(self, data: Dict) -> str:
+        # Формируем текст
         lines = []
         lines.append("## КОНТЕКСТ ПРОГНОЗА")
         lines.append("Тип: ГОД")
-        if self.start_utc:
-            lines.append(f"Год: {self.start_utc.year}")
+        lines.append(f"Год: {start_date.year}")
         lines.append("")
 
-        if data.get("long_term_processes"):
+        if main_processes:
             lines.append("## ГЛАВНЫЕ ДОЛГОСРОЧНЫЕ ПРОЦЕССЫ")
-            for p in data["long_term_processes"]:
+            for i, p in enumerate(main_processes, 1):
                 planet = self._format_planet(p['transit_planet'])
                 natal = self._format_planet(p['natal_point'])
                 aspect = self._format_aspect(p['aspect'])
                 start = p['start_date']
-                peak = p['peak_period']
                 end = p['end_date']
-                duration = p['duration_months']
+                peak = p['peak_date']
+                duration = p['duration_days']
+                passes = len(p['passes'])
                 sig = p['significance']
-                lines.append(f"{planet} {aspect} {natal}")
-                lines.append(f"  Начало: {start}, пик: {peak}, окончание: {end}, длительность: {duration} мес., значимость: {sig:.1f}")
+                lines.append(f"{i}. {planet} {aspect} {natal}")
+                lines.append(f"   Период: {start} – {end}, пик: {peak}, длительность: {duration} дн., проходов: {passes}, значимость: {sig:.1f}")
+                if len(p['passes']) > 1:
+                    passes_str = ", ".join(p['passes'])
+                    lines.append(f"   Прохождения: {passes_str}")
             lines.append("")
 
-        if data.get("major_periods"):
+        if periods:
             lines.append("## КЛЮЧЕВЫЕ ПЕРИОДЫ ГОДА")
-            for p in data["major_periods"]:
+            for p in periods:
                 lines.append(f"{p['start']} – {p['end']}: {p['theme']} (значимость {p['significance']:.1f})")
             lines.append("")
 
-        if data.get("major_ingresses"):
+        if major_ingresses:
             lines.append("## ЗНАЧИМЫЕ ИНГРЕССИИ")
-            for ing in data["major_ingresses"]:
+            for ing in major_ingresses[:self.YEAR_MAX_INGRESSES]:
                 planet = self._format_planet(ing.get('planet', ''))
                 if ing.get('type') == 'sign':
                     lines.append(f"{ing.get('date')} — {planet} входит в знак {ing.get('to')}")
@@ -578,34 +702,27 @@ class AstrologyContextBuilder:
                     lines.append(f"{ing.get('date')} — {planet} входит в дом {ing.get('to')}")
             lines.append("")
 
-        if data.get("themes"):
+        if themes:
             lines.append("## ОСНОВНЫЕ ТЕМЫ ГОДА")
-            for i, theme in enumerate(data["themes"], 1):
-                lines.append(f"{i}. {theme['theme']} (значимость {theme['significance']:.1f})")
+            for i, theme in enumerate(themes, 1):
+                lines.append(f"{i}. {theme['theme']}: {theme['description']} (значимость {theme['significance']:.1f})")
             lines.append("")
 
-        if data.get("monthly_summary"):
+        if monthly_summary:
             lines.append("## МЕСЯЧНАЯ АГРЕГАЦИЯ")
-            for m in data["monthly_summary"]:
-                if m['top_themes']:
-                    lines.append(f"{m['month']}: {', '.join(m['top_themes'])}")
+            for item in monthly_summary:
+                lines.append(f"{item['month']}: {', '.join(item['themes'])}")
             lines.append("")
 
         return "\n".join(lines)
 
-    # ----- ПУБЛИЧНЫЕ МЕТОДЫ (возвращают текст) -----
+    # ----- ПУБЛИЧНЫЕ МЕТОДЫ -----
 
     def build_day_context(self) -> str:
-        """Возвращает текстовый контекст для дневного прогноза."""
-        data = self._day_filter()
-        return self._format_day_result(data)
+        return self._build_day_context()
 
     def build_month_context(self) -> str:
-        """Возвращает текстовый контекст для месячного прогноза."""
-        data = self._month_filter()
-        return self._format_month_result(data)
+        return self._build_month_context()
 
     def build_year_context(self) -> str:
-        """Возвращает текстовый контекст для годового прогноза."""
-        data = self._year_filter()
-        return self._format_year_result(data)
+        return self._build_year_context()
