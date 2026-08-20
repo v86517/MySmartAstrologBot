@@ -30,7 +30,6 @@ from bot.db import (
 )
 from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
 from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-from bot.calculators.context_builder import AstrologyContextBuilder
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -209,6 +208,7 @@ async def confirm_horoscope(callback: CallbackQuery):
 
         # ---- НОВАЯ ЛОГИКА С КОНТЕКСТНЫМ БИЛДЕРОМ ----
         from bot.calculators.context_builder import AstrologyContextBuilder
+
         builder = AstrologyContextBuilder(user_data, natal_data, transit_data, lang)
         if period == 'today':
             context = builder.build_day_context()
@@ -218,11 +218,7 @@ async def confirm_horoscope(callback: CallbackQuery):
             context = builder.build_year_context()
 
         horoscope_text = await _gemini_service.generate_horoscope_with_context(
-            user_id,
-            context,
-            lang,
-            period=period,
-            display_date=display_date
+            user_id, context, lang, period=period, display_date=display_date
         )
         # ---- КОНЕЦ НОВОЙ ЛОГИКИ ----
 
