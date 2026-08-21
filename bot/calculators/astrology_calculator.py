@@ -306,17 +306,22 @@ class AstrologyCalculator:
         return prompt
 
     async def generate(self) -> str:
-        # Сохраняем координаты и таймзону
+        # Сохраняем координаты, если они определены и есть telegram_id
         if self._calculated_coords and self.telegram_id:
             lat, lng, tz = self._calculated_coords
             refined_tz = self.resolver.get_refined_timezone()
             tz_to_save = tz if refined_tz != "UNKNOWN" else "UNKNOWN"
-            logger.info(f"💾 Сохраняем координаты в БД: {lat}, {lng}, {tz_to_save} для {self.telegram_id}")
-            result = await save_user_coords(self.telegram_id, lat, lng, tz_to_save)
-            if result:
-                logger.info(f"✅ Координаты сохранены в БД для {self.telegram_id}")
-            else:
-                logger.error(f"❌ Ошибка сохранения координат для {self.telegram_id}")
+            logger.info(f"💾 Сохраняем координаты в БД: lat={lat}, lng={lng}, tz={tz_to_save} для telegram_id={self.telegram_id}")
+            try:
+                result = await save_user_coords(self.telegram_id, lat, lng, tz_to_save)
+                if result:
+                    logger.info(f"✅ Координаты сохранены в БД для {self.telegram_id}")
+                else:
+                    logger.error(f"❌ save_user_coords вернул False для {self.telegram_id}")
+            except Exception as e:
+                logger.error(f"❌ Исключение при сохранении координат: {e}", exc_info=True)
+        else:
+            logger.warning(f"⚠️ Не удалось сохранить координаты: _calculated_coords={self._calculated_coords}, telegram_id={self.telegram_id}")
 
         prompt = self._build_prompt()
 
