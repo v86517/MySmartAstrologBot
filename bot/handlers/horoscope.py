@@ -148,7 +148,6 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
             reply_markup=ReplyKeyboardRemove()
         )
 
-        # Объявляем status_msg ДО блока try, чтобы он был доступен в except
         status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
 
         try:
@@ -194,17 +193,19 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
             await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
             await asyncio.sleep(1)
 
-            # 1. Получаем натальные данные
+            # ===== 1. НАТАЛЬНЫЙ КАЛЬКУЛЯТОР (геокодинг выполняется здесь, если нужно) =====
             natal_builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=user_id)
             natal_data = natal_builder.build()
 
-            # Сохраняем координаты из натального билдера (если вычислены)
+            # Сохраняем координаты, если они были вычислены
             if hasattr(natal_builder.natal_calc, '_calculated_coords'):
                 coords = natal_builder.natal_calc._calculated_coords
                 if coords:
                     await save_user_coords(user_id, coords[0], coords[1], coords[2])
+                    # ПЕРЕЗАГРУЖАЕМ user_data, чтобы в нём были координаты для транзитного калькулятора
+                    user_data = await get_user_data(user_id)
 
-            # 2. Получаем транзитные данные
+            # ===== 2. ТРАНЗИТНЫЙ КАЛЬКУЛЯТОР (теперь использует обновлённые user_data с координатами) =====
             transit_calc = TransitHoroscopeCalculator(
                 user_data,
                 lang,
@@ -215,13 +216,13 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
             )
             transit_data = transit_calc.get_full_transit_data()
 
-            # Сохраняем координаты из транзитного калькулятора (если не сохранены ранее)
+            # Сохраняем координаты из транзитного калькулятора (на случай, если они не были сохранены ранее)
             if hasattr(transit_calc.natal_calc, '_calculated_coords'):
                 coords = transit_calc.natal_calc._calculated_coords
                 if coords:
                     await save_user_coords(user_id, coords[0], coords[1], coords[2])
 
-            # 3. Строим контекст через билдер
+            # ===== 3. СТРОИМ КОНТЕКСТ =====
             builder = AstrologyContextBuilder(user_data, natal_data, transit_data, lang)
             if period == 'today':
                 context = builder.build_day_context()
@@ -230,7 +231,7 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
             else:
                 context = builder.build_year_context()
 
-            # 4. Генерируем текст через Gemini
+            # ===== 4. ГЕНЕРИРУЕМ ТЕКСТ ЧЕРЕЗ GEMINI =====
             horoscope_text = await _gemini_service.generate_horoscope_with_context(
                 user_id,
                 context,
@@ -239,7 +240,7 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
                 display_date=display_date
             )
 
-            # 5. Формируем вывод (без дополнительных данных для администраторов)
+            # ===== 5. ФОРМИРУЕМ ВЫВОД =====
             basic_params = format_basic_astrology_parameters(user_data, lang)
 
             if period == 'today':

@@ -1255,19 +1255,20 @@ class AstrologyCalculator:
         Dict[str, str]]:
         if not self.__class__.gemini_service:
             return None
-
         prompt = (
-            f"Определи точное UTC время и часовой пояс (по стандарту IANA) для места с координатами "
+            f"Определи точное UTC время и дату для места с координатами "
             f"широта {lat}, долгота {lng}, населённый пункт {city}, {country}, "
             f"для местной даты {day:02d}.{month:02d}.{year} и времени {hour:02d}:{minute:02d}. "
             f"Учти все исторические переходы на летнее время в этом регионе на указанную дату. "
+            f"На основании разницы между вычесленными датой и временем и местной датой {day:02d}.{month:02d}.{year} и временем {hour:02d}:{minute:02d}"
+            f"вычисли соответствующий часовой пояс (по стандарту IANA). "
             f"Верни ответ в формате JSON с полями: 'utc_datetime' (в формате YYYY-MM-DD HH:MM:SS) и "
             f"'timezone' (название IANA, например 'Asia/Magadan'). Если точное название неизвестно, "
             f"укажи наиболее вероятное."
         )
-
         try:
             response = self.__class__.gemini_service.send_raw_prompt(prompt)
+            logger.info(f"📥 Ответ Gemini для уточнения таймзоны: {response[:200]}...")  # <-- добавлено
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
             if json_match:
                 data = json.loads(json_match.group())
