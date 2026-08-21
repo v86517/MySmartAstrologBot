@@ -29,10 +29,9 @@ class NatalContextBuilder:
         'True_North_Lunar_Node': 'Северный узел',
         'True_South_Lunar_Node': 'Южный узел',
         'Chiron': 'Хирон',
-        'True_Lilith': 'Лилит'
+        'True_Lilith': 'Лилит'  # будет использоваться, если есть
     }
 
-    # Маппинг технических имён Kerykeion → имена в PLANET_MAP
     TECH_NAME_TO_PLANET_MAP = {
         'sun': 'Sun',
         'moon': 'Moon',
@@ -146,8 +145,9 @@ class NatalContextBuilder:
             if key in data:
                 obj = data[key]
                 mapped_name = self.TECH_NAME_TO_PLANET_MAP.get(key, key.capitalize())
-                # Логируем для отладки
-                logger.info(f"Извлечение {key} -> {mapped_name}, obj type: {type(obj)}")
+                # Если obj None — пропускаем (например, true_lilith может быть None)
+                if obj is None:
+                    continue
                 if isinstance(obj, dict):
                     if 'sign' in obj and 'position' in obj:
                         self._planets.append({
@@ -158,9 +158,6 @@ class NatalContextBuilder:
                             'house': obj.get('house'),
                             'retrograde': obj.get('retrograde', False),
                         })
-                        logger.info(f"Добавлена планета {mapped_name}: {obj.get('sign')} {obj.get('position')}")
-                    else:
-                        logger.warning(f"Объект {key} не содержит sign и position: {obj.keys() if isinstance(obj, dict) else 'not a dict'}")
                 else:
                     if hasattr(obj, 'sign') and hasattr(obj, 'position'):
                         self._planets.append({
@@ -171,11 +168,6 @@ class NatalContextBuilder:
                             'house': getattr(obj, 'house'),
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
-                        logger.info(f"Добавлена планета {mapped_name}: {getattr(obj, 'sign')} {getattr(obj, 'position')}")
-                    else:
-                        logger.warning(f"Объект {key} не имеет атрибутов sign и position: {dir(obj) if hasattr(obj, '__dir__') else 'unknown'}")
-            else:
-                logger.warning(f"Ключ {key} отсутствует в data")
 
         # --- ДОМА ---
         self._houses = []
@@ -422,7 +414,7 @@ class NatalContextBuilder:
             'North_Node': any(p['name'] == 'True_North_Lunar_Node' for p in self._planets),
             'South_Node': any(p['name'] == 'True_South_Lunar_Node' for p in self._planets),
             'Chiron': any(p['name'] == 'Chiron' for p in self._planets),
-            'True_Lilith': any(p['name'] == 'True_Lilith' for p in self._planets),
+            # True_Lilith – опционально, не проверяем
             'Mean_Lilith_absent': not any(p['name'] == 'Mean_Lilith' for p in self._planets),
             '12_houses': len(self._houses) == 12,
             'elements_present': bool(self._elements),
