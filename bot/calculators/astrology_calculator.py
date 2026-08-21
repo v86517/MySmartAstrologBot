@@ -1,7 +1,7 @@
 import logging
 import zoneinfo
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Tuple, Union
+from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
 
 from kerykeion import AstrologicalSubject
@@ -9,11 +9,18 @@ from kerykeion import AstrologicalSubject
 from bot.utils.place_resolver import PlaceResolver
 from bot.db import save_user_coords
 from bot.services.gemini import GeminiService
+from bot.calculators.natal_context_builder import NatalContextBuilder
 
 logger = logging.getLogger(__name__)
 
 
 class AstrologyCalculator:
+    """
+    Калькулятор для услуги «Натальная карта» (астрология).
+    Использует PlaceResolver для геокодинга, zoneinfo для преобразования времени,
+    и NatalContextBuilder для формирования структурированного текста для LLM.
+    """
+
     def __init__(self, user_data: Dict[str, Any], lang: str = 'ru',
                  telegram_id: Optional[int] = None,
                  coords: Optional[Tuple[float, float, str]] = None,
@@ -22,7 +29,7 @@ class AstrologyCalculator:
         self.user_data = user_data
         self.lang = lang
         self.telegram_id = telegram_id
-        self._coords = coords  # (lat, lng, tz_iana) – если переданы готовые
+        self._coords = coords  # (lat, lng, iana_tz) – если переданы готовые
         self.emulation_mode = emulation_mode
         self.gemini = gemini_service or GeminiService()
 
@@ -32,11 +39,11 @@ class AstrologyCalculator:
         self.birth_time = user_data.get('birth_time')
         self.birth_place = user_data.get('birth_place', '')
 
-        self._calculated_coords = None      # (lat, lng) – сохраняем для записи в БД
+        self._calculated_coords = None      # (lat, lng) – для записи в БД
         self._calculated_utc_str = None     # строка UTC для записи в БД
         self._utc_dt = None                 # datetime (aware UTC) для расчётов
-        self._natal_data = None
-        self._prompt_data = None
+        self._natal_data = None             # словарь с данными карты (планеты, дома, аспекты)
+        self._subject = None                # объект AstrologicalSubject для билдера
 
         self.resolver = PlaceResolver()
 
@@ -53,6 +60,8 @@ class AstrologyCalculator:
         """
         Возвращает (lat, lng, utc_datetime).
         utc_datetime – aware datetime в UTC.
+        Приоритет: 1) БД (координаты + UTC-строка), 2) переданные координаты (iana_tz),
+        3) геокодинг + преобразование через zoneinfo.
         """
         # 1. Проверяем наличие координат и UTC-строки в БД
         lat = self.user_data.get('birth_lat')
@@ -61,11 +70,9 @@ class AstrologyCalculator:
 
         if lat is not None and lng is not None and utc_str:
             try:
-                # Парсим UTC-строку (ожидаем формат с +00:00)
                 utc_dt = datetime.fromisoformat(utc_str)
                 if utc_dt.tzinfo is None:
                     utc_dt = utc_dt.replace(tzinfo=timezone.utc)
-                # Проверяем, что это UTC
                 if utc_dt.utcoffset() != timezone.utc.utcoffset(utc_dt):
                     raise ValueError("Not UTC")
                 logger.info(f"✅ Используем координаты и UTC из БД: lat={lat}, lng={lng}, utc={utc_dt}")
@@ -78,7 +85,6 @@ class AstrologyCalculator:
         if self._coords:
             iana_lat, iana_lng, iana_tz = self._coords
             if iana_tz in zoneinfo.available_timezones():
-                # Преобразуем локальное время в UTC для этой зоны
                 utc_dt = self._local_to_utc(iana_tz)
                 logger.info(f"✅ Используем переданные координаты: ({iana_lat}, {iana_lng}, {iana_tz}) -> UTC {utc_dt}")
                 self._calculated_coords = (iana_lat, iana_lng)
@@ -92,10 +98,8 @@ class AstrologyCalculator:
         lat, lng, iana_tz = self.resolver.resolve(city, country)
         logger.info(f"🌐 Геокодинг выполнен: ({lat}, {lng}, {iana_tz})")
 
-        # Преобразуем локальное время в UTC с учётом исторических переходов
         utc_dt = self._local_to_utc(iana_tz)
 
-        # Сохраняем для последующей записи в БД
         self._calculated_coords = (lat, lng)
         self._utc_dt = utc_dt
         self._calculated_utc_str = utc_dt.isoformat(timespec='seconds')
@@ -105,11 +109,12 @@ class AstrologyCalculator:
         return lat, lng, utc_dt
 
     def _local_to_utc(self, iana_tz: str) -> datetime:
-        """Преобразует локальное время рождения в UTC для указанной IANA-зоны."""
+        """Преобразует локальное время рождения в UTC для указанной IANA-зоны с учётом истории."""
         try:
             local_dt = datetime.strptime(f"{self.birth_date} {self.birth_time}", "%d.%m.%Y %H:%M")
         except:
             local_dt = datetime(2000, 1, 1, 12, 0)
+            logger.warning("Не удалось распарсить дату/время, используем 2000-01-01 12:00")
 
         tz = zoneinfo.ZoneInfo(iana_tz)
         local_with_tz = local_dt.replace(tzinfo=tz)
@@ -117,6 +122,10 @@ class AstrologyCalculator:
         return utc_dt
 
     def _build_natal_chart(self) -> Dict[str, Any]:
+        """
+        Строит натальную карту с помощью Kerykeion, сохраняет субъект и данные.
+        Возвращает словарь с планетами, домами, аспектами, углами и метаданными.
+        """
         if self._natal_data is not None:
             return self._natal_data
 
@@ -135,15 +144,17 @@ class AstrologyCalculator:
             lng=lng,
             tz_str="UTC"
         )
+        self._subject = subject  # сохраняем для билдера
         logger.info(f"👤 Субъект создан: {subject.name}")
 
-        # Извлекаем данные (планеты, дома, аспекты, углы)
+        # Извлекаем данные из модели
         model = subject.model() if callable(subject.model) else subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
 
-        # --- планеты ---
+        # --- Планеты ---
         planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
-                       'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith']
+                       'uranus', 'neptune', 'pluto', 'chiron', 'true_north_lunar_node',
+                       'true_south_lunar_node', 'true_lilith']
         planets = []
         for key in planet_keys:
             if key in data:
@@ -154,6 +165,7 @@ class AstrologyCalculator:
                             'name': key.capitalize(),
                             'sign': obj.get('sign', 'unknown'),
                             'degree': obj.get('position', 0.0),
+                            'abs_pos': obj.get('abs_pos', 0.0),
                             'house': obj.get('house', 0),
                             'retrograde': obj.get('retrograde', False),
                         })
@@ -163,11 +175,12 @@ class AstrologyCalculator:
                             'name': key.capitalize(),
                             'sign': getattr(obj, 'sign', 'unknown'),
                             'degree': getattr(obj, 'position', 0.0),
+                            'abs_pos': getattr(obj, 'abs_pos', 0.0),
                             'house': getattr(obj, 'house', 0),
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
 
-        # --- дома ---
+        # --- Дома ---
         house_keys = ['first_house', 'second_house', 'third_house', 'fourth_house',
                       'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
                       'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house']
@@ -181,6 +194,7 @@ class AstrologyCalculator:
                             'number': i,
                             'sign': obj.get('sign', 'unknown'),
                             'degree': obj.get('position', 0.0),
+                            'abs_pos': obj.get('abs_pos', 0.0),
                         })
                 else:
                     if hasattr(obj, 'sign') and hasattr(obj, 'position'):
@@ -188,9 +202,10 @@ class AstrologyCalculator:
                             'number': i,
                             'sign': getattr(obj, 'sign', 'unknown'),
                             'degree': getattr(obj, 'position', 0.0),
+                            'abs_pos': getattr(obj, 'abs_pos', 0.0),
                         })
 
-        # --- аспекты ---
+        # --- Аспекты ---
         aspects = []
         try:
             from kerykeion import AspectsFactory
@@ -202,133 +217,119 @@ class AstrologyCalculator:
                         'p2': getattr(a, 'p2_name', 'unknown'),
                         'aspect': getattr(a, 'aspect', 'unknown'),
                         'orb': getattr(a, 'orbit', getattr(a, 'orb', 0.0)),
+                        'movement': getattr(a, 'aspect_movement', None),
                     })
         except Exception as e:
-            logger.warning(f"⚠️ Не удалось получить аспекты: {e}")
+            logger.warning(f"⚠️ AspectsFactory не сработал: {e}, пробуем NatalAspects")
+            try:
+                from kerykeion import NatalAspects
+                na = NatalAspects(subject)
+                if hasattr(na, 'relevant_aspects'):
+                    for a in na.relevant_aspects:
+                        aspects.append({
+                            'p1': getattr(a, 'p1_name', 'unknown'),
+                            'p2': getattr(a, 'p2_name', 'unknown'),
+                            'aspect': getattr(a, 'aspect', 'unknown'),
+                            'orb': getattr(a, 'orbit', getattr(a, 'orb', 0.0)),
+                            'movement': getattr(a, 'aspect_movement', None),
+                        })
+            except Exception as e2:
+                logger.warning(f"⚠️ NatalAspects тоже не сработал: {e2}")
 
-        # --- углы ---
+        # --- Углы ---
         def _extract_angle(obj):
             if obj is None:
-                return 0.0
-            if isinstance(obj, (int, float)):
-                return float(obj)
+                return None
             if isinstance(obj, dict):
-                if 'position' in obj:
-                    return float(obj['position'])
-                if 'value' in obj:
-                    return float(obj['value'])
-                for v in obj.values():
-                    if isinstance(v, (int, float)):
-                        return float(v)
-                return 0.0
-            if hasattr(obj, 'position'):
-                return float(obj.position)
-            if hasattr(obj, 'value'):
-                return float(obj.value)
-            try:
-                return float(obj)
-            except:
-                return 0.0
+                return {'sign': obj.get('sign'), 'position': obj.get('position'), 'abs_pos': obj.get('abs_pos')}
+            if hasattr(obj, 'sign') and hasattr(obj, 'position'):
+                return {'sign': getattr(obj, 'sign'), 'position': getattr(obj, 'position'), 'abs_pos': getattr(obj, 'abs_pos')}
+            return None
 
         asc = _extract_angle(data.get('ascendant'))
         mc = _extract_angle(data.get('midheaven'))
-        if asc == 0.0 and hasattr(subject, 'ascendant'):
+        dsc = _extract_angle(data.get('descendant'))
+        ic = _extract_angle(data.get('imum_coeli'))
+
+        # Если не найдены, пробуем через subject напрямую
+        if not asc and hasattr(subject, 'ascendant'):
             asc = _extract_angle(subject.ascendant)
-        if mc == 0.0 and hasattr(subject, 'midheaven'):
+        if not mc and hasattr(subject, 'midheaven'):
             mc = _extract_angle(subject.midheaven)
-        dsc = (asc + 180) % 360
-        ic = (mc + 180) % 360
+        if not dsc and hasattr(subject, 'descendant'):
+            dsc = _extract_angle(subject.descendant)
+        if not ic and hasattr(subject, 'imum_coeli'):
+            ic = _extract_angle(subject.imum_coeli)
+
+        # --- Метаданные ---
+        zodiac_type = data.get('zodiac_type', 'Tropical')
+        house_system = data.get('house_system', 'Placidus')
+        element_dist = data.get('element_distribution')
+        quality_dist = data.get('quality_distribution')
+
+        # --- Лунная фаза ---
+        lunar_phase = None
+        if hasattr(subject, 'lunar_phase'):
+            phase = subject.lunar_phase
+            if phase:
+                lunar_phase = {
+                    'name': getattr(phase, 'name', None),
+                    'angle': getattr(phase, 'angle', None)
+                }
 
         self._natal_data = {
             'planets': planets,
             'houses': houses,
             'aspects': aspects,
             'angles': {'ASC': asc, 'MC': mc, 'DSC': dsc, 'IC': ic},
+            'metadata': {
+                'zodiac_type': zodiac_type,
+                'house_system': house_system,
+                'perspective': 'Geocentric'
+            },
+            'elements': element_dist,
+            'qualities': quality_dist,
+            'lunar_phase': lunar_phase,
             'utc_datetime': getattr(subject, 'iso_formatted_utc_datetime', None),
-            'timezone': "UTC",  # мы передаём UTC в kerykeion
             'location': {'lat': lat, 'lng': lng}
         }
         logger.info(f"✅ Натальная карта построена: {len(planets)} планет, {len(houses)} домов, {len(aspects)} аспектов")
         return self._natal_data
 
-    def _prepare_prompt_data(self) -> Dict[str, str]:
-        if self._prompt_data is not None:
-            return self._prompt_data
-
-        natal = self._build_natal_chart()
-        planets = natal['planets']
-        houses = natal['houses']
-        aspects = natal['aspects']
-        angles = natal['angles']
-        loc = natal['location']
-
-        def fmt_planets():
-            return "\n".join(
-                f"- {p['name']} в {p['sign']} ({p['degree']:.2f}°) в {p['house']} доме, ретроградность: {'да' if p['retrograde'] else 'нет'}"
-                for p in planets
-            )
-
-        def fmt_houses():
-            return "\n".join(
-                f"- Дом {h['number']}: {h['sign']} ({h['degree']:.2f}°)"
-                for h in houses
-            )
-
-        def fmt_aspects():
-            return "\n".join(
-                f"- {a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)"
-                for a in aspects[:20]
-            )
-
-        gender_text = "Мужчина" if self.gender == 'M' else "Женщина"
-
-        self._prompt_data = {
-            'name': self.name,
-            'gender': gender_text,
-            'birth_date': self.birth_date or 'не указана',
-            'birth_time': self.birth_time or 'не указано',
-            'birth_place': self.birth_place or 'не указано',
-            'lat': f"{loc['lat']:.4f}",
-            'lng': f"{loc['lng']:.4f}",
-            'timezone': "UTC",  # показываем, что мы используем UTC
-            'utc_datetime': natal['utc_datetime'] or 'не известно',
-            'planets_list': fmt_planets(),
-            'houses_list': fmt_houses(),
-            'aspects_list': fmt_aspects(),
-            'angles': f"ASC: {angles['ASC']:.2f}°, MC: {angles['MC']:.2f}°, DSC: {angles['DSC']:.2f}°, IC: {angles['IC']:.2f}°",
-            'pronoun': 'он' if self.gender == 'M' else 'она',
-            'possessive': 'его' if self.gender == 'M' else 'её',
-        }
-        return self._prompt_data
-
-    def _load_prompt_template(self) -> str:
-        base = Path(__file__).parent.parent.parent / 'prompts' / 'prompt_astrology_v4.txt'
-        try:
-            with open(base, 'r', encoding='utf-8') as f:
-                return f.read()
-        except FileNotFoundError:
-            logger.error(f"Шаблон {base} не найден")
-            return ""
-
     def _build_prompt(self) -> str:
-        template = self._load_prompt_template()
-        if not template:
-            return "❌ Шаблон промпта не найден."
+        """
+        Формирует промпт для LLM, используя NatalContextBuilder.
+        Возвращает строку с системной инструкцией и натальным контекстом.
+        """
+        self._build_natal_chart()  # гарантирует наличие self._subject
 
-        data = self._prepare_prompt_data()
-        lang_inst = "IMPORTANT: Respond in English only." if self.lang == 'en' else "ВАЖНО: Отвечай только на русском языке."
+        if not self._subject:
+            raise RuntimeError("Subject не создан, невозможно построить контекст")
 
-        prompt = template
-        for k, v in data.items():
-            prompt = prompt.replace(f'{{{k}}}', str(v))
-        prompt = prompt.replace('{language_instruction}', lang_inst)
-        return prompt
+        builder = NatalContextBuilder(self._subject, lang=self.lang)
+        natal_context = builder.build()
+
+        system_prompt = (
+            "Ты — профессиональный астролог. Проведи глубокий анализ натальной карты, используя предоставленные данные.\n\n"
+            "Интерпретируй личность, характер, эмоции, мышление, отношения, карьеру, таланты и зоны роста.\n"
+            "Дай практические советы. Ответ должен быть структурированным, с заголовками и абзацами.\n\n"
+        )
+        if self.lang == 'en':
+            system_prompt += "IMPORTANT: Respond in English only."
+        else:
+            system_prompt += "ВАЖНО: Отвечай только на русском языке."
+
+        return system_prompt + "\n\n" + natal_context
 
     async def generate(self) -> str:
-        # Сначала строим карту – это гарантирует, что координаты и UTC определены
+        """
+        Основной метод: строит карту, сохраняет координаты и UTC в БД, формирует промпт,
+        и в зависимости от режима эмуляции либо возвращает промпт, либо отправляет в Gemini.
+        """
+        # 1. Строим карту – это гарантирует, что координаты и UTC определены
         self._build_natal_chart()
 
-        # Сохраняем координаты и UTC-строку в БД (если есть что сохранять)
+        # 2. Сохраняем координаты и UTC-строку в БД (если есть что сохранять)
         if self._calculated_coords and self.telegram_id:
             lat, lng = self._calculated_coords
             utc_str = self._calculated_utc_str
@@ -346,8 +347,10 @@ class AstrologyCalculator:
         else:
             logger.warning(f"⚠️ Не удалось сохранить: _calculated_coords={self._calculated_coords}, telegram_id={self.telegram_id}")
 
+        # 3. Формируем промпт
         prompt = self._build_prompt()
 
+        # 4. Режим эмуляции или реальный запрос
         if self.emulation_mode:
             return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
 
@@ -361,16 +364,24 @@ class AstrologyCalculator:
             return f"❌ Ошибка получения ответа: {str(e)}"
 
     def get_basic_parameters(self) -> Dict[str, str]:
-        data = self._prepare_prompt_data()
+        """
+        Возвращает базовые параметры для отображения в хендлере.
+        Использует данные из карты и user_data.
+        """
+        data = self._build_natal_chart()
+        loc = data.get('location', {})
+        angles = data.get('angles', {})
+        utc = data.get('utc_datetime', 'не известно')
+
         return {
-            'name': data['name'],
-            'gender': data['gender'],
-            'birth_date': data['birth_date'],
-            'birth_time': data['birth_time'],
-            'birth_place': data['birth_place'],
-            'lat': data['lat'],
-            'lng': data['lng'],
-            'timezone': data['timezone'],
-            'utc_datetime': data['utc_datetime'],
-            'angles': data['angles'],
+            'name': self.name,
+            'gender': 'Мужчина' if self.gender == 'M' else 'Женщина',
+            'birth_date': self.birth_date or 'не указана',
+            'birth_time': self.birth_time or 'не указано',
+            'birth_place': self.birth_place or 'не указано',
+            'lat': f"{loc.get('lat', 0.0):.4f}",
+            'lng': f"{loc.get('lng', 0.0):.4f}",
+            'timezone': 'UTC',
+            'utc_datetime': utc,
+            'angles': f"ASC: {angles.get('ASC', {}).get('position', 0.0):.2f}°, MC: {angles.get('MC', {}).get('position', 0.0):.2f}°, DSC: {angles.get('DSC', {}).get('position', 0.0):.2f}°, IC: {angles.get('IC', {}).get('position', 0.0):.2f}°"
         }
