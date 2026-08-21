@@ -11,11 +11,9 @@ class NatalContextBuilder:
     """
     Строит текстовый контекст натальной карты для передачи в LLM.
     Использует только натальные данные из Kerykeion, без транзитов и прогнозов.
-    Полностью соответствует ТЗ на доработку генератора.
     """
 
     # ========== MAPPING ==========
-    # Знаки (код → полное название)
     SIGN_MAP = {
         'Ari': 'Овен', 'Tau': 'Телец', 'Gem': 'Близнецы',
         'Can': 'Рак', 'Leo': 'Лев', 'Vir': 'Дева',
@@ -23,7 +21,6 @@ class NatalContextBuilder:
         'Cap': 'Козерог', 'Aqu': 'Водолей', 'Pis': 'Рыбы'
     }
 
-    # Планеты (техническое имя → русское)
     PLANET_MAP = {
         'Sun': 'Солнце', 'Moon': 'Луна', 'Mercury': 'Меркурий',
         'Venus': 'Венера', 'Mars': 'Марс', 'Jupiter': 'Юпитер',
@@ -33,10 +30,8 @@ class NatalContextBuilder:
         'True_South_Lunar_Node': 'Южный узел',
         'Chiron': 'Хирон',
         'True_Lilith': 'Лилит'
-        # Mean_Lilith намеренно исключён
     }
 
-    # Аспекты (техническое → русское)
     ASPECT_MAP = {
         'conjunction': 'соединение',
         'opposition': 'оппозиция',
@@ -45,7 +40,6 @@ class NatalContextBuilder:
         'sextile': 'секстиль'
     }
 
-    # Дома (техническое → человекочитаемое)
     HOUSE_MAP = {
         'First_House': '1 дом', 'Second_House': '2 дом',
         'Third_House': '3 дом', 'Fourth_House': '4 дом',
@@ -55,8 +49,7 @@ class NatalContextBuilder:
         'Eleventh_House': '11 дом', 'Twelfth_House': '12 дом'
     }
 
-    # ========== ОРБЫ АСПЕКТОВ ==========
-    # Основные планеты (планета ↔ планета)
+    # Орбы
     PLANET_ASPECT_ORBS = {
         'conjunction': 8.0,
         'opposition': 8.0,
@@ -64,8 +57,6 @@ class NatalContextBuilder:
         'square': 7.0,
         'sextile': 5.0
     }
-
-    # Дополнительные точки и углы (узлы, Хирон, Лилит, ASC, MC, DSC, IC)
     EXTRA_ASPECT_ORBS = {
         'conjunction': 5.0,
         'opposition': 5.0,
@@ -73,7 +64,6 @@ class NatalContextBuilder:
         'square': 5.0,
         'sextile': 5.0
     }
-    # Для True Lilith отдельный орб
     LILITH_ASPECT_ORBS = {
         'conjunction': 3.0,
         'opposition': 3.0,
@@ -81,48 +71,57 @@ class NatalContextBuilder:
         'square': 3.0,
         'sextile': 3.0
     }
-
-    # Разрешённые аспекты (только major)
     ALLOWED_ASPECTS = {'conjunction', 'opposition', 'trine', 'square', 'sextile'}
 
     def __init__(self, subject: AstrologicalSubject, lang: str = 'ru'):
         self.subject = subject
         self.lang = lang
-        self._natal_data = None
         self._planets = []
         self._houses = []
-        self._aspects = []
+        self._aspects = {'planetary': [], 'extra': []}
         self._angles = {}
         self._elements = {}
         self._qualities = {}
         self._lunar_phase = None
 
     def build(self) -> str:
-        """Основной метод: возвращает текстовый контекст."""
         self._extract_data()
         self._validate()
         return self._format()
 
     def _extract_data(self):
-        """Извлекает все необходимые данные из Kerykeion."""
         model = self.subject.model() if callable(self.subject.model) else self.subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
 
+        # ДИАГНОСТИКА
+        logger.info(f"Доступные ключи в data: {list(data.keys())}")
+        subject_attrs = [attr for attr in dir(self.subject) if not attr.startswith('_')]
+        logger.info(f"Доступные атрибуты subject: {subject_attrs}")
+
         # ===== ПЛАНЕТЫ =====
-        planet_keys = [
-            'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
-            'uranus', 'neptune', 'pluto',
-            'true_north_lunar_node', 'true_south_lunar_node',
-            'chiron', 'true_lilith'
-        ]
+        # Расширенный список ключей с альтернативами
+        planet_variants = {
+            'sun': 'Sun', 'moon': 'Moon', 'mercury': 'Mercury',
+            'venus': 'Venus', 'mars': 'Mars', 'jupiter': 'Jupiter',
+            'saturn': 'Saturn', 'uranus': 'Uranus', 'neptune': 'Neptune',
+            'pluto': 'Pluto',
+            'true_north_lunar_node': 'True_North_Lunar_Node',
+            'north_node': 'True_North_Lunar_Node',  # альтернатива
+            'true_south_lunar_node': 'True_South_Lunar_Node',
+            'south_node': 'True_South_Lunar_Node',
+            'chiron': 'Chiron',
+            'true_lilith': 'True_Lilith',
+            'lilith': 'True_Lilith'  # альтернатива
+        }
+
         self._planets = []
-        for key in planet_keys:
+        for key, name in planet_variants.items():
             if key in data:
                 obj = data[key]
                 if isinstance(obj, dict):
                     if 'sign' in obj and 'position' in obj:
                         self._planets.append({
-                            'name': key.capitalize(),
+                            'name': name,
                             'sign': obj.get('sign'),
                             'position': obj.get('position'),
                             'abs_pos': obj.get('abs_pos'),
@@ -132,15 +131,16 @@ class NatalContextBuilder:
                 else:
                     if hasattr(obj, 'sign') and hasattr(obj, 'position'):
                         self._planets.append({
-                            'name': key.capitalize(),
+                            'name': name,
                             'sign': getattr(obj, 'sign'),
                             'position': getattr(obj, 'position'),
                             'abs_pos': getattr(obj, 'abs_pos'),
                             'house': getattr(obj, 'house'),
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
+            # Если ключ не найден, но у нас есть альтернативный, мы его не пропускаем – обработаем дальше
 
-        # ===== ДОМА (альтернативный способ) =====
+        # ===== ДОМА =====
         self._houses = []
         # Способ 1: через data
         house_keys = [
@@ -168,14 +168,29 @@ class NatalContextBuilder:
                             'abs_pos': getattr(obj, 'abs_pos'),
                         })
 
-        # Способ 2: если через data не получилось, пробуем через houses атрибут
+        # Способ 2: через атрибуты subject (house_1, house_2...)
+        if not self._houses:
+            for i in range(1, 13):
+                house_attr = getattr(self.subject, f'house_{i}', None)
+                if not house_attr:
+                    house_attr = getattr(self.subject, f'house{i}', None)
+                if house_attr:
+                    if hasattr(house_attr, 'sign') and hasattr(house_attr, 'position'):
+                        self._houses.append({
+                            'number': f'House_{i}',
+                            'sign': house_attr.sign,
+                            'position': house_attr.position,
+                            'abs_pos': getattr(house_attr, 'abs_pos', 0.0)
+                        })
+
+        # Способ 3: через список houses
         if not self._houses and hasattr(self.subject, 'houses'):
             houses_data = self.subject.houses
             if houses_data:
                 for h in houses_data:
                     if hasattr(h, 'number') and hasattr(h, 'sign') and hasattr(h, 'position'):
                         self._houses.append({
-                            'number': f"{h.number}_House",
+                            'number': f'House_{h.number}',
                             'sign': h.sign,
                             'position': h.position,
                             'abs_pos': getattr(h, 'abs_pos', 0.0)
@@ -188,8 +203,7 @@ class NatalContextBuilder:
             if isinstance(obj, dict):
                 return {'sign': obj.get('sign'), 'position': obj.get('position'), 'abs_pos': obj.get('abs_pos')}
             if hasattr(obj, 'sign') and hasattr(obj, 'position'):
-                return {'sign': getattr(obj, 'sign'), 'position': getattr(obj, 'position'),
-                        'abs_pos': getattr(obj, 'abs_pos')}
+                return {'sign': getattr(obj, 'sign'), 'position': getattr(obj, 'position'), 'abs_pos': getattr(obj, 'abs_pos')}
             return None
 
         asc = _extract_angle(data.get('ascendant'))
@@ -206,16 +220,13 @@ class NatalContextBuilder:
         if not ic and hasattr(self.subject, 'imum_coeli'):
             ic = _extract_angle(self.subject.imum_coeli)
 
-        # FALLBACK: если MC отсутствует, пробуем взять куспид 10-го дома
+        # FALLBACK: если MC отсутствует, берём куспид 10-го дома
         if mc is None:
-            logger.warning("MC отсутствует в объекте Kerykeion. Пробуем взять куспид 10-го дома.")
-            tenth_house = next((h for h in self._houses if h['number'] == 'Tenth_House'), None)
+            logger.warning("MC отсутствует. Пробуем взять куспид 10-го дома.")
+            tenth_house = next((h for h in self._houses if 'Tenth' in h['number']), None)
             if tenth_house:
-                mc = {'sign': tenth_house['sign'], 'position': tenth_house['position'],
-                      'abs_pos': tenth_house['abs_pos']}
+                mc = {'sign': tenth_house['sign'], 'position': tenth_house['position'], 'abs_pos': tenth_house['abs_pos']}
                 logger.info(f"MC взят из куспида 10-го дома: {mc['sign']} {mc['position']:.2f}°")
-            else:
-                logger.warning("Куспид 10-го дома не найден. MC останется пустым.")
 
         self._angles = {
             'ASC': asc,
@@ -246,6 +257,12 @@ class NatalContextBuilder:
         self._elements = data.get('element_distribution')
         self._qualities = data.get('quality_distribution')
 
+        # Если нет в data, пробуем через subject
+        if not self._elements and hasattr(self.subject, 'element_distribution'):
+            self._elements = self.subject.element_distribution
+        if not self._qualities and hasattr(self.subject, 'quality_distribution'):
+            self._qualities = self.subject.quality_distribution
+
         # ===== ЛУННАЯ ФАЗА =====
         self._lunar_phase = None
         if hasattr(self.subject, 'lunar_phase'):
@@ -256,24 +273,14 @@ class NatalContextBuilder:
                     'angle': getattr(phase, 'angle', None)
                 }
 
-    def _filter_aspects(self, raw_aspects) -> Dict[str, List]:
-        """
-        Фильтрует аспекты и разделяет на:
-        - planetary: планета ↔ планета (только основные 10)
-        - extra: планета ↔ узел/Хирон/Лилит/угол
-        """
+    def _filter_aspects(self, raw_aspects) -> Dict:
         planetary = []
         extra = []
-
-        # Множества для дедупликации (сохраняем только уникальные комбинации)
         seen_planetary = set()
         seen_extra = set()
 
-        # Основные 10 планет (их имена)
         main_planets = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                         'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'}
-
-        # Дополнительные объекты
         extra_objects = {'True_North_Lunar_Node', 'True_South_Lunar_Node',
                          'Chiron', 'True_Lilith', 'ASC', 'MC', 'DSC', 'IC'}
 
@@ -286,26 +293,25 @@ class NatalContextBuilder:
 
             if not p1 or not p2 or not aspect or orbit is None:
                 continue
-
             if aspect.lower() not in self.ALLOWED_ASPECTS:
                 continue
 
-            # Сортируем имена для нормализации
+            # Нормализация имён (если пришло 'north_node', преобразуем в 'True_North_Lunar_Node')
+            p1 = self._normalize_planet_name(p1)
+            p2 = self._normalize_planet_name(p2)
+
             names = sorted([p1, p2])
 
-            # Определяем категорию аспекта
             p1_in_main = p1 in main_planets
             p2_in_main = p2 in main_planets
             p1_in_extra = p1 in extra_objects
             p2_in_extra = p2 in extra_objects
 
-            # Планетарный аспект: оба объекта – основные планеты
             if p1_in_main and p2_in_main:
                 key = (names[0], names[1], aspect.lower())
                 if key in seen_planetary:
                     continue
                 seen_planetary.add(key)
-                # Проверяем орб
                 max_orb = self.PLANET_ASPECT_ORBS.get(aspect.lower(), 8.0)
                 if orbit <= max_orb:
                     planetary.append({
@@ -314,9 +320,7 @@ class NatalContextBuilder:
                         'orb': orbit,
                         'movement': movement
                     })
-            # Аспект к дополнительным точкам/углам: один из объектов – основная планета, другой – extra
             elif (p1_in_main and p2_in_extra) or (p2_in_main and p1_in_extra):
-                # Определяем, какая планета, а какая extra
                 if p1_in_main:
                     planet, extra_obj = p1, p2
                 else:
@@ -325,7 +329,6 @@ class NatalContextBuilder:
                 if key in seen_extra:
                     continue
                 seen_extra.add(key)
-                # Выбираем орб в зависимости от extra_obj
                 if extra_obj == 'True_Lilith':
                     max_orb = self.LILITH_ASPECT_ORBS.get(aspect.lower(), 3.0)
                 else:
@@ -337,12 +340,22 @@ class NatalContextBuilder:
                         'orb': orbit,
                         'movement': movement
                     })
-            # Игнорируем аспекты, где оба объекта – extra (узлы между собой и т.п.)
 
         return {'planetary': planetary, 'extra': extra}
 
+    def _normalize_planet_name(self, name: str) -> str:
+        # Приводим к каноническим именам из PLANET_MAP
+        if name in self.PLANET_MAP:
+            return name
+        # Проверяем альтернативы
+        alt_map = {
+            'north_node': 'True_North_Lunar_Node',
+            'south_node': 'True_South_Lunar_Node',
+            'lilith': 'True_Lilith'
+        }
+        return alt_map.get(name.lower(), name)
+
     def _normalize_distribution(self, dist: Dict) -> Dict:
-        """Нормализует распределение стихий/качеств до процентов (сумма = 100)."""
         if not dist:
             return {}
         total = sum(dist.values())
@@ -350,26 +363,22 @@ class NatalContextBuilder:
             return {k: 0 for k in dist}
         if total == 100:
             return {k: int(round(v)) for k, v in dist.items()}
-        # Нормализуем
         normalized = {}
         for k, v in dist.items():
             if total > 0:
                 normalized[k] = int(round((v / total) * 100))
-        # Корректируем сумму до 100 (из-за округлений)
         diff = 100 - sum(normalized.values())
         if diff != 0:
-            # Добавляем/убираем разницу к первому ключу
             first_key = next(iter(normalized))
             normalized[first_key] += diff
         return normalized
 
     def _validate(self):
-        """Проверяет наличие обязательных данных, логирует предупреждения."""
         checks = {
-            'chart_type': 'Natal',
+            'chart_type': True,
             'zodiac_type': True,
             'house_system': True,
-            'birth_date': True,  # в данных Kerykeion есть year, month, day
+            'birth_date': True,
             'birth_time': True,
             'timezone': True,
             'latitude': True,
@@ -392,26 +401,21 @@ class NatalContextBuilder:
             'South_Node': any(p['name'] == 'True_South_Lunar_Node' for p in self._planets),
             'Chiron': any(p['name'] == 'Chiron' for p in self._planets),
             'True_Lilith': any(p['name'] == 'True_Lilith' for p in self._planets),
-            'Mean_Lilith_absent': not any(p['name'] == 'Mean_Lilith' for p in self._planets),
             '12_houses': len(self._houses) == 12,
             'elements_present': bool(self._elements),
             'qualities_present': bool(self._qualities),
             'lunar_phase_present': self._lunar_phase is not None,
-            'no_transits': True,  # всегда true, т.к. мы не используем транзиты
-            'no_json': True,
         }
-        # Логируем предупреждения для отсутствующих данных
         for key, passed in checks.items():
             if not passed:
                 logger.warning(f"Валидация: {key} отсутствует или невалиден. Проверьте данные Kerykeion.")
 
     def _format(self) -> str:
-        """Формирует финальный текстовый блок."""
         lines = []
         lines.append("=== NATAL CHART ===")
         lines.append("")
 
-        # 1. Метаданные
+        # Метаданные
         model = self.subject.model() if callable(self.subject.model) else self.subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
         zodiac = data.get('zodiac_type', 'Tropical')
@@ -422,7 +426,7 @@ class NatalContextBuilder:
         lines.append("Перспектива: Geocentric")
         lines.append("")
 
-        # 2. Рождение
+        # Рождение
         year = getattr(self.subject, 'year', None)
         month = getattr(self.subject, 'month', None)
         day = getattr(self.subject, 'day', None)
@@ -435,11 +439,14 @@ class NatalContextBuilder:
         lines.append("Рождение:")
         lines.append(f"Дата: {day:02d}.{month:02d}.{year}" if all([day, month, year]) else "Дата: не указана")
         lines.append(f"Время: {hour:02d}:{minute:02d}" if hour is not None and minute is not None else "Время: не указано")
-        lines.append(f"Координаты: {lat:.4f}° N, {lng:.4f}° E" if lat and lng else "Координаты: не указаны")
+        if lat and lng:
+            lines.append(f"Координаты: {lat:.4f}° N, {lng:.4f}° E")
+        else:
+            lines.append("Координаты: не указаны")
         lines.append(f"Часовой пояс: {tz_str}" if tz_str else "Часовой пояс: не указан")
         lines.append("")
 
-        # 3. Углы
+        # Углы
         lines.append("Углы:")
         for angle_name in ['ASC', 'MC', 'DSC', 'IC']:
             angle = self._angles.get(angle_name)
@@ -451,7 +458,7 @@ class NatalContextBuilder:
                 lines.append(f"{angle_name}: —")
         lines.append("")
 
-        # 4. Планеты (в строгом порядке)
+        # Планеты
         planet_order = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                         'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']
         lines.append("Планеты:")
@@ -461,23 +468,27 @@ class NatalContextBuilder:
                 lines.append(self._format_planet(planet))
         lines.append("")
 
-        # 5. Дополнительные точки
+        # Дополнительные точки
         extra_order = ['True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron', 'True_Lilith']
         extra_names = ['Северный узел', 'Южный узел', 'Хирон', 'Лилит']
         lines.append("Лунные узлы и дополнительные точки:")
+        found = False
         for i, name in enumerate(extra_order):
             point = next((p for p in self._planets if p['name'] == name), None)
             if point:
                 lines.append(self._format_planet(point, extra_names[i]))
+                found = True
+        if not found:
+            lines.append("Нет данных")
         lines.append("")
 
-        # 6. Куспиды домов
+        # Дома
         lines.append("Куспиды домов:")
         house_numbers = ['First_House', 'Second_House', 'Third_House', 'Fourth_House',
                          'Fifth_House', 'Sixth_House', 'Seventh_House', 'Eighth_House',
                          'Ninth_House', 'Tenth_House', 'Eleventh_House', 'Twelfth_House']
         for i, key in enumerate(house_numbers, 1):
-            house = next((h for h in self._houses if h['number'] == key), None)
+            house = next((h for h in self._houses if h['number'] == key or h['number'] == f'House_{i}'), None)
             if house:
                 sign = self.SIGN_MAP.get(house['sign'], house['sign'])
                 pos = house['position']
@@ -486,7 +497,7 @@ class NatalContextBuilder:
                 lines.append(f"{i} дом: —")
         lines.append("")
 
-        # 7. Аспекты планет
+        # Аспекты планет
         planetary_aspects = self._aspects.get('planetary', [])
         if planetary_aspects:
             lines.append("Аспекты планет:")
@@ -497,7 +508,7 @@ class NatalContextBuilder:
             lines.append("Аспекты планет: нет")
             lines.append("")
 
-        # 8. Аспекты к дополнительным точкам и углам
+        # Аспекты к дополнительным точкам и углам
         extra_aspects = self._aspects.get('extra', [])
         if extra_aspects:
             lines.append("Аспекты к дополнительным точкам и углам:")
@@ -508,7 +519,7 @@ class NatalContextBuilder:
             lines.append("Аспекты к дополнительным точкам и углам: нет")
             lines.append("")
 
-        # 9. Распределение стихий
+        # Распределение стихий
         if self._elements:
             norm_elements = self._normalize_distribution(self._elements)
             lines.append("Распределение стихий:")
@@ -519,7 +530,7 @@ class NatalContextBuilder:
             lines.append("Распределение стихий: не рассчитано")
             lines.append("")
 
-        # 10. Распределение качеств
+        # Распределение качеств
         if self._qualities:
             norm_qualities = self._normalize_distribution(self._qualities)
             lines.append("Распределение качеств:")
@@ -530,7 +541,7 @@ class NatalContextBuilder:
             lines.append("Распределение качеств: не рассчитано")
             lines.append("")
 
-        # 11. Лунная фаза
+        # Лунная фаза
         if self._lunar_phase and self._lunar_phase.get('name') and self._lunar_phase.get('angle') is not None:
             lines.append("Лунная фаза:")
             lines.append(f"{self._lunar_phase['name']}")
@@ -549,17 +560,19 @@ class NatalContextBuilder:
         house = planet['house']
         retro = planet['retrograde']
 
-        # Преобразуем техническое название дома в человекочитаемое
-        house_key = f"{house}_House" if isinstance(house, int) and house > 0 else str(house)
-        house_display = self.HOUSE_MAP.get(house_key, house)
+        # Форматируем дом
+        if isinstance(house, int):
+            house_display = f"{house} дом"
+        else:
+            # Если это техническое название, преобразуем через HOUSE_MAP
+            house_display = self.HOUSE_MAP.get(house, house)
 
         if retro:
-            return f"{name}: {sign} {pos:.2f}°, {house_display} дом, ретроградный"
+            return f"{name}: {sign} {pos:.2f}°, {house_display}, ретроградный"
         else:
-            return f"{name}: {sign} {pos:.2f}°, {house_display} дом"
+            return f"{name}: {sign} {pos:.2f}°, {house_display}"
 
     def _format_aspect(self, aspect: Dict) -> str:
-        """Форматирует аспект в строку."""
         p1 = self.PLANET_MAP.get(aspect['p1'], aspect['p1'])
         p2 = self.PLANET_MAP.get(aspect['p2'], aspect['p2'])
         aspect_name = self.ASPECT_MAP.get(aspect['aspect'].lower(), aspect['aspect'])
