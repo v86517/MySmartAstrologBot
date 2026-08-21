@@ -1,4 +1,3 @@
-#bot/calculators/astrology_calculator.py
 import logging
 import zoneinfo
 from datetime import datetime
@@ -57,12 +56,6 @@ class AstrologyCalculator:
         return city, country
 
     def _get_coordinates_and_timezone(self) -> Tuple[float, float, str]:
-        """
-        Приоритет:
-        1. Данные из БД (user_data['birth_lat'], birth_lng, birth_timezone)
-        2. Переданные координаты (self._coords)
-        3. PlaceResolver
-        """
         # 1. БД
         lat = self.user_data.get('birth_lat')
         lng = self.user_data.get('birth_lng')
@@ -71,6 +64,23 @@ class AstrologyCalculator:
             if tz in zoneinfo.available_timezones():
                 logger.info(f"✅ Используем координаты из БД: ({lat}, {lng}, {tz})")
                 return lat, lng, tz
+            elif tz == "UNKNOWN":
+                # Координаты есть, но таймзона неизвестна – используем координаты, но определим таймзону заново (без уточнения)
+                logger.info(f"ℹ️ В БД таймзона 'UNKNOWN', используем координаты ({lat}, {lng}) и определяем таймзону по координатам")
+                # Определяем таймзону по координатам (без Gemini)
+                tz_from_coords = self._tf.timezone_at(lat=lat, lng=lng)
+                if tz_from_coords and tz_from_coords in zoneinfo.available_timezones():
+                    tz = tz_from_coords
+                    # Сохраняем новую таймзону (может быть, она изменилась? но данные не менялись, так что оставим как есть)
+                    # Мы можем обновить БД, но чтобы не перезаписывать на "UNKNOWN" – не будем.
+                    # Вернём её как есть.
+                    self._calculated_coords = (lat, lng, tz)
+                    return lat, lng, tz
+                else:
+                    logger.warning(f"Не удалось определить таймзону по координатам, используем DEFAULT_TZ")
+                    tz = self.DEFAULT_TZ
+                    self._calculated_coords = (lat, lng, tz)
+                    return lat, lng, tz
             else:
                 logger.warning(f"⚠️ Таймзона из БД {tz} невалидна, игнорируем")
 
@@ -101,19 +111,30 @@ class AstrologyCalculator:
         logger.info("🔮 Строим натальную карту...")
         lat, lng, tz_str = self._get_coordinates_and_timezone()
 
-        # Парсим дату и время
-        try:
-            dt = datetime.strptime(f"{self.birth_date} {self.birth_time}", "%d.%m.%Y %H:%M")
-            year, month, day, hour, minute = dt.year, dt.month, dt.day, dt.hour, dt.minute
-        except:
-            year, month, day, hour, minute = 2000, 1, 1, 12, 0
+        # Пытаемся получить уточнённое UTC время из резолвера
+        utc_dt = self.resolver.get_utc_datetime()
+        if utc_dt:
+            # Используем UTC время для создания субъекта
+            year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
+            hour, minute = utc_dt.hour, utc_dt.minute
+            tz_str_for_subject = "UTC"
+            logger.info(f"✅ Используем уточнённое UTC время: {utc_dt}")
+        else:
+            # fallback: парсим локальное время и используем IANA
+            try:
+                dt = datetime.strptime(f"{self.birth_date} {self.birth_time}", "%d.%m.%Y %H:%M")
+                year, month, day, hour, minute = dt.year, dt.month, dt.day, dt.hour, dt.minute
+            except:
+                year, month, day, hour, minute = 2000, 1, 1, 12, 0
+            tz_str_for_subject = tz_str
+            logger.info(f"⚠️ Используем локальное время и IANA: {tz_str_for_subject}")
 
         subject = AstrologicalSubject(
             name=self.name,
             year=year, month=month, day=day,
             hour=hour, minute=minute,
             lat=lat, lng=lng,
-            tz_str=tz_str
+            tz_str=tz_str_for_subject
         )
         logger.info(f"👤 Субъект создан: {subject.name}")
 
@@ -186,7 +207,6 @@ class AstrologyCalculator:
         except Exception as e:
             logger.warning(f"⚠️ Не удалось получить аспекты: {e}")
 
-        # Углы
         # Извлечение углов (поддержка разных версий kerykeion)
         def _extract_angle(obj):
             if obj is None:
@@ -198,7 +218,6 @@ class AstrologyCalculator:
                     return float(obj['position'])
                 if 'value' in obj:
                     return float(obj['value'])
-                # попробуем взять первый числовой ключ
                 for v in obj.values():
                     if isinstance(v, (int, float)):
                         return float(v)
@@ -212,10 +231,8 @@ class AstrologyCalculator:
             except:
                 return 0.0
 
-        # Теперь извлекаем углы из data (model.dict())
         asc = _extract_angle(data.get('ascendant'))
         mc = _extract_angle(data.get('midheaven'))
-        # Если всё ещё 0, попробуем через subject напрямую
         if asc == 0.0 and hasattr(subject, 'ascendant'):
             asc = _extract_angle(subject.ascendant)
         if mc == 0.0 and hasattr(subject, 'midheaven'):
@@ -262,7 +279,7 @@ class AstrologyCalculator:
         def fmt_aspects():
             return "\n".join(
                 f"- {a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)"
-                for a in aspects[:20]  # ограничим для компактности
+                for a in aspects[:20]
             )
 
         gender_text = "Мужчина" if self.gender == 'M' else "Женщина"
@@ -310,10 +327,22 @@ class AstrologyCalculator:
         return prompt
 
     async def generate(self) -> str:
-        # Сохраняем координаты, если они определены и есть telegram_id
+        # Сохраняем координаты и таймзону
         if self._calculated_coords and self.telegram_id:
             lat, lng, tz = self._calculated_coords
-            await save_user_coords(self.telegram_id, lat, lng, tz)
+            # Если уточнённая зона == "UNKNOWN", сохраняем как "UNKNOWN"
+            refined_tz = self.resolver.get_refined_timezone()
+            if refined_tz == "UNKNOWN":
+                tz_to_save = "UNKNOWN"
+                logger.info(f"ℹ️ Gemini не определила таймзону, сохраняем 'UNKNOWN' для {self.telegram_id}")
+            else:
+                tz_to_save = tz
+            logger.info(f"💾 Сохраняем координаты в БД: {lat}, {lng}, {tz_to_save} для {self.telegram_id}")
+            result = await save_user_coords(self.telegram_id, lat, lng, tz_to_save)
+            if result:
+                logger.info(f"✅ Координаты сохранены в БД для {self.telegram_id}")
+            else:
+                logger.error(f"❌ Ошибка сохранения координат для {self.telegram_id}")
 
         prompt = self._build_prompt()
 
