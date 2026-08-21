@@ -14,11 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 class AstrologyCalculator:
-    """
-    Калькулятор для услуги «Натальная карта» (астрология).
-    Использует PlaceResolver для определения координат и IANA-таймзоны.
-    """
-
     def __init__(self, user_data: Dict[str, Any], lang: str = 'ru',
                  telegram_id: Optional[int] = None,
                  coords: Optional[Tuple[float, float, str]] = None,
@@ -31,19 +26,16 @@ class AstrologyCalculator:
         self.emulation_mode = emulation_mode
         self.gemini = gemini_service or GeminiService()
 
-        # Парсим данные
         self.name = user_data.get('name', 'Человек')
         self.gender = user_data.get('gender', 'M')
         self.birth_date = user_data.get('birth_date')
         self.birth_time = user_data.get('birth_time')
         self.birth_place = user_data.get('birth_place', '')
 
-        # Результаты
         self._calculated_coords = None
         self._natal_data = None
         self._prompt_data = None
 
-        # Создаём резолвер
         self.resolver = PlaceResolver(gemini_service=self.gemini)
 
     def _parse_birth_place(self) -> Tuple[str, str]:
@@ -65,9 +57,8 @@ class AstrologyCalculator:
                 logger.info(f"✅ Используем координаты из БД: ({lat}, {lng}, {tz})")
                 return lat, lng, tz
             elif tz == "UNKNOWN":
-                # Координаты есть, но таймзона неизвестна – используем координаты, определяем таймзону по координатам (без Gemini)
                 logger.info(f"ℹ️ В БД таймзона 'UNKNOWN', используем координаты ({lat}, {lng}) и определяем таймзону по координатам")
-                tz_from_coords = self._tf.timezone_at(lat=lat, lng=lng)
+                tz_from_coords = self.resolver._tf.timezone_at(lat=lat, lng=lng)
                 if tz_from_coords and tz_from_coords in zoneinfo.available_timezones():
                     tz = tz_from_coords
                     self._calculated_coords = (lat, lng, tz)
@@ -107,16 +98,13 @@ class AstrologyCalculator:
         logger.info("🔮 Строим натальную карту...")
         lat, lng, tz_str = self._get_coordinates_and_timezone()
 
-        # Пытаемся получить уточнённое UTC время из резолвера
         utc_dt = self.resolver.get_utc_datetime()
         if utc_dt:
-            # Используем UTC время для создания субъекта
             year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
             hour, minute = utc_dt.hour, utc_dt.minute
             tz_str_for_subject = "UTC"
             logger.info(f"✅ Используем уточнённое UTC время: {utc_dt}")
         else:
-            # fallback: парсим локальное время и используем IANA
             try:
                 dt = datetime.strptime(f"{self.birth_date} {self.birth_time}", "%d.%m.%Y %H:%M")
                 year, month, day, hour, minute = dt.year, dt.month, dt.day, dt.hour, dt.minute
@@ -134,11 +122,9 @@ class AstrologyCalculator:
         )
         logger.info(f"👤 Субъект создан: {subject.name}")
 
-        # Извлекаем данные
         model = subject.model() if callable(subject.model) else subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
 
-        # Планеты
         planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
                        'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith']
         planets = []
@@ -164,7 +150,6 @@ class AstrologyCalculator:
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
 
-        # Дома
         house_keys = ['first_house', 'second_house', 'third_house', 'fourth_house',
                       'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
                       'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house']
@@ -187,7 +172,6 @@ class AstrologyCalculator:
                             'degree': getattr(obj, 'position', 0.0),
                         })
 
-        # Аспекты
         aspects = []
         try:
             from kerykeion import AspectsFactory
@@ -203,7 +187,6 @@ class AstrologyCalculator:
         except Exception as e:
             logger.warning(f"⚠️ Не удалось получить аспекты: {e}")
 
-        # Извлечение углов (поддержка разных версий kerykeion)
         def _extract_angle(obj):
             if obj is None:
                 return 0.0
@@ -327,13 +310,8 @@ class AstrologyCalculator:
         if self._calculated_coords and self.telegram_id:
             lat, lng, tz = self._calculated_coords
             refined_tz = self.resolver.get_refined_timezone()
-            if refined_tz == "UNKNOWN":
-                tz_to_save = "UNKNOWN"
-                logger.info(f"ℹ️ Gemini не определила таймзону, сохраняем 'UNKNOWN' для {self.telegram_id}")
-            else:
-                tz_to_save = tz if refined_tz is None else refined_tz
-            logger.info(
-                f"💾 Сохраняем координаты в БД: lat={lat}, lng={lng}, tz='{tz_to_save}' для user {self.telegram_id}")
+            tz_to_save = tz if refined_tz != "UNKNOWN" else "UNKNOWN"
+            logger.info(f"💾 Сохраняем координаты в БД: {lat}, {lng}, {tz_to_save} для {self.telegram_id}")
             result = await save_user_coords(self.telegram_id, lat, lng, tz_to_save)
             if result:
                 logger.info(f"✅ Координаты сохранены в БД для {self.telegram_id}")
