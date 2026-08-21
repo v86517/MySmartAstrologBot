@@ -65,15 +65,11 @@ class AstrologyCalculator:
                 logger.info(f"✅ Используем координаты из БД: ({lat}, {lng}, {tz})")
                 return lat, lng, tz
             elif tz == "UNKNOWN":
-                # Координаты есть, но таймзона неизвестна – используем координаты, но определим таймзону заново (без уточнения)
+                # Координаты есть, но таймзона неизвестна – используем координаты, определяем таймзону по координатам (без Gemini)
                 logger.info(f"ℹ️ В БД таймзона 'UNKNOWN', используем координаты ({lat}, {lng}) и определяем таймзону по координатам")
-                # Определяем таймзону по координатам (без Gemini)
                 tz_from_coords = self._tf.timezone_at(lat=lat, lng=lng)
                 if tz_from_coords and tz_from_coords in zoneinfo.available_timezones():
                     tz = tz_from_coords
-                    # Сохраняем новую таймзону (может быть, она изменилась? но данные не менялись, так что оставим как есть)
-                    # Мы можем обновить БД, но чтобы не перезаписывать на "UNKNOWN" – не будем.
-                    # Вернём её как есть.
                     self._calculated_coords = (lat, lng, tz)
                     return lat, lng, tz
                 else:
