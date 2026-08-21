@@ -108,13 +108,12 @@ class NatalContextBuilder:
         model = self.subject.model() if callable(self.subject.model) else self.subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
 
-        # --- Планеты (только нужные, исключая Mean Lilith) ---
+        # ===== ПЛАНЕТЫ =====
         planet_keys = [
             'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
             'uranus', 'neptune', 'pluto',
             'true_north_lunar_node', 'true_south_lunar_node',
             'chiron', 'true_lilith'
-            # mean_lilith намеренно исключён
         ]
         self._planets = []
         for key in planet_keys:
@@ -141,13 +140,14 @@ class NatalContextBuilder:
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
 
-        # --- Дома (все 12) ---
+        # ===== ДОМА (альтернативный способ) =====
+        self._houses = []
+        # Способ 1: через data
         house_keys = [
             'first_house', 'second_house', 'third_house', 'fourth_house',
             'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
             'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house'
         ]
-        self._houses = []
         for key in house_keys:
             if key in data:
                 obj = data[key]
@@ -168,33 +168,28 @@ class NatalContextBuilder:
                             'abs_pos': getattr(obj, 'abs_pos'),
                         })
 
-        # --- Аспекты (через AspectsFactory с fallback на NatalAspects) ---
-        aspects_raw = []
-        try:
-            factory = AspectsFactory.single_chart_aspects(self.subject)
-            if factory and hasattr(factory, 'aspects'):
-                aspects_raw = factory.aspects
-        except Exception as e:
-            logger.warning(f"AspectsFactory не сработал: {e}, пробуем NatalAspects")
-            try:
-                from kerykeion import NatalAspects
-                na = NatalAspects(self.subject)
-                if hasattr(na, 'relevant_aspects'):
-                    aspects_raw = na.relevant_aspects
-            except Exception as e2:
-                logger.warning(f"NatalAspects тоже не сработал: {e2}")
+        # Способ 2: если через data не получилось, пробуем через houses атрибут
+        if not self._houses and hasattr(self.subject, 'houses'):
+            houses_data = self.subject.houses
+            if houses_data:
+                for h in houses_data:
+                    if hasattr(h, 'number') and hasattr(h, 'sign') and hasattr(h, 'position'):
+                        self._houses.append({
+                            'number': f"{h.number}_House",
+                            'sign': h.sign,
+                            'position': h.position,
+                            'abs_pos': getattr(h, 'abs_pos', 0.0)
+                        })
 
-        # --- Фильтрация и классификация аспектов ---
-        self._aspects = self._filter_aspects(aspects_raw)
-
-        # --- Углы ---
+        # ===== УГЛЫ =====
         def _extract_angle(obj):
             if obj is None:
                 return None
             if isinstance(obj, dict):
                 return {'sign': obj.get('sign'), 'position': obj.get('position'), 'abs_pos': obj.get('abs_pos')}
             if hasattr(obj, 'sign') and hasattr(obj, 'position'):
-                return {'sign': getattr(obj, 'sign'), 'position': getattr(obj, 'position'), 'abs_pos': getattr(obj, 'abs_pos')}
+                return {'sign': getattr(obj, 'sign'), 'position': getattr(obj, 'position'),
+                        'abs_pos': getattr(obj, 'abs_pos')}
             return None
 
         asc = _extract_angle(data.get('ascendant'))
@@ -211,8 +206,16 @@ class NatalContextBuilder:
         if not ic and hasattr(self.subject, 'imum_coeli'):
             ic = _extract_angle(self.subject.imum_coeli)
 
+        # FALLBACK: если MC отсутствует, пробуем взять куспид 10-го дома
         if mc is None:
-            logger.warning("MC отсутствует в объекте Kerykeion. Проверьте данные.")
+            logger.warning("MC отсутствует в объекте Kerykeion. Пробуем взять куспид 10-го дома.")
+            tenth_house = next((h for h in self._houses if h['number'] == 'Tenth_House'), None)
+            if tenth_house:
+                mc = {'sign': tenth_house['sign'], 'position': tenth_house['position'],
+                      'abs_pos': tenth_house['abs_pos']}
+                logger.info(f"MC взят из куспида 10-го дома: {mc['sign']} {mc['position']:.2f}°")
+            else:
+                logger.warning("Куспид 10-го дома не найден. MC останется пустым.")
 
         self._angles = {
             'ASC': asc,
@@ -221,11 +224,29 @@ class NatalContextBuilder:
             'IC': ic
         }
 
-        # --- Элементы и качества ---
+        # ===== АСПЕКТЫ =====
+        aspects_raw = []
+        try:
+            factory = AspectsFactory.single_chart_aspects(self.subject)
+            if factory and hasattr(factory, 'aspects'):
+                aspects_raw = factory.aspects
+        except Exception as e:
+            logger.warning(f"AspectsFactory не сработал: {e}, пробуем NatalAspects")
+            try:
+                from kerykeion import NatalAspects
+                na = NatalAspects(self.subject)
+                if hasattr(na, 'relevant_aspects'):
+                    aspects_raw = na.relevant_aspects
+            except Exception as e2:
+                logger.warning(f"NatalAspects тоже не сработал: {e2}")
+
+        self._aspects = self._filter_aspects(aspects_raw)
+
+        # ===== РАСПРЕДЕЛЕНИЯ =====
         self._elements = data.get('element_distribution')
         self._qualities = data.get('quality_distribution')
 
-        # --- Лунная фаза ---
+        # ===== ЛУННАЯ ФАЗА =====
         self._lunar_phase = None
         if hasattr(self.subject, 'lunar_phase'):
             phase = self.subject.lunar_phase
@@ -414,7 +435,6 @@ class NatalContextBuilder:
         lines.append("Рождение:")
         lines.append(f"Дата: {day:02d}.{month:02d}.{year}" if all([day, month, year]) else "Дата: не указана")
         lines.append(f"Время: {hour:02d}:{minute:02d}" if hour is not None and minute is not None else "Время: не указано")
-        lines.append("Место: не указано")
         lines.append(f"Координаты: {lat:.4f}° N, {lng:.4f}° E" if lat and lng else "Координаты: не указаны")
         lines.append(f"Часовой пояс: {tz_str}" if tz_str else "Часовой пояс: не указан")
         lines.append("")
@@ -523,17 +543,20 @@ class NatalContextBuilder:
         return "\n".join(lines)
 
     def _format_planet(self, planet: Dict, custom_name: Optional[str] = None) -> str:
-        """Форматирует одну планету в строку."""
         name = custom_name or self.PLANET_MAP.get(planet['name'], planet['name'])
         sign = self.SIGN_MAP.get(planet['sign'], planet['sign'])
         pos = planet['position']
         house = planet['house']
         retro = planet['retrograde']
 
+        # Преобразуем техническое название дома в человекочитаемое
+        house_key = f"{house}_House" if isinstance(house, int) and house > 0 else str(house)
+        house_display = self.HOUSE_MAP.get(house_key, house)
+
         if retro:
-            return f"{name}: {sign} {pos:.2f}°, {house} дом, ретроградный"
+            return f"{name}: {sign} {pos:.2f}°, {house_display} дом, ретроградный"
         else:
-            return f"{name}: {sign} {pos:.2f}°, {house} дом"
+            return f"{name}: {sign} {pos:.2f}°, {house_display} дом"
 
     def _format_aspect(self, aspect: Dict) -> str:
         """Форматирует аспект в строку."""
