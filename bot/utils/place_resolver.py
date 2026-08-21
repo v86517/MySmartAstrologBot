@@ -4,7 +4,7 @@ import json
 import time
 import zoneinfo
 from datetime import datetime, timezone, timedelta
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any
 
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
@@ -31,7 +31,7 @@ class PlaceResolver:
         self._tf = TimezoneFinder()
         self.gemini = gemini_service
         self._utc_datetime = None
-        self._refined_tz = None
+        self._refined_tz = None  # уточнённая IANA-зона или "UNKNOWN"
 
     def resolve(self, city: str, country: str,
                 birth_date: str, birth_time: str) -> Tuple[float, float, str]:
@@ -49,6 +49,9 @@ class PlaceResolver:
         if refined_tz:
             tz = refined_tz
             self._refined_tz = refined_tz
+        else:
+            # Если не удалось уточнить, сохраняем как UNKNOWN
+            self._refined_tz = "UNKNOWN"
 
         self._cache[key] = (lat, lng, tz)
         logger.info(f"✅ Сохранено в кеш: {city}, {country} → ({lat}, {lng}, {tz})")
@@ -144,7 +147,7 @@ class PlaceResolver:
         """
         Запрашивает у Gemini UTC время для указанной даты/времени и места.
         Если Gemini возвращает UTC время, вычисляем смещение и подбираем IANA-зону.
-        Если Gemini возвращает "НЕЗНАЮ", используем current_tz, но в БД запишем "UNKNOWN".
+        Если Gemini не может определить, возвращаем None.
         """
         if not self.gemini:
             return None
@@ -164,11 +167,13 @@ class PlaceResolver:
         try:
             response = self.gemini.send_raw_prompt(prompt)
             logger.info(f"📥 Ответ Gemini для уточнения UTC: {response[:200]}...")
+            # Проверяем, не вернула ли Gemini "НЕЗНАЮ"
             if "НЕЗНАЮ" in response:
                 logger.info("ℹ️ Gemini не смогла определить UTC время. Будем использовать current_tz и запишем в БД 'UNKNOWN'.")
                 self._refined_tz = "UNKNOWN"
                 return None
 
+            # Пытаемся извлечь JSON
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
             if json_match:
                 data = json.loads(json_match.group())
@@ -177,13 +182,13 @@ class PlaceResolver:
                     utc_dt = datetime.strptime(utc_str, "%Y-%m-%d %H:%M:%S")
                     self._utc_datetime = utc_dt.replace(tzinfo=timezone.utc)
 
-                    # Вычисляем смещение: local_time - utc_time (в часах)
-                    local_dt = dt
+                    # Вычисляем смещение: local_time (с учетом timezone) - utc_time
+                    local_dt = dt  # это naive datetime
                     offset_seconds = (local_dt - utc_dt).total_seconds()
                     offset_hours = offset_seconds / 3600
                     logger.info(f"✅ Вычислено смещение: UTC{offset_hours:+g}")
 
-                    # Подбираем IANA-зону по смещению и координатам (передаём city, country)
+                    # Подбираем IANA-зону по смещению и координатам
                     tz_candidate = self._find_iana_zone_by_offset(lat, lng, utc_dt, offset_hours, city, country)
                     if tz_candidate:
                         logger.info(f"✅ Подобрана IANA-зона: {tz_candidate} (смещение {offset_hours:+g})")
@@ -205,41 +210,39 @@ class PlaceResolver:
         return None
 
     def _find_iana_zone_by_offset(self, lat: float, lng: float, utc_date: datetime,
-                                  offset_hours: float, city: str = "", country: str = "") -> Optional[str]:
+                                  offset_hours: float, city: str, country: str) -> Optional[str]:
         """
         По координатам и дате находит IANA-зону, смещение которой в указанную дату равно offset_hours.
         """
-        # Сначала пробуем основную зону по координатам
+        # Получаем зону по координатам
         tz_name = self._tf.timezone_at(lat=lat, lng=lng)
-        if tz_name:
-            try:
-                tz = zoneinfo.ZoneInfo(tz_name)
-                local_dt = utc_date.astimezone(tz)
-                actual_offset = local_dt.utcoffset().total_seconds() / 3600
-                if abs(actual_offset - offset_hours) < 0.5:
-                    return tz_name
-            except Exception as e:
-                logger.warning(f"Ошибка проверки смещения для {tz_name}: {e}")
+        if not tz_name:
+            logger.warning(f"Не найдена зона по координатам ({lat}, {lng})")
+            return None
 
-        # Если не совпало, ищем по всем зонам с фильтрацией по названиям
-        candidates = []
-        for tz_candidate in zoneinfo.available_timezones():
-            try:
-                tz_obj = zoneinfo.ZoneInfo(tz_candidate)
-                local_dt_candidate = utc_date.astimezone(tz_obj)
-                offset_candidate = local_dt_candidate.utcoffset().total_seconds() / 3600
-                if abs(offset_candidate - offset_hours) < 0.5:
-                    # Проверяем, не содержит ли зона название города или страны (приблизительно)
-                    if city and city.lower() in tz_candidate.lower():
-                        return tz_candidate
-                    if country and country.lower() in tz_candidate.lower():
-                        return tz_candidate
-                    candidates.append(tz_candidate)
-            except:
-                continue
-
-        if candidates:
-            # Если несколько зон, вернём первую (можно улучшить)
-            return candidates[0]
-
-        return None
+        # Проверяем смещение для этой зоны на указанную дату
+        try:
+            tz = zoneinfo.ZoneInfo(tz_name)
+            local_dt = utc_date.astimezone(tz)
+            actual_offset = local_dt.utcoffset().total_seconds() / 3600
+            if abs(actual_offset - offset_hours) < 0.5:
+                return tz_name
+            else:
+                # Если не совпадает, ищем среди всех зон, которые могут подходить
+                logger.info(f"Зона {tz_name} имеет смещение {actual_offset:+g}, а нужно {offset_hours:+g}. Ищем другую...")
+                for tz_candidate in zoneinfo.available_timezones():
+                    try:
+                        tz_obj = zoneinfo.ZoneInfo(tz_candidate)
+                        local_dt_candidate = utc_date.astimezone(tz_obj)
+                        offset_candidate = local_dt_candidate.utcoffset().total_seconds() / 3600
+                        if abs(offset_candidate - offset_hours) < 0.5:
+                            # Проверяем, что зона географически близка (по названию)
+                            if city.lower() in tz_candidate.lower() or country.lower() in tz_candidate.lower():
+                                return tz_candidate
+                    except:
+                        continue
+                logger.warning(f"Не найдена зона с смещением {offset_hours:+g} для {city}, {country}")
+                return None
+        except Exception as e:
+            logger.warning(f"Ошибка проверки смещения для {tz_name}: {e}")
+            return None

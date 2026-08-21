@@ -326,14 +326,14 @@ class AstrologyCalculator:
         # Сохраняем координаты и таймзону
         if self._calculated_coords and self.telegram_id:
             lat, lng, tz = self._calculated_coords
-            # Если уточнённая зона == "UNKNOWN", сохраняем как "UNKNOWN"
             refined_tz = self.resolver.get_refined_timezone()
             if refined_tz == "UNKNOWN":
                 tz_to_save = "UNKNOWN"
                 logger.info(f"ℹ️ Gemini не определила таймзону, сохраняем 'UNKNOWN' для {self.telegram_id}")
             else:
-                tz_to_save = tz
-            logger.info(f"💾 Сохраняем координаты в БД: {lat}, {lng}, {tz_to_save} для {self.telegram_id}")
+                tz_to_save = tz if refined_tz is None else refined_tz
+            logger.info(
+                f"💾 Сохраняем координаты в БД: lat={lat}, lng={lng}, tz='{tz_to_save}' для user {self.telegram_id}")
             result = await save_user_coords(self.telegram_id, lat, lng, tz_to_save)
             if result:
                 logger.info(f"✅ Координаты сохранены в БД для {self.telegram_id}")
