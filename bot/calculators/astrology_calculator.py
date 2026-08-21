@@ -1280,21 +1280,25 @@ class AstrologyCalculator:
             return None
 
     def _refine_timezone(self, tz_str: str, city: str, country: str, lat: float, lng: float) -> str:
-        if not self.telegram_id or not tz_str:
-            return tz_str
-
-        stored_tz = _get_user_birth_timezone_sync(self.telegram_id)
-        if stored_tz:
-            return stored_tz
-
+        """
+        Уточняет часовой пояс через Gemini (без кеширования).
+        Возвращает уточнённую таймзону или исходную, если уточнить не удалось.
+        """
         if self.__class__.gemini_service:
-            year, month, day, hour, minute = self._parse_birth_datetime()
-            result = self._ask_gemini_for_utc_and_timezone(
-                city, country, lat, lng, year, month, day, hour, minute
-            )
-            if result:
-                timezone_name = result.get('timezone')
-                if timezone_name and timezone_name in pytz.all_timezones:
-                    _set_user_birth_timezone_sync(self.telegram_id, timezone_name)
-                    return timezone_name
+            try:
+                year, month, day, hour, minute = self._parse_birth_datetime()
+                result = self._ask_gemini_for_utc_and_timezone(
+                    city, country, lat, lng, year, month, day, hour, minute
+                )
+                if result:
+                    timezone_name = result.get('timezone')
+                    if timezone_name and timezone_name in pytz.all_timezones:
+                        logger.info(f"✅ Таймзона уточнена через Gemini: {timezone_name} (было: {tz_str})")
+                        return timezone_name
+            except Exception as e:
+                logger.warning(f"⚠️ Ошибка при уточнении таймзоны через Gemini: {e}")
+        else:
+            logger.warning("⚠️ Gemini сервис недоступен, уточнение таймзоны пропущено")
+
+        # Если не удалось уточнить, возвращаем исходную
         return tz_str
