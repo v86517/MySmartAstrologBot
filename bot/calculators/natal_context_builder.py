@@ -3,7 +3,6 @@ from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 
 from kerykeion import AstrologicalSubject, AspectsFactory
-from kerykeion.models import AspectModel
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +99,7 @@ class NatalContextBuilder:
 
         zodiac = data.get('zodiac_type', 'Tropical')
         house_system = data.get('house_system', 'Placidus')
-        perspective = 'Geocentric'  # Kerykeion всегда геоцентрический
+        perspective = 'Geocentric'
 
         return [
             "Тип карты: Натальная",
@@ -112,7 +111,6 @@ class NatalContextBuilder:
 
     def _get_birth_data(self) -> List[str]:
         """Данные рождения: дата, время, место, координаты, часовой пояс."""
-        # Извлекаем из subject
         year = getattr(self.subject, 'year', None)
         month = getattr(self.subject, 'month', None)
         day = getattr(self.subject, 'day', None)
@@ -126,7 +124,6 @@ class NatalContextBuilder:
         # Можно добавить параметр в конструктор, но для простоты пока опустим.
         # Позже передадим через дополнительный аргумент.
         place = "не указано"
-        # Временно заглушка
 
         lines = [
             "Рождение:",
@@ -144,13 +141,11 @@ class NatalContextBuilder:
         model = self.subject.model() if callable(self.subject.model) else self.subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
 
-        # Извлекаем углы
         asc = data.get('ascendant')
         mc = data.get('midheaven')
         dsc = data.get('descendant')
         ic = data.get('imum_coeli')
 
-        # Если нет в data, пробуем через subject
         if not asc and hasattr(self.subject, 'ascendant'):
             asc = self.subject.ascendant
         if not mc and hasattr(self.subject, 'midheaven'):
@@ -163,7 +158,6 @@ class NatalContextBuilder:
         def format_angle(angle):
             if not angle:
                 return "—"
-            # angle может быть KerykeionPointModel или dict
             if isinstance(angle, dict):
                 sign = angle.get('sign')
                 position = angle.get('position')
@@ -190,6 +184,9 @@ class NatalContextBuilder:
         planets = self._get_planet_list()
         lines = ["Планеты:"]
         for p in planets:
+            # Пропускаем узлы и дополнительные точки – они будут выведены отдельно
+            if p['name'] in ['True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron', 'True_Lilith']:
+                continue
             lines.append(self._format_planet(p))
         lines.append("")
         return lines
@@ -212,8 +209,6 @@ class NatalContextBuilder:
         model = self.subject.model() if callable(self.subject.model) else self.subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
 
-        # Kerykeion хранит планеты в data как ключи с именами в нижнем регистре
-        # но мы будем искать по имени из PLANET_MAP
         planets = []
         for tech_name in self.PLANET_MAP.keys():
             key = tech_name.lower()
@@ -230,7 +225,6 @@ class NatalContextBuilder:
                             'retrograde': obj.get('retrograde', False),
                         })
                 else:
-                    # может быть KerykeionPointModel
                     if hasattr(obj, 'sign') and hasattr(obj, 'position'):
                         planets.append({
                             'name': tech_name,
@@ -287,7 +281,6 @@ class NatalContextBuilder:
 
     def _get_aspects(self) -> List[str]:
         """Аспекты с применением/расхождением."""
-        # Пытаемся получить через AspectsFactory
         aspects = []
         try:
             factory = AspectsFactory.single_chart_aspects(self.subject)
@@ -309,33 +302,26 @@ class NatalContextBuilder:
 
         lines = ["Аспекты:"]
         for a in aspects:
-            # Извлекаем данные
             p1 = getattr(a, 'p1_name', None)
             p2 = getattr(a, 'p2_name', None)
             aspect = getattr(a, 'aspect', None)
             orbit = getattr(a, 'orbit', getattr(a, 'orb', None))
-            movement = getattr(a, 'aspect_movement', None)  # Kerykeion может давать 'Applying'/'Separating'
+            movement = getattr(a, 'aspect_movement', None)
 
             if not p1 or not p2 or not aspect or orbit is None:
                 continue
 
-            # Фильтруем только разрешённые аспекты
             if aspect.lower() not in self.ALLOWED_ASPECTS:
                 continue
 
-            # Переводы
             p1_name = self.PLANET_MAP.get(p1, p1)
             p2_name = self.PLANET_MAP.get(p2, p2)
             aspect_name = self.ASPECT_MAP.get(aspect.lower(), aspect)
 
-            # Определяем фазу
             if movement:
                 phase = "сходящийся" if 'applying' in movement.lower() else "расходящийся" if 'separating' in movement.lower() else ""
             else:
-                # fallback: по скоростям (если есть)
                 phase = ""
-                # можно попробовать извлечь p1_speed, p2_speed
-                # но мы не будем усложнять, лучше оставить пустым
 
             if phase:
                 lines.append(f"{p1_name} — {aspect_name} — {p2_name}, орб {orbit:.2f}°, {phase}")
@@ -353,7 +339,6 @@ class NatalContextBuilder:
         elements = data.get('element_distribution')
         if elements:
             lines = ["Распределение стихий:"]
-            # elements может быть словарем {'Fire': 25, 'Earth': 30, ...}
             for elem, value in elements.items():
                 lines.append(f"{elem}: {value}%")
             lines.append("")
@@ -368,7 +353,6 @@ class NatalContextBuilder:
         qualities = data.get('quality_distribution')
         if qualities:
             lines = ["Распределение качеств:"]
-            # qualities может быть {'Cardinal': 30, 'Fixed': 45, 'Mutable': 25}
             for qual, value in qualities.items():
                 lines.append(f"{qual}: {value}%")
             lines.append("")
@@ -377,8 +361,6 @@ class NatalContextBuilder:
 
     def _get_lunar_phase(self) -> List[str]:
         """Лунная фаза."""
-        # Kerykeion имеет LunarPhaseModel, но как его получить из субъекта?
-        # Есть метод subject.lunar_phase, если он существует
         try:
             if hasattr(self.subject, 'lunar_phase'):
                 phase = self.subject.lunar_phase
