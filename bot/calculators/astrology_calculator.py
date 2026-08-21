@@ -76,6 +76,8 @@ class AstrologyCalculator:
                 if utc_dt.utcoffset() != timezone.utc.utcoffset(utc_dt):
                     raise ValueError("Not UTC")
                 logger.info(f"✅ Используем координаты и UTC из БД: lat={lat}, lng={lng}, utc={utc_dt}")
+                self._calculated_coords = (lat, lng)
+                self._calculated_utc_str = utc_str
                 self._utc_dt = utc_dt
                 return lat, lng, utc_dt
             except Exception as e:
@@ -144,7 +146,7 @@ class AstrologyCalculator:
             lng=lng,
             tz_str="UTC"
         )
-        self._subject = subject  # сохраняем для билдера
+        self._subject = subject
         logger.info(f"👤 Субъект создан: {subject.name}")
 
         # Извлекаем данные из модели
@@ -251,15 +253,14 @@ class AstrologyCalculator:
         dsc = _extract_angle(data.get('descendant'))
         ic = _extract_angle(data.get('imum_coeli'))
 
-        # Если не найдены, пробуем через subject напрямую
-        if not asc and hasattr(subject, 'ascendant'):
-            asc = _extract_angle(subject.ascendant)
-        if not mc and hasattr(subject, 'midheaven'):
-            mc = _extract_angle(subject.midheaven)
-        if not dsc and hasattr(subject, 'descendant'):
-            dsc = _extract_angle(subject.descendant)
-        if not ic and hasattr(subject, 'imum_coeli'):
-            ic = _extract_angle(subject.imum_coeli)
+        if not asc and hasattr(self.subject, 'ascendant'):
+            asc = _extract_angle(self.subject.ascendant)
+        if not mc and hasattr(self.subject, 'midheaven'):
+            mc = _extract_angle(self.subject.midheaven)
+        if not dsc and hasattr(self.subject, 'descendant'):
+            dsc = _extract_angle(self.subject.descendant)
+        if not ic and hasattr(self.subject, 'imum_coeli'):
+            ic = _extract_angle(self.subject.imum_coeli)
 
         # --- Метаданные ---
         zodiac_type = data.get('zodiac_type', 'Tropical')
@@ -269,8 +270,8 @@ class AstrologyCalculator:
 
         # --- Лунная фаза ---
         lunar_phase = None
-        if hasattr(subject, 'lunar_phase'):
-            phase = subject.lunar_phase
+        if hasattr(self.subject, 'lunar_phase'):
+            phase = self.subject.lunar_phase
             if phase:
                 lunar_phase = {
                     'name': getattr(phase, 'name', None),
@@ -373,6 +374,19 @@ class AstrologyCalculator:
         angles = data.get('angles', {})
         utc = data.get('utc_datetime', 'не известно')
 
+        def format_angle(angle_data):
+            if angle_data and isinstance(angle_data, dict):
+                pos = angle_data.get('position', 0.0)
+                return f"{pos:.2f}°"
+            return "—"
+
+        angles_str = (
+            f"ASC: {format_angle(angles.get('ASC'))}, "
+            f"MC: {format_angle(angles.get('MC'))}, "
+            f"DSC: {format_angle(angles.get('DSC'))}, "
+            f"IC: {format_angle(angles.get('IC'))}"
+        )
+
         return {
             'name': self.name,
             'gender': 'Мужчина' if self.gender == 'M' else 'Женщина',
@@ -383,5 +397,5 @@ class AstrologyCalculator:
             'lng': f"{loc.get('lng', 0.0):.4f}",
             'timezone': 'UTC',
             'utc_datetime': utc,
-            'angles': f"ASC: {angles.get('ASC', {}).get('position', 0.0):.2f}°, MC: {angles.get('MC', {}).get('position', 0.0):.2f}°, DSC: {angles.get('DSC', {}).get('position', 0.0):.2f}°, IC: {angles.get('IC', {}).get('position', 0.0):.2f}°"
+            'angles': angles_str
         }
