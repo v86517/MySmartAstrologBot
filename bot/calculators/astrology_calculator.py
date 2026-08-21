@@ -253,14 +253,14 @@ class AstrologyCalculator:
         dsc = _extract_angle(data.get('descendant'))
         ic = _extract_angle(data.get('imum_coeli'))
 
-        if not asc and hasattr(self.subject, 'ascendant'):
-            asc = _extract_angle(self.subject.ascendant)
-        if not mc and hasattr(self.subject, 'midheaven'):
-            mc = _extract_angle(self.subject.midheaven)
-        if not dsc and hasattr(self.subject, 'descendant'):
-            dsc = _extract_angle(self.subject.descendant)
-        if not ic and hasattr(self.subject, 'imum_coeli'):
-            ic = _extract_angle(self.subject.imum_coeli)
+        if not asc and hasattr(self._subject, 'ascendant'):
+            asc = _extract_angle(self._subject.ascendant)
+        if not mc and hasattr(self._subject, 'midheaven'):
+            mc = _extract_angle(self._subject.midheaven)
+        if not dsc and hasattr(self._subject, 'descendant'):
+            dsc = _extract_angle(self._subject.descendant)
+        if not ic and hasattr(self._subject, 'imum_coeli'):
+            ic = _extract_angle(self._subject.imum_coeli)
 
         # --- Метаданные ---
         zodiac_type = data.get('zodiac_type', 'Tropical')
@@ -270,8 +270,8 @@ class AstrologyCalculator:
 
         # --- Лунная фаза ---
         lunar_phase = None
-        if hasattr(self.subject, 'lunar_phase'):
-            phase = self.subject.lunar_phase
+        if hasattr(self._subject, 'lunar_phase'):
+            phase = self._subject.lunar_phase
             if phase:
                 lunar_phase = {
                     'name': getattr(phase, 'name', None),
