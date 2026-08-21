@@ -32,6 +32,24 @@ class NatalContextBuilder:
         'True_Lilith': 'Лилит'
     }
 
+    # Маппинг технических имён Kerykeion → имена в PLANET_MAP
+    TECH_NAME_TO_PLANET_MAP = {
+        'sun': 'Sun',
+        'moon': 'Moon',
+        'mercury': 'Mercury',
+        'venus': 'Venus',
+        'mars': 'Mars',
+        'jupiter': 'Jupiter',
+        'saturn': 'Saturn',
+        'uranus': 'Uranus',
+        'neptune': 'Neptune',
+        'pluto': 'Pluto',
+        'true_north_lunar_node': 'True_North_Lunar_Node',
+        'true_south_lunar_node': 'True_South_Lunar_Node',
+        'chiron': 'Chiron',
+        'true_lilith': 'True_Lilith'
+    }
+
     ASPECT_MAP = {
         'conjunction': 'соединение',
         'opposition': 'оппозиция',
@@ -40,7 +58,6 @@ class NatalContextBuilder:
         'sextile': 'секстиль'
     }
 
-    # Маппинг ключей домов из Kerykeion в человекочитаемый вид
     HOUSE_KEY_MAP = {
         'first_house': '1 дом',
         'second_house': '2 дом',
@@ -56,7 +73,6 @@ class NatalContextBuilder:
         'twelfth_house': '12 дом'
     }
 
-    # Маппинг для номеров домов (альтернативный формат)
     HOUSE_NUMBER_MAP = {
         'First_House': '1 дом',
         'Second_House': '2 дом',
@@ -144,8 +160,7 @@ class NatalContextBuilder:
                         })
                         logger.info(f"Добавлена планета {mapped_name}: {obj.get('sign')} {obj.get('position')}")
                     else:
-                        logger.warning(
-                            f"Объект {key} не содержит sign и position: {obj.keys() if isinstance(obj, dict) else 'not a dict'}")
+                        logger.warning(f"Объект {key} не содержит sign и position: {obj.keys() if isinstance(obj, dict) else 'not a dict'}")
                 else:
                     if hasattr(obj, 'sign') and hasattr(obj, 'position'):
                         self._planets.append({
@@ -156,11 +171,9 @@ class NatalContextBuilder:
                             'house': getattr(obj, 'house'),
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
-                        logger.info(
-                            f"Добавлена планета {mapped_name}: {getattr(obj, 'sign')} {getattr(obj, 'position')}")
+                        logger.info(f"Добавлена планета {mapped_name}: {getattr(obj, 'sign')} {getattr(obj, 'position')}")
                     else:
-                        logger.warning(
-                            f"Объект {key} не имеет атрибутов sign и position: {dir(obj) if hasattr(obj, '__dir__') else 'unknown'}")
+                        logger.warning(f"Объект {key} не имеет атрибутов sign и position: {dir(obj) if hasattr(obj, '__dir__') else 'unknown'}")
             else:
                 logger.warning(f"Ключ {key} отсутствует в data")
 
@@ -177,7 +190,7 @@ class NatalContextBuilder:
                 if isinstance(obj, dict):
                     if 'sign' in obj and 'position' in obj:
                         self._houses.append({
-                            'key': key,  # сохраняем исходный ключ
+                            'key': key,
                             'sign': obj.get('sign'),
                             'position': obj.get('position'),
                             'abs_pos': obj.get('abs_pos'),
@@ -231,7 +244,7 @@ class NatalContextBuilder:
             return None
 
         asc = _extract_angle(data.get('ascendant'))
-        mc = _extract_angle(data.get('medium_coeli'))  # Исправлено: medium_coeli
+        mc = _extract_angle(data.get('medium_coeli'))
         dsc = _extract_angle(data.get('descendant'))
         ic = _extract_angle(data.get('imum_coeli'))
 
@@ -406,10 +419,10 @@ class NatalContextBuilder:
             'Uranus': any(p['name'] == 'Uranus' for p in self._planets),
             'Neptune': any(p['name'] == 'Neptune' for p in self._planets),
             'Pluto': any(p['name'] == 'Pluto' for p in self._planets),
-            'North_Node': any(p['name'] in ['True_North_Lunar_Node', 'TrueNorthLunarNode'] for p in self._planets),
-            'South_Node': any(p['name'] in ['True_South_Lunar_Node', 'TrueSouthLunarNode'] for p in self._planets),
+            'North_Node': any(p['name'] == 'True_North_Lunar_Node' for p in self._planets),
+            'South_Node': any(p['name'] == 'True_South_Lunar_Node' for p in self._planets),
             'Chiron': any(p['name'] == 'Chiron' for p in self._planets),
-            'True_Lilith': any(p['name'] in ['True_Lilith', 'TrueLilith'] for p in self._planets),
+            'True_Lilith': any(p['name'] == 'True_Lilith' for p in self._planets),
             'Mean_Lilith_absent': not any(p['name'] == 'Mean_Lilith' for p in self._planets),
             '12_houses': len(self._houses) == 12,
             'elements_present': bool(self._elements),
@@ -488,7 +501,6 @@ class NatalContextBuilder:
 
         # Куспиды домов
         lines.append("Куспиды домов:")
-        # Сортируем дома по ключу
         house_order = ['first_house', 'second_house', 'third_house', 'fourth_house',
                        'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
                        'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house']
@@ -565,14 +577,11 @@ class NatalContextBuilder:
         house = planet['house']
         retro = planet['retrograde']
 
-        # Определяем дом
         if house is None or house == 0:
             house_display = "неизвестный дом"
         elif isinstance(house, int):
             house_display = f"{house} дом"
         elif isinstance(house, str):
-            # Пробуем преобразовать через маппинг
-            # Возможные варианты: "First_House", "first_house", "1"
             if house in self.HOUSE_NUMBER_MAP:
                 house_display = self.HOUSE_NUMBER_MAP[house]
             elif house.lower() in self.HOUSE_KEY_MAP:
