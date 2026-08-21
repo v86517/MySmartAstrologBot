@@ -34,6 +34,8 @@ from bot.db import (
     get_service_price,
 )
 from bot.yookassa_client import yookassa
+from bot.calculators.astrology_calculator import AstrologyCalculator
+from bot.db import get_emulation_mode
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -198,121 +200,36 @@ async def process_astrology_gender(message: Message, state: FSMContext):
 
     data = await state.get_data()
 
-    user_data_from_db = await get_user_data(user_id)
-    astro_count = user_data_from_db.get('astrology_count', 0) if user_data_from_db else 0
-
-    if astro_count > 0:
-        astrology_data[user_id] = {
-            'name': data.get('astrology_name'),
-            'birth_date': data.get('astrology_birth_date'),
-            'birth_time': data.get('astrology_birth_time'),
-            'birth_place': data.get('astrology_birth_place'),
-            'gender': gender,
-            'zodiac': data.get('astrology_zodiac'),
-            'is_manual': True
-        }
-
-        zodiac_emoji = get_zodiac_emoji(data.get('astrology_zodiac', 'Неизвестно'))
-        zodiac_name = get_zodiac_sign_localized(data.get('astrology_zodiac', 'Неизвестно'), lang)
-        if gender == 'M':
-            gender_display = await get_text(user_id, 'astro_gender_male')
-        else:
-            gender_display = await get_text(user_id, 'astro_gender_female')
-        template = await get_text(user_id, 'astrology_confirm_data')
-        profile_text = template.format(
-            name=data.get('astrology_name'),
-            gender=gender_display,
-            birth_date=data.get('astrology_birth_date'),
-            birth_time=data.get('astrology_birth_time'),
-            birth_place=data.get('astrology_birth_place'),
-            emoji=zodiac_emoji,
-            zodiac=zodiac_name
-        )
-        await state.set_state(AstrologyStates.CONFIRM_DATA)
-        await message.answer(
-            profile_text,
-            reply_markup=get_astrology_confirm_keyboard(lang)
-        )
-        return
-
-    if not data.get('astrology_paid', False):
-        await message.answer(
-            await get_text(user_id, 'astrology_payment_not_confirmed'),
-            reply_markup=get_astrology_payment_keyboard(lang)
-        )
-        await state.set_state(AstrologyStates.PAYMENT)
-        return
-
-    user_data_for_calc = {
+    # Сохраняем данные во временное хранилище
+    astrology_data[user_id] = {
         'name': data.get('astrology_name'),
         'birth_date': data.get('astrology_birth_date'),
         'birth_time': data.get('astrology_birth_time'),
         'birth_place': data.get('astrology_birth_place'),
         'gender': gender,
-        'zodiac': data.get('astrology_zodiac')
+        'zodiac': data.get('astrology_zodiac'),
+        'is_manual': True
     }
-    astrology_data[user_id] = user_data_for_calc
 
-    await state.clear()
-
+    # Показываем подтверждение
     zodiac_emoji = get_zodiac_emoji(data.get('astrology_zodiac', 'Неизвестно'))
     zodiac_name = get_zodiac_sign_localized(data.get('astrology_zodiac', 'Неизвестно'), lang)
-    gender_display = 'Мужской' if gender == 'M' else 'Женский'
-
-    template = await get_text(user_id, 'astrology_data_saved')
+    gender_display = await get_text(user_id, 'astro_gender_male') if gender == 'M' else await get_text(user_id, 'astro_gender_female')
+    template = await get_text(user_id, 'astrology_confirm_data')
     profile_text = template.format(
         name=data.get('astrology_name'),
+        gender=gender_display,
         birth_date=data.get('astrology_birth_date'),
         birth_time=data.get('astrology_birth_time'),
         birth_place=data.get('astrology_birth_place'),
-        gender=gender_display,
         emoji=zodiac_emoji,
         zodiac=zodiac_name
     )
-
-    await message.answer(await get_text(user_id, 'astrology_status_building'), reply_markup=ReplyKeyboardRemove())
-
-    status_msg = await message.answer(profile_text)
-
-    try:
-        await status_msg.edit_text(await get_text(user_id, 'astrology_status_planets'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'astrology_status_houses'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'astrology_status_final'))
-        await asyncio.sleep(2)
-
-        if _gemini_service:
-            user_data_for_calc['telegram_id'] = user_id
-            interpretation, coords = await _gemini_service.generate_astrology_v2(user_data_for_calc, lang, telegram_id=user_id)
-            if coords:
-                from bot.db import save_user_coords
-                await save_user_coords(user_id, coords[0], coords[1], coords[2])
-            is_admin = await is_user_admin(user_id)
-            display_data = _gemini_service.get_astrology_display_data(
-                user_data_for_calc, lang, is_admin=is_admin, telegram_id=user_id
-            )
-
-            if is_admin:
-                final_message = f"{display_data['basic']}\n\n{display_data['full']}\n\n{interpretation}"
-            else:
-                final_message = f"{display_data['basic']}\n\n{interpretation}"
-
-            await save_message_to_archive(user_id, 'astrology', final_message)
-            await add_astrology_count(user_id, -1)
-
-            await status_msg.delete()
-            await send_long_message(message, final_message, reply_markup=get_main_menu_button(lang))
-        else:
-            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
-    except Exception as e:
-        try:
-            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
-        except:
-            await message.answer(f"❌ Ошибка: {str(e)}")
-    finally:
-        astrology_data.pop(user_id, None)
-        await state.clear()
+    await state.set_state(AstrologyStates.CONFIRM_DATA)
+    await message.answer(
+        profile_text,
+        reply_markup=get_astrology_confirm_keyboard(lang)
+    )
 
 
 # ==================== CALLBACK-ХЕНДЛЕРЫ ====================
@@ -324,98 +241,68 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
 
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
-    data = await state.get_data()
 
-    if not data.get('astrology_paid', False):
-        await callback.message.answer(
-            await get_text(user_id, 'astrology_payment_required'),
-            reply_markup=get_astrology_payment_keyboard(lang)
-        )
+    # 1. Проверяем, есть ли сохранённые данные
+    user_data_from_db = await get_user_data(user_id)
+    if not user_data_from_db or not user_data_from_db.get('name'):
+        await callback.message.answer(await get_text(user_id, 'astrology_data_not_found'), reply_markup=get_main_menu(lang))
+        await state.clear()
+        return
+
+    # 2. Проверяем оплату
+    astro_count = user_data_from_db.get('astrology_count', 0)
+    if astro_count <= 0:
+        await callback.message.answer(await get_text(user_id, 'astrology_payment_required'), reply_markup=get_astrology_payment_keyboard(lang))
         await state.set_state(AstrologyStates.PAYMENT)
         return
 
-    user_data_from_db = await get_user_data(user_id)
-    if not user_data_from_db or not user_data_from_db.get('name'):
-        await callback.message.answer(
-            await get_text(user_id, 'astrology_data_not_found'),
-            reply_markup=get_main_menu(lang)
-        )
-        await state.clear()
-        return
+    # 3. Режим эмуляции
+    emulation = await get_emulation_mode(user_id)
 
-    astrology_data[user_id] = {
-        'name': user_data_from_db.get('name'),
-        'birth_date': user_data_from_db.get('birth_date'),
-        'birth_time': user_data_from_db.get('birth_time'),
-        'birth_place': user_data_from_db.get('birth_place'),
-        'gender': user_data_from_db.get('gender'),
-        'zodiac': user_data_from_db.get('zodiac'),
-        'is_manual': False
-    }
-
-    await state.clear()
-
-    zodiac_emoji = get_zodiac_emoji(user_data_from_db.get('zodiac', 'Неизвестно'))
-    zodiac_name = get_zodiac_sign_localized(user_data_from_db.get('zodiac', 'Неизвестно'), lang)
-    gender_display = 'Мужской' if user_data_from_db.get('gender') == 'M' else 'Женский'
-
-    template = await get_text(user_id, 'astrology_use_data_confirm')
-    profile_text = template.format(
-        name=user_data_from_db.get('name'),
-        birth_date=user_data_from_db.get('birth_date'),
-        birth_time=user_data_from_db.get('birth_time'),
-        birth_place=user_data_from_db.get('birth_place'),
-        gender=gender_display,
-        emoji=zodiac_emoji,
-        zodiac=zodiac_name
+    # 4. Создаём калькулятор
+    calc = AstrologyCalculator(
+        user_data=user_data_from_db,
+        lang=lang,
+        telegram_id=user_id,
+        coords=None,
+        emulation_mode=emulation,
+        gemini_service=_gemini_service
     )
 
-    await callback.message.answer(
-        await get_text(user_id, 'astrology_status_building'),
-        reply_markup=ReplyKeyboardRemove()
-    )
-
-    status_msg = await callback.message.answer(profile_text)
+    await callback.message.answer("⏳ Строим натальную карту...", reply_markup=ReplyKeyboardRemove())
 
     try:
-        await status_msg.edit_text(await get_text(user_id, 'astrology_status_planets'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'astrology_status_houses'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'astrology_status_final'))
-        await asyncio.sleep(2)
+        result = await calc.generate()
+        basic = calc.get_basic_parameters()
 
-        if _gemini_service:
-            user_data_from_db['telegram_id'] = user_id
-            interpretation, coords = await _gemini_service.generate_astrology_v2(user_data_from_db, lang, telegram_id=user_id)
-            if coords:
-                from bot.db import save_user_coords
-                await save_user_coords(user_id, coords[0], coords[1], coords[2])
-            is_admin = await is_user_admin(user_id)
-            display_data = _gemini_service.get_astrology_display_data(
-                user_data_from_db, lang, is_admin=is_admin, telegram_id=user_id
-            )
-
-            if is_admin:
-                final_message = f"{display_data['basic']}\n\n{display_data['full']}\n\n{interpretation}"
-            else:
-                final_message = f"{display_data['basic']}\n\n{interpretation}"
-
-            await save_message_to_archive(user_id, 'astrology', final_message)
-            await add_astrology_count(user_id, -1)
-
-            await status_msg.delete()
-            await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
+        if emulation:
+            final_text = result
         else:
-            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
+            basic_text = (
+                f"🌙 Ваш астрологический разбор\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 Имя: {basic['name']}\n"
+                f"⚥ Пол: {basic['gender']}\n"
+                f"📅 Дата рождения: {basic['birth_date']}\n"
+                f"🕒 Время рождения: {basic['birth_time']}\n"
+                f"📍 Место рождения: {basic['birth_place']}\n"
+                f"🌐 Координаты: {basic['lat']}, {basic['lng']}\n"
+                f"🕒 Часовой пояс: {basic['timezone']}\n"
+                f"🕒 UTC время: {basic['utc_datetime']}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+            )
+            final_text = f"{basic_text}\n\n{result}"
+
+        await save_message_to_archive(user_id, 'astrology', final_text)
+        await add_astrology_count(user_id, -1)
+
+        await callback.message.answer(final_text, reply_markup=get_main_menu_button(lang))
+
     except Exception as e:
-        try:
-            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
-        except:
-            await callback.message.answer(f"❌ Ошибка: {str(e)}")
-    finally:
-        astrology_data.pop(user_id, None)
-        await state.clear()
+        logger.error(f"Ошибка в astrology_use_my_data: {e}", exc_info=True)
+        await callback.message.answer(f"❌ Ошибка: {str(e)}", reply_markup=get_main_menu(lang))
+
+    await state.clear()
 
 
 @router.callback_query(F.data == "astrology_fill_new_data")
@@ -491,72 +378,80 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
 
-    manual_data = astrology_data.get(user_id)
-    if manual_data and manual_data.get('is_manual') is True:
-        user_data = {k: v for k, v in manual_data.items() if k != 'is_manual'}
+    # 1. Получаем данные пользователя (из БД или из временного хранилища)
+    # В вашем коде могли использоваться временные данные из astrology_data[user_id]
+    # Проверяем оба источника
+    user_data = astrology_data.get(user_id)
+    if user_data and user_data.get('is_manual'):
+        # данные введены вручную
+        user_data = {k: v for k, v in user_data.items() if k != 'is_manual'}
         astrology_data.pop(user_id, None)
     else:
-        user_data_from_db = await get_user_data(user_id)
-        if not user_data_from_db or not user_data_from_db.get('name'):
-            await callback.message.answer(
-                await get_text(user_id, 'error_not_found'),
-                reply_markup=get_main_menu(lang)
-            )
+        # берём из БД
+        user_data = await get_user_data(user_id)
+        if not user_data or not user_data.get('name'):
+            await callback.message.answer(await get_text(user_id, 'error_not_found'), reply_markup=get_main_menu(lang))
             await state.clear()
             return
-        user_data = user_data_from_db
-        astrology_data.pop(user_id, None)
 
-    await callback.message.answer(
-        await get_text(user_id, 'astrology_status_building'),
-        reply_markup=ReplyKeyboardRemove()
+    # 2. Проверяем наличие оплаченных сессий
+    astro_count = user_data.get('astrology_count', 0)
+    if astro_count <= 0:
+        await callback.message.answer(await get_text(user_id, 'astrology_payment_required'), reply_markup=get_astrology_payment_keyboard(lang))
+        await state.set_state(AstrologyStates.PAYMENT)
+        return
+
+    # 3. Режим эмуляции
+    emulation = await get_emulation_mode(user_id)
+
+    # 4. Создаём калькулятор
+    calc = AstrologyCalculator(
+        user_data=user_data,
+        lang=lang,
+        telegram_id=user_id,
+        coords=None,  # пусть сам определит
+        emulation_mode=emulation,
+        gemini_service=_gemini_service
     )
 
-    status_msg = await callback.message.answer(await get_text(user_id, 'astrology_confirm_start'))
+    await callback.message.answer("⏳ Строим натальную карту...", reply_markup=ReplyKeyboardRemove())
 
     try:
-        await status_msg.edit_text(await get_text(user_id, 'astrology_status_planets'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'astrology_status_houses'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'astrology_status_final'))
-        await asyncio.sleep(2)
+        # 5. Генерируем результат
+        result = await calc.generate()
+        basic = calc.get_basic_parameters()
 
-        if _gemini_service:
-            user_data['telegram_id'] = user_id
-            interpretation, coords = await _gemini_service.generate_astrology_v2(user_data, lang, telegram_id=user_id)
-            if coords:
-                logger.info(f"🔍 Найдены координаты из astrology: {coords}")
-                from bot.db import save_user_coords
-                await save_user_coords(user_id, coords[0], coords[1], coords[2])
-                logger.info(f"✅ Координаты сохранены для пользователя {user_id}")
-            else:
-                logger.warning("⚠️ Координаты не найдены в astrology")
-            is_admin = await is_user_admin(user_id)
-            display_data = _gemini_service.get_astrology_display_data(
-                user_data, lang, is_admin=is_admin, telegram_id=user_id
-            )
-
-            if is_admin:
-                final_message = f"{display_data['basic']}\n\n{display_data['full']}\n\n{interpretation}"
-            else:
-                final_message = f"{display_data['basic']}\n\n{interpretation}"
-
-            await save_message_to_archive(user_id, 'astrology', final_message)
-            await add_astrology_count(user_id, -1)
-
-            await status_msg.delete()
-            await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
+        # 6. Формируем вывод
+        if emulation:
+            final_text = result
         else:
-            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
+            basic_text = (
+                f"🌙 Ваш астрологический разбор\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 Имя: {basic['name']}\n"
+                f"⚥ Пол: {basic['gender']}\n"
+                f"📅 Дата рождения: {basic['birth_date']}\n"
+                f"🕒 Время рождения: {basic['birth_time']}\n"
+                f"📍 Место рождения: {basic['birth_place']}\n"
+                f"🌐 Координаты: {basic['lat']}, {basic['lng']}\n"
+                f"🕒 Часовой пояс: {basic['timezone']}\n"
+                f"🕒 UTC время: {basic['utc_datetime']}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+            )
+            final_text = f"{basic_text}\n\n{result}"
+
+        # 7. Сохраняем в архив и списываем сессию
+        await save_message_to_archive(user_id, 'astrology', final_text)
+        await add_astrology_count(user_id, -1)
+
+        # 8. Отправляем
+        await callback.message.answer(final_text, reply_markup=get_main_menu_button(lang))
+
     except Exception as e:
-        try:
-            await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
-        except:
-            await callback.message.answer(f"❌ Ошибка: {str(e)}")
-    finally:
-        astrology_data.pop(user_id, None)
-        await state.clear()
+        logger.error(f"Ошибка в astrology_confirm: {e}", exc_info=True)
+        await callback.message.answer(f"❌ Ошибка: {str(e)}", reply_markup=get_main_menu(lang))
+
+    await state.clear()
 
 
 @router.callback_query(F.data == "edit_astrology_data")
