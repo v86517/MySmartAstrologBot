@@ -296,7 +296,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await save_message_to_archive(user_id, 'astrology', final_text)
         await add_astrology_count(user_id, -1)
 
-        await callback.message.answer(final_text, reply_markup=get_main_menu_button(lang))
+        await send_long_message(callback.message, final_text, reply_markup=get_main_menu_button(lang))
 
     except Exception as e:
         logger.error(f"Ошибка в astrology_use_my_data: {e}", exc_info=True)
@@ -445,7 +445,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         await add_astrology_count(user_id, -1)
 
         # 8. Отправляем
-        await callback.message.answer(final_text, reply_markup=get_main_menu_button(lang))
+        await send_long_message(callback.message, final_text, reply_markup=get_main_menu_button(lang))
 
     except Exception as e:
         logger.error(f"Ошибка в astrology_confirm: {e}", exc_info=True)
