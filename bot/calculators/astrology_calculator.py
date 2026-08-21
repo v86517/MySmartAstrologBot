@@ -53,6 +53,7 @@ class AstrologyCalculator:
         #self._cached_timezone = None
         self._angles = None  # FIXED: кеш углов
         self.telegram_id = telegram_id
+        logger.info(f"🔍 AstrologyCalculator инициализирован с telegram_id={telegram_id}")
         self._calculated_coords = None
 
     def _parse_birth_datetime(self) -> Tuple[int, int, int, int, int]:
@@ -78,10 +79,11 @@ class AstrologyCalculator:
         """
         Определяет координаты и часовой пояс места рождения.
         Проверяет наличие координат в self.user_data (переданы из хендлера).
-        Если их нет — выполняет геокодинг.
-        Координаты НЕ СОХРАНЯЮТСЯ в БД внутри этого метода.
+        Если их нет — выполняет геокодинг и сохраняет координаты в self._calculated_coords.
         """
-        # 1. Проверяем наличие координат в user_data
+        logger.info(f"🔍 _get_coordinates_and_timezone: telegram_id={self.telegram_id}")
+
+        # 1. Проверяем наличие координат в user_data (из БД)
         lat = self.user_data.get('birth_lat')
         lng = self.user_data.get('birth_lng')
         tz = self.user_data.get('birth_timezone')
@@ -89,13 +91,22 @@ class AstrologyCalculator:
             logger.info(f"✅ Используем координаты из user_data: ({lat}, {lng}, {tz})")
             return lat, lng, tz
 
-        # 2. Если координат нет — выполняем геокодинг
+        logger.info("🌐 Координаты не найдены в user_data, выполняем геокодинг")
+
+        # 2. Определяем город и страну
         city, country = self._parse_birth_place()
         logger.info(f"🌐 Выполняем геокодинг для {city}, {country}")
 
-        lat, lng, tz = self._perform_geocoding(city, country)
+        # 3. Геокодинг
+        try:
+            lat, lng, tz = self._perform_geocoding(city, country)
+            logger.info(f"🌐 Геокодинг вернул: lat={lat}, lng={lng}, tz={tz}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка геокодинга: {e}")
+            logger.warning("⚠️ Используем координаты Москвы как fallback")
+            lat, lng, tz = self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
 
-        # 3. Уточняем часовой пояс через Gemini (если доступен)
+        # 4. Уточняем часовой пояс через Gemini
         try:
             refined_tz = self._refine_timezone(tz, city, country, lat, lng)
             if refined_tz:
@@ -104,10 +115,11 @@ class AstrologyCalculator:
         except Exception as e:
             logger.warning(f"⚠️ Ошибка уточнения таймзоны: {e}")
 
-        # 4. Сохраняем координаты в атрибуты для последующего использования в хендлере
+        # 5. Сохраняем вычисленные координаты в атрибут для дальнейшего использования в хендлере
         self._calculated_coords = (lat, lng, tz)
-        logger.info(f"🌐 Координаты: {lat}, {lng}, часовой пояс: {tz}")
+        logger.info(f"🔍 _calculated_coords установлен: {self._calculated_coords}")
 
+        logger.info(f"🌐 Итоговые координаты: {lat}, {lng}, часовой пояс: {tz}")
         return lat, lng, tz
 
     def _perform_geocoding(self, city: str, country: str) -> Tuple[float, float, str]:
@@ -1261,10 +1273,10 @@ class AstrologyCalculator:
             f"для местной даты {day:02d}.{month:02d}.{year} и времени {hour:02d}:{minute:02d}. "
             f"Учти все исторические переходы на летнее время в этом регионе на указанную дату. "
             f"На основании разницы между вычесленными датой и временем и местной датой {day:02d}.{month:02d}.{year} и временем {hour:02d}:{minute:02d}"
-            f"вычисли соответствующий часовой пояс (по стандарту IANA). "
-            f"Верни ответ в формате JSON с полями: 'utc_datetime' (в формате YYYY-MM-DD HH:MM:SS) и "
-            f"'timezone' (название IANA, например 'Asia/Magadan'). Если точное название неизвестно, "
-            f"укажи наиболее вероятное."
+            f"вычисли соответствующий часовой пояс (по стандарту IANA). Не пиши ничего кроме ответа "
+            f"в формате JSON с полями: 'utc_datetime' (в формате YYYY-MM-DD HH:MM:SS) и "
+            f"'timezone' (название IANA, например 'Asia/Magadan'). Если точное название 'timezone' неизвестно, "
+            f"то верни наиболее вероятное название 'timezone'."
         )
         try:
             response = self.__class__.gemini_service.send_raw_prompt(prompt)

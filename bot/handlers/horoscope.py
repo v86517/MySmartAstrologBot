@@ -200,10 +200,13 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
             # Сохраняем координаты, если они были вычислены
             if hasattr(natal_builder.natal_calc, '_calculated_coords'):
                 coords = natal_builder.natal_calc._calculated_coords
+                logger.info(f"🔍 Найдены координаты из natal_builder: {coords}")
                 if coords:
                     await save_user_coords(user_id, coords[0], coords[1], coords[2])
-                    # ПЕРЕЗАГРУЖАЕМ user_data, чтобы в нём были координаты для транзитного калькулятора
-                    user_data = await get_user_data(user_id)
+                    logger.info(f"✅ Координаты сохранены для пользователя {user_id}")
+                    user_data = await get_user_data(user_id)  # перезагружаем для транзитного калькулятора
+            else:
+                logger.warning("⚠️ _calculated_coords отсутствует в natal_builder.natal_calc")
 
             # ===== 2. ТРАНЗИТНЫЙ КАЛЬКУЛЯТОР (теперь использует обновлённые user_data с координатами) =====
             transit_calc = TransitHoroscopeCalculator(
@@ -219,8 +222,12 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
             # Сохраняем координаты из транзитного калькулятора (на случай, если они не были сохранены ранее)
             if hasattr(transit_calc.natal_calc, '_calculated_coords'):
                 coords = transit_calc.natal_calc._calculated_coords
+                logger.info(f"🔍 Найдены координаты из transit_calc: {coords}")
                 if coords:
                     await save_user_coords(user_id, coords[0], coords[1], coords[2])
+                    logger.info(f"✅ Координаты сохранены из transit_calc для {user_id}")
+            else:
+                logger.warning("⚠️ _calculated_coords отсутствует в transit_calc.natal_calc")
 
             # ===== 3. СТРОИМ КОНТЕКСТ =====
             builder = AstrologyContextBuilder(user_data, natal_data, transit_data, lang)

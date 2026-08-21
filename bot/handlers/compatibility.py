@@ -459,15 +459,19 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             natal_data1 = natal1.build()
             if hasattr(natal1.natal_calc, '_calculated_coords'):
                 coords = natal1.natal_calc._calculated_coords
+                logger.info(f"🔍 Найдены координаты из natal1: {coords}")
                 if coords:
                     await save_user_coords(user_id, coords[0], coords[1], coords[2])
+                    logger.info(f"✅ Координаты сохранены для пользователя {user_id} (из natal1)")
 
             natal2 = AstrologyDataBuilder(person2, lang, include_transits=False, telegram_id=user_id)
             natal_data2 = natal2.build()
             if hasattr(natal2.natal_calc, '_calculated_coords'):
                 coords = natal2.natal_calc._calculated_coords
+                logger.info(f"🔍 Найдены координаты из natal2: {coords}")
                 if coords:
                     await save_user_coords(user_id, coords[0], coords[1], coords[2])
+                    logger.info(f"✅ Координаты сохранены для пользователя {user_id} (из natal2)")
 
             # 2. Получаем синастрические данные
             comp_calc = CompatibilityCalculator(person1, person2)

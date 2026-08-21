@@ -526,8 +526,12 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
             user_data['telegram_id'] = user_id
             interpretation, coords = await _gemini_service.generate_astrology_v2(user_data, lang, telegram_id=user_id)
             if coords:
+                logger.info(f"🔍 Найдены координаты из astrology: {coords}")
                 from bot.db import save_user_coords
                 await save_user_coords(user_id, coords[0], coords[1], coords[2])
+                logger.info(f"✅ Координаты сохранены для пользователя {user_id}")
+            else:
+                logger.warning("⚠️ Координаты не найдены в astrology")
             is_admin = await is_user_admin(user_id)
             display_data = _gemini_service.get_astrology_display_data(
                 user_data, lang, is_admin=is_admin, telegram_id=user_id
