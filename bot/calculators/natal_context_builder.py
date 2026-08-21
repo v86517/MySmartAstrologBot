@@ -29,7 +29,7 @@ class NatalContextBuilder:
         'True_North_Lunar_Node': 'Северный узел',
         'True_South_Lunar_Node': 'Южный узел',
         'Chiron': 'Хирон',
-        'True_Lilith': 'Лилит'  # будет использоваться, если есть
+        'True_Lilith': 'Лилит'
     }
 
     TECH_NAME_TO_PLANET_MAP = {
@@ -47,6 +47,14 @@ class NatalContextBuilder:
         'true_south_lunar_node': 'True_South_Lunar_Node',
         'chiron': 'Chiron',
         'true_lilith': 'True_Lilith'
+    }
+
+    ANGLE_NAME_MAP = {
+        'Ascendant': 'ASC',
+        'Midheaven': 'MC',
+        'MediumCoeli': 'MC',
+        'Descendant': 'DSC',
+        'ImumCoeli': 'IC',
     }
 
     ASPECT_MAP = {
@@ -113,6 +121,10 @@ class NatalContextBuilder:
 
     ALLOWED_ASPECTS = {'conjunction', 'opposition', 'trine', 'square', 'sextile'}
 
+    # Дополнительные объекты для аспектов (канонические имена)
+    EXTRA_OBJECTS = {'True_North_Lunar_Node', 'True_South_Lunar_Node',
+                     'Chiron', 'True_Lilith', 'ASC', 'MC', 'DSC', 'IC'}
+
     def __init__(self, subject: AstrologicalSubject, lang: str = 'ru'):
         self.subject = subject
         self.lang = lang
@@ -145,8 +157,8 @@ class NatalContextBuilder:
             if key in data:
                 obj = data[key]
                 mapped_name = self.TECH_NAME_TO_PLANET_MAP.get(key, key.capitalize())
-                # Если obj None — пропускаем (например, true_lilith может быть None)
                 if obj is None:
+                    logger.warning(f"Объект {key} отсутствует (None). Пропускаем.")
                     continue
                 if isinstance(obj, dict):
                     if 'sign' in obj and 'position' in obj:
@@ -329,8 +341,9 @@ class NatalContextBuilder:
         main_planets = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                         'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'}
 
-        extra_objects = {'True_North_Lunar_Node', 'True_South_Lunar_Node',
-                         'Chiron', 'True_Lilith', 'ASC', 'MC', 'DSC', 'IC'}
+        # Определим функцию нормализации имён углов
+        def normalize_angle(name):
+            return self.ANGLE_NAME_MAP.get(name, name)
 
         for a in raw_aspects:
             p1 = getattr(a, 'p1_name', None)
@@ -345,11 +358,15 @@ class NatalContextBuilder:
             if aspect.lower() not in self.ALLOWED_ASPECTS:
                 continue
 
-            names = sorted([p1, p2])
-            p1_in_main = p1 in main_planets
-            p2_in_main = p2 in main_planets
-            p1_in_extra = p1 in extra_objects
-            p2_in_extra = p2 in extra_objects
+            # Нормализуем имена углов
+            p1_norm = normalize_angle(p1)
+            p2_norm = normalize_angle(p2)
+
+            names = sorted([p1_norm, p2_norm])
+            p1_in_main = p1_norm in main_planets
+            p2_in_main = p2_norm in main_planets
+            p1_in_extra = p1_norm in self.EXTRA_OBJECTS
+            p2_in_extra = p2_norm in self.EXTRA_OBJECTS
 
             if p1_in_main and p2_in_main:
                 key = (names[0], names[1], aspect.lower())
@@ -359,16 +376,17 @@ class NatalContextBuilder:
                 max_orb = self.PLANET_ASPECT_ORBS.get(aspect.lower(), 8.0)
                 if orbit <= max_orb:
                     planetary.append({
-                        'p1': p1, 'p2': p2,
+                        'p1': p1_norm,
+                        'p2': p2_norm,
                         'aspect': aspect,
                         'orb': orbit,
                         'movement': movement
                     })
             elif (p1_in_main and p2_in_extra) or (p2_in_main and p1_in_extra):
                 if p1_in_main:
-                    planet, extra_obj = p1, p2
+                    planet, extra_obj = p1_norm, p2_norm
                 else:
-                    planet, extra_obj = p2, p1
+                    planet, extra_obj = p2_norm, p1_norm
                 key = (planet, extra_obj, aspect.lower())
                 if key in seen_extra:
                     continue
@@ -379,7 +397,8 @@ class NatalContextBuilder:
                     max_orb = self.EXTRA_ASPECT_ORBS.get(aspect.lower(), 5.0)
                 if orbit <= max_orb:
                     extra.append({
-                        'p1': planet, 'p2': extra_obj,
+                        'p1': planet,
+                        'p2': extra_obj,
                         'aspect': aspect,
                         'orb': orbit,
                         'movement': movement
