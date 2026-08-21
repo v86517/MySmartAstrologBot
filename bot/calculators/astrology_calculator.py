@@ -187,8 +187,40 @@ class AstrologyCalculator:
             logger.warning(f"⚠️ Не удалось получить аспекты: {e}")
 
         # Углы
-        asc = getattr(subject, 'ascendant', 0.0) or 0.0
-        mc = getattr(subject, 'midheaven', 0.0) or 0.0
+        # Извлечение углов (поддержка разных версий kerykeion)
+        def _extract_angle(obj):
+            if obj is None:
+                return 0.0
+            if isinstance(obj, (int, float)):
+                return float(obj)
+            if isinstance(obj, dict):
+                if 'position' in obj:
+                    return float(obj['position'])
+                if 'value' in obj:
+                    return float(obj['value'])
+                # попробуем взять первый числовой ключ
+                for v in obj.values():
+                    if isinstance(v, (int, float)):
+                        return float(v)
+                return 0.0
+            if hasattr(obj, 'position'):
+                return float(obj.position)
+            if hasattr(obj, 'value'):
+                return float(obj.value)
+            try:
+                return float(obj)
+            except:
+                return 0.0
+
+        # Теперь извлекаем углы из data (model.dict())
+        asc = _extract_angle(data.get('ascendant'))
+        mc = _extract_angle(data.get('midheaven'))
+        # Если всё ещё 0, попробуем через subject напрямую
+        if asc == 0.0 and hasattr(subject, 'ascendant'):
+            asc = _extract_angle(subject.ascendant)
+        if mc == 0.0 and hasattr(subject, 'midheaven'):
+            mc = _extract_angle(subject.midheaven)
+
         dsc = (asc + 180) % 360
         ic = (mc + 180) % 360
 
