@@ -40,13 +40,36 @@ class NatalContextBuilder:
         'sextile': 'секстиль'
     }
 
-    HOUSE_MAP = {
-        'First_House': '1 дом', 'Second_House': '2 дом',
-        'Third_House': '3 дом', 'Fourth_House': '4 дом',
-        'Fifth_House': '5 дом', 'Sixth_House': '6 дом',
-        'Seventh_House': '7 дом', 'Eighth_House': '8 дом',
-        'Ninth_House': '9 дом', 'Tenth_House': '10 дом',
-        'Eleventh_House': '11 дом', 'Twelfth_House': '12 дом'
+    # Маппинг ключей домов из Kerykeion в человекочитаемый вид
+    HOUSE_KEY_MAP = {
+        'first_house': '1 дом',
+        'second_house': '2 дом',
+        'third_house': '3 дом',
+        'fourth_house': '4 дом',
+        'fifth_house': '5 дом',
+        'sixth_house': '6 дом',
+        'seventh_house': '7 дом',
+        'eighth_house': '8 дом',
+        'ninth_house': '9 дом',
+        'tenth_house': '10 дом',
+        'eleventh_house': '11 дом',
+        'twelfth_house': '12 дом'
+    }
+
+    # Маппинг для номеров домов (альтернативный формат)
+    HOUSE_NUMBER_MAP = {
+        'First_House': '1 дом',
+        'Second_House': '2 дом',
+        'Third_House': '3 дом',
+        'Fourth_House': '4 дом',
+        'Fifth_House': '5 дом',
+        'Sixth_House': '6 дом',
+        'Seventh_House': '7 дом',
+        'Eighth_House': '8 дом',
+        'Ninth_House': '9 дом',
+        'Tenth_House': '10 дом',
+        'Eleventh_House': '11 дом',
+        'Twelfth_House': '12 дом'
     }
 
     PLANET_ASPECT_ORBS = {
@@ -113,7 +136,7 @@ class NatalContextBuilder:
                             'sign': obj.get('sign'),
                             'position': obj.get('position'),
                             'abs_pos': obj.get('abs_pos'),
-                            'house': obj.get('house'),
+                            'house': obj.get('house'),  # может быть строка или число
                             'retrograde': obj.get('retrograde', False),
                         })
                 else:
@@ -140,7 +163,7 @@ class NatalContextBuilder:
                 if isinstance(obj, dict):
                     if 'sign' in obj and 'position' in obj:
                         self._houses.append({
-                            'number': key.capitalize(),
+                            'key': key,  # сохраняем исходный ключ
                             'sign': obj.get('sign'),
                             'position': obj.get('position'),
                             'abs_pos': obj.get('abs_pos'),
@@ -148,7 +171,7 @@ class NatalContextBuilder:
                 else:
                     if hasattr(obj, 'sign') and hasattr(obj, 'position'):
                         self._houses.append({
-                            'number': key.capitalize(),
+                            'key': key,
                             'sign': getattr(obj, 'sign'),
                             'position': getattr(obj, 'position'),
                             'abs_pos': getattr(obj, 'abs_pos'),
@@ -209,7 +232,7 @@ class NatalContextBuilder:
 
         if mc is None:
             logger.warning("MC отсутствует. Пробуем взять куспид 10-го дома.")
-            tenth_house = next((h for h in self._houses if h['number'] == 'Tenth_House'), None)
+            tenth_house = next((h for h in self._houses if h['key'] == 'tenth_house'), None)
             if tenth_house:
                 mc = {'sign': tenth_house['sign'], 'position': tenth_house['position'], 'abs_pos': tenth_house['abs_pos']}
                 logger.info(f"MC взят из куспида 10-го дома: {mc['sign']} {mc['position']:.2f}°")
@@ -369,10 +392,10 @@ class NatalContextBuilder:
             'Uranus': any(p['name'] == 'Uranus' for p in self._planets),
             'Neptune': any(p['name'] == 'Neptune' for p in self._planets),
             'Pluto': any(p['name'] == 'Pluto' for p in self._planets),
-            'North_Node': any(p['name'] == 'True_North_Lunar_Node' for p in self._planets),
-            'South_Node': any(p['name'] == 'True_South_Lunar_Node' for p in self._planets),
+            'North_Node': any(p['name'] in ['True_North_Lunar_Node', 'TrueNorthLunarNode'] for p in self._planets),
+            'South_Node': any(p['name'] in ['True_South_Lunar_Node', 'TrueSouthLunarNode'] for p in self._planets),
             'Chiron': any(p['name'] == 'Chiron' for p in self._planets),
-            'True_Lilith': any(p['name'] in ['True_Lilith', 'Lilith'] for p in self._planets),
+            'True_Lilith': any(p['name'] in ['True_Lilith', 'TrueLilith'] for p in self._planets),
             'Mean_Lilith_absent': not any(p['name'] == 'Mean_Lilith' for p in self._planets),
             '12_houses': len(self._houses) == 12,
             'elements_present': bool(self._elements),
@@ -451,17 +474,20 @@ class NatalContextBuilder:
 
         # Куспиды домов
         lines.append("Куспиды домов:")
-        house_numbers = ['First_House', 'Second_House', 'Third_House', 'Fourth_House',
-                         'Fifth_House', 'Sixth_House', 'Seventh_House', 'Eighth_House',
-                         'Ninth_House', 'Tenth_House', 'Eleventh_House', 'Twelfth_House']
-        for i, key in enumerate(house_numbers, 1):
-            house = next((h for h in self._houses if h['number'] == key), None)
+        # Сортируем дома по ключу
+        house_order = ['first_house', 'second_house', 'third_house', 'fourth_house',
+                       'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
+                       'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house']
+        for key in house_order:
+            house = next((h for h in self._houses if h['key'] == key), None)
             if house:
                 sign = self.SIGN_MAP.get(house['sign'], house['sign'])
                 pos = house['position']
-                lines.append(f"{i} дом: {sign} {pos:.2f}°")
+                house_display = self.HOUSE_KEY_MAP.get(key, key)
+                lines.append(f"{house_display}: {sign} {pos:.2f}°")
             else:
-                lines.append(f"{i} дом: —")
+                house_display = self.HOUSE_KEY_MAP.get(key, key)
+                lines.append(f"{house_display}: —")
         lines.append("")
 
         # Аспекты планет
@@ -522,12 +548,23 @@ class NatalContextBuilder:
         name = self.PLANET_MAP.get(planet['name'], planet['name'])
         sign = self.SIGN_MAP.get(planet['sign'], planet['sign'])
         pos = planet['position']
-        house_num = planet['house']
+        house = planet['house']
         retro = planet['retrograde']
 
-        # Преобразуем номер дома в строку
-        if house_num and isinstance(house_num, int):
-            house_display = f"{house_num} дом"
+        # Определяем дом
+        if house is None or house == 0:
+            house_display = "неизвестный дом"
+        elif isinstance(house, int):
+            house_display = f"{house} дом"
+        elif isinstance(house, str):
+            # Пробуем преобразовать через маппинг
+            # Возможные варианты: "First_House", "first_house", "1"
+            if house in self.HOUSE_NUMBER_MAP:
+                house_display = self.HOUSE_NUMBER_MAP[house]
+            elif house.lower() in self.HOUSE_KEY_MAP:
+                house_display = self.HOUSE_KEY_MAP[house.lower()]
+            else:
+                house_display = house
         else:
             house_display = "неизвестный дом"
 
