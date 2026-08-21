@@ -129,26 +129,40 @@ class NatalContextBuilder:
         for key in planet_keys:
             if key in data:
                 obj = data[key]
+                mapped_name = self.TECH_NAME_TO_PLANET_MAP.get(key, key.capitalize())
+                # Логируем для отладки
+                logger.info(f"Извлечение {key} -> {mapped_name}, obj type: {type(obj)}")
                 if isinstance(obj, dict):
                     if 'sign' in obj and 'position' in obj:
                         self._planets.append({
-                            'name': key.capitalize(),
+                            'name': mapped_name,
                             'sign': obj.get('sign'),
                             'position': obj.get('position'),
                             'abs_pos': obj.get('abs_pos'),
-                            'house': obj.get('house'),  # может быть строка или число
+                            'house': obj.get('house'),
                             'retrograde': obj.get('retrograde', False),
                         })
+                        logger.info(f"Добавлена планета {mapped_name}: {obj.get('sign')} {obj.get('position')}")
+                    else:
+                        logger.warning(
+                            f"Объект {key} не содержит sign и position: {obj.keys() if isinstance(obj, dict) else 'not a dict'}")
                 else:
                     if hasattr(obj, 'sign') and hasattr(obj, 'position'):
                         self._planets.append({
-                            'name': key.capitalize(),
+                            'name': mapped_name,
                             'sign': getattr(obj, 'sign'),
                             'position': getattr(obj, 'position'),
                             'abs_pos': getattr(obj, 'abs_pos'),
                             'house': getattr(obj, 'house'),
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
+                        logger.info(
+                            f"Добавлена планета {mapped_name}: {getattr(obj, 'sign')} {getattr(obj, 'position')}")
+                    else:
+                        logger.warning(
+                            f"Объект {key} не имеет атрибутов sign и position: {dir(obj) if hasattr(obj, '__dir__') else 'unknown'}")
+            else:
+                logger.warning(f"Ключ {key} отсутствует в data")
 
         # --- ДОМА ---
         self._houses = []
