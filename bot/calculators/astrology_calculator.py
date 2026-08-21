@@ -152,6 +152,13 @@ class AstrologyCalculator:
         # Извлекаем данные из модели
         model = subject.model() if callable(subject.model) else subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
+        logger.info(f"=== SUBJECT DIR: {dir(subject)}")
+        logger.info(f"=== DATA KEYS: {data.keys()}")
+        logger.info(f"=== element_distribution: {data.get('element_distribution')}")
+        logger.info(f"=== quality_distribution: {data.get('quality_distribution')}")
+        logger.info(
+            f"=== lunar_phase: {data.get('lunar_phase') or (hasattr(subject, 'lunar_phase') and subject.lunar_phase)}")
+        logger.info(f"=== houses keys in data: {[k for k in data.keys() if 'house' in k]}")
 
         # --- Планеты ---
         planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
