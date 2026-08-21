@@ -21,7 +21,7 @@ class GeminiService:
         if not self.api_key:
             raise ValueError("❌ GEMINI_API_KEY не найден в .env файле!")
         self.base_url = "https://proxy.gen-api.ru/v1/chat/completions"
-        self.model = "gemini-3-1-flash-lite"
+        self.model = "gemini-2.5-flash-preview-04-17"
         self.prompts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'prompts')
         self._base_calc = BaseCalculator()
         self.user_data = None
