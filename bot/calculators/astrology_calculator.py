@@ -1,7 +1,7 @@
 import logging
 import zoneinfo
-from datetime import datetime
-from typing import Dict, Any, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional, Tuple, Union
 from pathlib import Path
 
 from kerykeion import AstrologicalSubject
@@ -22,7 +22,7 @@ class AstrologyCalculator:
         self.user_data = user_data
         self.lang = lang
         self.telegram_id = telegram_id
-        self._coords = coords
+        self._coords = coords  # (lat, lng, tz_iana) – если переданы готовые
         self.emulation_mode = emulation_mode
         self.gemini = gemini_service or GeminiService()
 
@@ -32,11 +32,13 @@ class AstrologyCalculator:
         self.birth_time = user_data.get('birth_time')
         self.birth_place = user_data.get('birth_place', '')
 
-        self._calculated_coords = None
+        self._calculated_coords = None      # (lat, lng) – сохраняем для записи в БД
+        self._calculated_utc_str = None     # строка UTC для записи в БД
+        self._utc_dt = None                 # datetime (aware UTC) для расчётов
         self._natal_data = None
         self._prompt_data = None
 
-        self.resolver = PlaceResolver(gemini_service=self.gemini)
+        self.resolver = PlaceResolver()
 
     def _parse_birth_place(self) -> Tuple[str, str]:
         place = self.birth_place.strip()
@@ -47,84 +49,99 @@ class AstrologyCalculator:
         country = parts[1] if len(parts) > 1 else "RU"
         return city, country
 
-    def _get_coordinates_and_timezone(self) -> Tuple[float, float, str]:
-        # 1. БД
+    def _get_coordinates_and_utc(self) -> Tuple[float, float, datetime]:
+        """
+        Возвращает (lat, lng, utc_datetime).
+        utc_datetime – aware datetime в UTC.
+        """
+        # 1. Проверяем наличие координат и UTC-строки в БД
         lat = self.user_data.get('birth_lat')
         lng = self.user_data.get('birth_lng')
-        tz = self.user_data.get('birth_timezone')
-        if lat is not None and lng is not None and tz:
-            if tz in zoneinfo.available_timezones():
-                logger.info(f"✅ Используем координаты из БД: ({lat}, {lng}, {tz})")
-                return lat, lng, tz
-            elif tz == "UNKNOWN":
-                logger.info(f"ℹ️ В БД таймзона 'UNKNOWN', используем координаты ({lat}, {lng}) и определяем таймзону по координатам")
-                tz_from_coords = self.resolver._tf.timezone_at(lat=lat, lng=lng)
-                if tz_from_coords and tz_from_coords in zoneinfo.available_timezones():
-                    tz = tz_from_coords
-                    self._calculated_coords = (lat, lng, tz)
-                    return lat, lng, tz
-                else:
-                    logger.warning(f"Не удалось определить таймзону по координатам, используем DEFAULT_TZ")
-                    tz = self.DEFAULT_TZ
-                    self._calculated_coords = (lat, lng, tz)
-                    return lat, lng, tz
-            else:
-                logger.warning(f"⚠️ Таймзона из БД {tz} невалидна, игнорируем")
+        utc_str = self.user_data.get('birth_timezone')  # теперь это UTC-строка
 
-        # 2. Переданные
+        if lat is not None and lng is not None and utc_str:
+            try:
+                # Парсим UTC-строку (ожидаем формат с +00:00)
+                utc_dt = datetime.fromisoformat(utc_str)
+                if utc_dt.tzinfo is None:
+                    utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+                # Проверяем, что это UTC
+                if utc_dt.utcoffset() != timezone.utc.utcoffset(utc_dt):
+                    raise ValueError("Not UTC")
+                logger.info(f"✅ Используем координаты и UTC из БД: lat={lat}, lng={lng}, utc={utc_dt}")
+                self._utc_dt = utc_dt
+                return lat, lng, utc_dt
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось распарсить UTC-строку из БД: {utc_str}, ошибка: {e}. Выполняем пересчёт.")
+
+        # 2. Проверяем переданные координаты (если есть)
         if self._coords:
-            lat, lng, tz = self._coords
-            if tz in zoneinfo.available_timezones():
-                logger.info(f"✅ Используем переданные координаты: ({lat}, {lng}, {tz})")
-                return lat, lng, tz
+            iana_lat, iana_lng, iana_tz = self._coords
+            if iana_tz in zoneinfo.available_timezones():
+                # Преобразуем локальное время в UTC для этой зоны
+                utc_dt = self._local_to_utc(iana_tz)
+                logger.info(f"✅ Используем переданные координаты: ({iana_lat}, {iana_lng}, {iana_tz}) -> UTC {utc_dt}")
+                self._calculated_coords = (iana_lat, iana_lng)
+                self._utc_dt = utc_dt
+                return iana_lat, iana_lng, utc_dt
             else:
-                logger.warning(f"⚠️ Переданная таймзона {tz} невалидна, игнорируем")
+                logger.warning(f"⚠️ Переданная таймзона {iana_tz} невалидна, игнорируем")
 
-        # 3. PlaceResolver
+        # 3. Геокодинг и преобразование
         city, country = self._parse_birth_place()
-        lat, lng, tz = self.resolver.resolve(
-            city, country,
-            self.birth_date or "01.01.2000",
-            self.birth_time or "12:00"
-        )
-        self._calculated_coords = (lat, lng, tz)
+        lat, lng, iana_tz = self.resolver.resolve(city, country)
+        logger.info(f"🌐 Геокодинг выполнен: ({lat}, {lng}, {iana_tz})")
+
+        # Преобразуем локальное время в UTC с учётом исторических переходов
+        utc_dt = self._local_to_utc(iana_tz)
+
+        # Сохраняем для последующей записи в БД
+        self._calculated_coords = (lat, lng)
+        self._utc_dt = utc_dt
+        self._calculated_utc_str = utc_dt.isoformat(timespec='seconds')
+
         logger.info(f"🔍 _calculated_coords установлен: {self._calculated_coords}")
-        return lat, lng, tz
+        logger.info(f"🔍 _calculated_utc_str: {self._calculated_utc_str}")
+        return lat, lng, utc_dt
+
+    def _local_to_utc(self, iana_tz: str) -> datetime:
+        """Преобразует локальное время рождения в UTC для указанной IANA-зоны."""
+        try:
+            local_dt = datetime.strptime(f"{self.birth_date} {self.birth_time}", "%d.%m.%Y %H:%M")
+        except:
+            local_dt = datetime(2000, 1, 1, 12, 0)
+
+        tz = zoneinfo.ZoneInfo(iana_tz)
+        local_with_tz = local_dt.replace(tzinfo=tz)
+        utc_dt = local_with_tz.astimezone(timezone.utc)
+        return utc_dt
 
     def _build_natal_chart(self) -> Dict[str, Any]:
         if self._natal_data is not None:
             return self._natal_data
 
         logger.info("🔮 Строим натальную карту...")
-        lat, lng, tz_str = self._get_coordinates_and_timezone()
+        lat, lng, utc_dt = self._get_coordinates_and_utc()
 
-        utc_dt = self.resolver.get_utc_datetime()
-        if utc_dt:
-            year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
-            hour, minute = utc_dt.hour, utc_dt.minute
-            tz_str_for_subject = "UTC"
-            logger.info(f"✅ Используем уточнённое UTC время: {utc_dt}")
-        else:
-            try:
-                dt = datetime.strptime(f"{self.birth_date} {self.birth_time}", "%d.%m.%Y %H:%M")
-                year, month, day, hour, minute = dt.year, dt.month, dt.day, dt.hour, dt.minute
-            except:
-                year, month, day, hour, minute = 2000, 1, 1, 12, 0
-            tz_str_for_subject = tz_str
-            logger.info(f"⚠️ Используем локальное время и IANA: {tz_str_for_subject}")
-
+        # Создаём субъект с UTC временем и tz_str="UTC"
         subject = AstrologicalSubject(
             name=self.name,
-            year=year, month=month, day=day,
-            hour=hour, minute=minute,
-            lat=lat, lng=lng,
-            tz_str=tz_str_for_subject
+            year=utc_dt.year,
+            month=utc_dt.month,
+            day=utc_dt.day,
+            hour=utc_dt.hour,
+            minute=utc_dt.minute,
+            lat=lat,
+            lng=lng,
+            tz_str="UTC"
         )
         logger.info(f"👤 Субъект создан: {subject.name}")
 
+        # Извлекаем данные (планеты, дома, аспекты, углы)
         model = subject.model() if callable(subject.model) else subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
 
+        # --- планеты ---
         planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
                        'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith']
         planets = []
@@ -150,6 +167,7 @@ class AstrologyCalculator:
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
 
+        # --- дома ---
         house_keys = ['first_house', 'second_house', 'third_house', 'fourth_house',
                       'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
                       'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house']
@@ -172,6 +190,7 @@ class AstrologyCalculator:
                             'degree': getattr(obj, 'position', 0.0),
                         })
 
+        # --- аспекты ---
         aspects = []
         try:
             from kerykeion import AspectsFactory
@@ -187,6 +206,7 @@ class AstrologyCalculator:
         except Exception as e:
             logger.warning(f"⚠️ Не удалось получить аспекты: {e}")
 
+        # --- углы ---
         def _extract_angle(obj):
             if obj is None:
                 return 0.0
@@ -216,7 +236,6 @@ class AstrologyCalculator:
             asc = _extract_angle(subject.ascendant)
         if mc == 0.0 and hasattr(subject, 'midheaven'):
             mc = _extract_angle(subject.midheaven)
-
         dsc = (asc + 180) % 360
         ic = (mc + 180) % 360
 
@@ -226,7 +245,7 @@ class AstrologyCalculator:
             'aspects': aspects,
             'angles': {'ASC': asc, 'MC': mc, 'DSC': dsc, 'IC': ic},
             'utc_datetime': getattr(subject, 'iso_formatted_utc_datetime', None),
-            'timezone': tz_str,
+            'timezone': "UTC",  # мы передаём UTC в kerykeion
             'location': {'lat': lat, 'lng': lng}
         }
         logger.info(f"✅ Натальная карта построена: {len(planets)} планет, {len(houses)} домов, {len(aspects)} аспектов")
@@ -271,7 +290,7 @@ class AstrologyCalculator:
             'birth_place': self.birth_place or 'не указано',
             'lat': f"{loc['lat']:.4f}",
             'lng': f"{loc['lng']:.4f}",
-            'timezone': natal['timezone'],
+            'timezone': "UTC",  # показываем, что мы используем UTC
             'utc_datetime': natal['utc_datetime'] or 'не известно',
             'planets_list': fmt_planets(),
             'houses_list': fmt_houses(),
@@ -306,28 +325,29 @@ class AstrologyCalculator:
         return prompt
 
     async def generate(self) -> str:
-        # 1. Сначала строим натальную карту – это гарантирует, что координаты будут определены
+        # Сначала строим карту – это гарантирует, что координаты и UTC определены
         self._build_natal_chart()
 
-        # 2. Теперь сохраняем координаты (они уже есть)
+        # Сохраняем координаты и UTC-строку в БД (если есть что сохранять)
         if self._calculated_coords and self.telegram_id:
-            lat, lng, tz = self._calculated_coords
-            refined_tz = self.resolver.get_refined_timezone()
-            tz_to_save = tz if refined_tz != "UNKNOWN" else "UNKNOWN"
-            logger.info(f"💾 Сохраняем координаты в БД: {lat}, {lng}, {tz_to_save} для {self.telegram_id}")
-            result = await save_user_coords(self.telegram_id, lat, lng, tz_to_save)
-            if result:
-                logger.info(f"✅ Координаты сохранены в БД для {self.telegram_id}")
+            lat, lng = self._calculated_coords
+            utc_str = self._calculated_utc_str
+            if not utc_str and self._utc_dt:
+                utc_str = self._utc_dt.isoformat(timespec='seconds')
+            if utc_str:
+                logger.info(f"💾 Сохраняем координаты и UTC в БД: lat={lat}, lng={lng}, utc={utc_str} для {self.telegram_id}")
+                result = await save_user_coords(self.telegram_id, lat, lng, utc_str)
+                if result:
+                    logger.info(f"✅ Координаты и UTC сохранены в БД для {self.telegram_id}")
+                else:
+                    logger.error(f"❌ Ошибка сохранения координат для {self.telegram_id}")
             else:
-                logger.error(f"❌ Ошибка сохранения координат для {self.telegram_id}")
+                logger.warning("⚠️ Нет UTC-строки для сохранения")
         else:
-            logger.warning(
-                f"⚠️ Не удалось сохранить координаты: _calculated_coords={self._calculated_coords}, telegram_id={self.telegram_id}")
+            logger.warning(f"⚠️ Не удалось сохранить: _calculated_coords={self._calculated_coords}, telegram_id={self.telegram_id}")
 
-        # 3. Формируем промпт
         prompt = self._build_prompt()
 
-        # 4. Режим эмуляции или реальный запрос
         if self.emulation_mode:
             return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
 

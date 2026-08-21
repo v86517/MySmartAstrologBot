@@ -368,19 +368,19 @@ def _clear_user_birth_timezone_sync(telegram_id: int) -> bool:
     except User.DoesNotExist:
         return False
 
-def _save_user_coords(telegram_id, lat, lng, tz_str):
+def _save_user_coords(telegram_id, lat, lng, utc_str):
     """
-    Сохраняет координаты и часовой пояс пользователя.
-    tz_str может быть IANA-зоной или строкой "UNKNOWN".
+    Сохраняет координаты и UTC-строку рождения пользователя.
+    utc_str – строка в формате ISO с UTC, например "1981-06-15 18:01:00+00:00"
     """
     try:
         user = User.objects.get(telegram_id=telegram_id)
         user.birth_lat = lat
         user.birth_lng = lng
-        user.birth_timezone = tz_str
-        user.birth_coords_updated_at = timezone.now()  # timezone импортирован из django.utils
+        user.birth_timezone = utc_str   # теперь храним UTC-строку
+        user.birth_coords_updated_at = timezone.now()
         user.save()
-        logger.info(f"✅ Координаты сохранены для пользователя {telegram_id}: lat={lat}, lng={lng}, tz={tz_str}")
+        logger.info(f"✅ Координаты и UTC сохранены для пользователя {telegram_id}: lat={lat}, lng={lng}, utc={utc_str}")
         return True
     except User.DoesNotExist:
         logger.error(f"❌ Пользователь {telegram_id} не найден при сохранении координат")
@@ -389,7 +389,9 @@ def _save_user_coords(telegram_id, lat, lng, tz_str):
         logger.error(f"❌ Ошибка сохранения координат: {e}", exc_info=True)
         return False
 
+
 def _clear_user_coords(telegram_id):
+    """Сбрасывает координаты и UTC-строку."""
     try:
         user = User.objects.get(telegram_id=telegram_id)
         user.birth_lat = None
@@ -400,6 +402,7 @@ def _clear_user_coords(telegram_id):
         return True
     except User.DoesNotExist:
         return False
+
 
 # ==================== АСИНХРОННЫЕ ОБЁРТКИ ====================
 
