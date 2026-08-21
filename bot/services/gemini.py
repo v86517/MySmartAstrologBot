@@ -4,7 +4,7 @@ import requests
 import json
 import logging
 import traceback
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
 
 from bot.calculators.base_calculator import BaseCalculator
@@ -160,33 +160,41 @@ class GeminiService:
         return self._send_prompt(prompt, lang)
 
     async def generate_astrology_v2(self, user_data: Dict[str, Any], lang: str = 'ru',
-                                    telegram_id: Optional[int] = None) -> str:
+                                    telegram_id: Optional[int] = None) -> Tuple[
+        str, Optional[Tuple[float, float, str]]]:
+        """
+        Генерирует промпт для астрологии (натальной карты) и возвращает текст промпта и координаты (если вычислены).
+        """
         from bot.db import get_emulation_mode
-        user_id = user_data.get('telegram_id') or user_data.get('user_id') or telegram_id
+        from bot.calculators.astrology_data_builder import AstrologyDataBuilder
 
-        # Устанавливаем user_data для использования в _prepare_astrology_replacements
+        user_id = user_data.get('telegram_id') or user_data.get('user_id') or telegram_id
         self.user_data = user_data
         self.lang = lang
+        coords = None
 
         if user_id:
             emulation = await get_emulation_mode(user_id)
             if emulation:
-                from bot.calculators.astrology_data_builder import AstrologyDataBuilder
                 builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=user_id)
                 json_data = builder.build()
+                if hasattr(builder.natal_calc, '_calculated_coords'):
+                    coords = builder.natal_calc._calculated_coords
                 prompt = self._build_astrology_prompt(json_data, lang)
-                return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+                return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}", coords
 
         try:
-            from bot.calculators.astrology_data_builder import AstrologyDataBuilder
             builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=user_id)
             json_data = builder.build()
+            if hasattr(builder.natal_calc, '_calculated_coords'):
+                coords = builder.natal_calc._calculated_coords
             prompt = self._build_astrology_prompt(json_data, lang)
-            return self._send_prompt(prompt, lang)
+            result = self._send_prompt(prompt, lang)
+            return result, coords
         except Exception as e:
             logger.error(f"❌ Ошибка в generate_astrology_v2: {e}")
             logger.error(traceback.format_exc())
-            return f"❌ Произошла ошибка при построении натальной карты: {str(e)}"
+            return f"❌ Произошла ошибка при построении натальной карты: {str(e)}", None
 
     # ---- НОВЫЕ МЕТОДЫ ДЛЯ ТРАНЗИТОВ И СИНАСТРИИ (по ТЗ) ----
 

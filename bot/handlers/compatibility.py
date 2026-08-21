@@ -29,7 +29,7 @@ from bot.db import (
     mark_feature_used_db,
     save_message_to_archive,
     get_user_language,
-    is_user_admin,
+    is_user_admin, save_user_coords,
 )
 from bot.calculators.compatibility_calculator import CompatibilityCalculator
 from bot.calculators.astrology_data_builder import AstrologyDataBuilder
@@ -455,8 +455,19 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         if _gemini_service:
             # --- НОВАЯ ЛОГИКА С ИСПОЛЬЗОВАНИЕМ СИНАСТРИИ И НАТАЛЬНЫХ ДАННЫХ ---
             # 1. Получаем натальные данные для каждого человека (JSON v2)
-            natal1 = AstrologyDataBuilder(person1, lang, telegram_id=user_id).build()
-            natal2 = AstrologyDataBuilder(person2, lang, telegram_id=user_id).build()
+            natal1 = AstrologyDataBuilder(person1, lang, include_transits=False, telegram_id=user_id)
+            natal_data1 = natal1.build()
+            if hasattr(natal1.natal_calc, '_calculated_coords'):
+                coords = natal1.natal_calc._calculated_coords
+                if coords:
+                    await save_user_coords(user_id, coords[0], coords[1], coords[2])
+
+            natal2 = AstrologyDataBuilder(person2, lang, include_transits=False, telegram_id=user_id)
+            natal_data2 = natal2.build()
+            if hasattr(natal2.natal_calc, '_calculated_coords'):
+                coords = natal2.natal_calc._calculated_coords
+                if coords:
+                    await save_user_coords(user_id, coords[0], coords[1], coords[2])
 
             # 2. Получаем синастрические данные
             comp_calc = CompatibilityCalculator(person1, person2)

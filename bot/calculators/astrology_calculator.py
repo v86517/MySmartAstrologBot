@@ -14,7 +14,7 @@ from kerykeion import AstrologicalSubject
 from timezonefinder import TimezoneFinder
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
-from bot.db import _get_user_birth_timezone_sync, _set_user_birth_timezone_sync, _get_user_data, _save_user_coords
+from bot.db import _get_user_birth_timezone_sync, _set_user_birth_timezone_sync
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,7 @@ class AstrologyCalculator:
         #self._cached_timezone = None
         self._angles = None  # FIXED: кеш углов
         self.telegram_id = telegram_id
+        self._calculated_coords = None
 
     def _parse_birth_datetime(self) -> Tuple[int, int, int, int, int]:
         date_str = self.birth_date_str or "01.01.2000"
@@ -74,36 +75,27 @@ class AstrologyCalculator:
         return city, country
 
     def _get_coordinates_and_timezone(self) -> Tuple[float, float, str]:
-        logger.info(f"🔍 _get_coordinates_and_timezone: telegram_id={self.telegram_id}")
+        """
+        Определяет координаты и часовой пояс места рождения.
+        Проверяет наличие координат в self.user_data (переданы из хендлера).
+        Если их нет — выполняет геокодинг.
+        Координаты НЕ СОХРАНЯЮТСЯ в БД внутри этого метода.
+        """
+        # 1. Проверяем наличие координат в user_data
+        lat = self.user_data.get('birth_lat')
+        lng = self.user_data.get('birth_lng')
+        tz = self.user_data.get('birth_timezone')
+        if lat is not None and lng is not None and tz:
+            logger.info(f"✅ Используем координаты из user_data: ({lat}, {lng}, {tz})")
+            return lat, lng, tz
 
-        # 1. Проверяем БД
-        if self.telegram_id:
-            user_data = _get_user_data(self.telegram_id)
-            if user_data:
-                lat = user_data.get('birth_lat')
-                lng = user_data.get('birth_lng')
-                tz = user_data.get('birth_timezone')
-                if lat is not None and lng is not None and tz:
-                    logger.info(f"✅ Используем сохранённые координаты для {self.telegram_id}: ({lat}, {lng}, {tz})")
-                    return lat, lng, tz
-            else:
-                logger.warning(f"⚠️ Пользователь {self.telegram_id} не найден в БД")
-        else:
-            logger.warning("⚠️ telegram_id не передан, геокодинг будет выполняться каждый раз")
-
-        # 2. Геокодинг
+        # 2. Если координат нет — выполняем геокодинг
         city, country = self._parse_birth_place()
         logger.info(f"🌐 Выполняем геокодинг для {city}, {country}")
 
-        try:
-            lat, lng, tz = self._perform_geocoding(city, country)
-            logger.info(f"🌐 Координаты: {lat}, {lng}, часовой пояс: {tz}")
-        except Exception as e:
-            logger.error(f"❌ Ошибка геокодинга: {e}")
-            logger.warning("⚠️ Используем координаты Москвы как fallback")
-            lat, lng, tz = self.DEFAULT_LAT, self.DEFAULT_LNG, self.DEFAULT_TZ
+        lat, lng, tz = self._perform_geocoding(city, country)
 
-        # 3. Уточняем часовой пояс через Gemini
+        # 3. Уточняем часовой пояс через Gemini (если доступен)
         try:
             refined_tz = self._refine_timezone(tz, city, country, lat, lng)
             if refined_tz:
@@ -112,18 +104,9 @@ class AstrologyCalculator:
         except Exception as e:
             logger.warning(f"⚠️ Ошибка уточнения таймзоны: {e}")
 
-        # 4. Сохраняем координаты
-        if self.telegram_id:
-            try:
-                result = _save_user_coords(self.telegram_id, lat, lng, tz)
-                if result:
-                    logger.info(f"✅ Координаты сохранены в БД для {self.telegram_id}: ({lat}, {lng}, {tz})")
-                else:
-                    logger.error(f"❌ _save_user_coords вернул False для {self.telegram_id}")
-            except Exception as e:
-                logger.error(f"❌ Ошибка сохранения координат: {e}", exc_info=True)
-        else:
-            logger.warning("⚠️ telegram_id отсутствует, координаты не сохранены")
+        # 4. Сохраняем координаты в атрибуты для последующего использования в хендлере
+        self._calculated_coords = (lat, lng, tz)
+        logger.info(f"🌐 Координаты: {lat}, {lng}, часовой пояс: {tz}")
 
         return lat, lng, tz
 
