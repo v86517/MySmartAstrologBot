@@ -104,38 +104,30 @@ class CompatibilityCalculator:
         self.telegram_id = telegram_id
         self.save_for_person_a = save_for_person_a
 
-        # Атрибуты для хранения вычисленных координат (если потребуется сохранить в БД)
-        self._computed_coords = None  # (lat, lng, utc_str)
+        self._computed_coords = None
         self._computed_for_user = None
 
-        self.subject_a = self._create_subject(person_a_data, 'A', save_to_db=save_for_person_a)
-        self.subject_b = self._create_subject(person_b_data, 'B', save_to_db=False)
+        self.subject_a = self._create_subject(person_a_data, '1', save_to_db=save_for_person_a)
+        self.subject_b = self._create_subject(person_b_data, '2', save_to_db=False)
 
         self.synastry_data = self._get_synastry_data()
 
+        # Данные людей будут заполнены в build()
         self.person_a = {}
         self.person_b = {}
         self._aspects = {'planetary': [], 'extra': []}
         self._planets_in_houses = {}
 
     def _create_subject(self, data: Dict[str, Any], label: str, save_to_db: bool = False) -> AstrologicalSubject:
-        """
-        Создаёт AstrologicalSubject из данных пользователя.
-        Логика полностью соответствует астрологии:
-        1. Если есть координаты и UTC-строка (birth_timezone) – используем их.
-        2. Если нет – геокодинг + преобразование локального времени в UTC через zoneinfo.
-        3. Если save_to_db=True и координаты были вычислены заново – сохраняем их в атрибут
-           для последующего сохранения в хендлере (синхронно, без await).
-        """
-        name = data.get('name', f'Person {label}')
+        """Создаёт AstrologicalSubject из данных пользователя."""
+        name = data.get('name', f'Человек {label}')
         birth_date = data.get('birth_date')
         birth_time = data.get('birth_time')
         birth_place = data.get('birth_place', '')
-        utc_str = data.get('birth_timezone')  # всегда UTC-строка или None
+        utc_str = data.get('birth_timezone')
         lat = data.get('birth_lat')
         lng = data.get('birth_lng')
 
-        # --- Вспомогательные функции ---
         def parse_local_datetime():
             try:
                 return datetime.strptime(f"{birth_date} {birth_time}", "%d.%m.%Y %H:%M")
@@ -155,7 +147,6 @@ class CompatibilityCalculator:
         coords_available = lat is not None and lng is not None and utc_str is not None
 
         if coords_available:
-            # Парсим UTC-строку
             try:
                 utc_str_clean = utc_str.replace('Z', '+00:00')
                 utc_dt = datetime.fromisoformat(utc_str_clean)
@@ -165,17 +156,15 @@ class CompatibilityCalculator:
                 tz_str_for_subject = "UTC"
             except ValueError:
                 logger.warning(f"Не удалось распарсить UTC-строку {utc_str} для {name}, выполняем геокодинг")
-                coords_available = False  # переходим к геокодингу
+                coords_available = False
 
         if not coords_available:
-            # Геокодинг
             resolver = PlaceResolver()
             city, country = self._parse_place(birth_place)
             logger.info(f"🌐 Выполняем геокодинг для {name}: {city}, {country}")
             lat, lng, iana_tz = resolver.resolve(city, country)
             logger.info(f"🌐 Геокодинг выполнен: ({lat}, {lng}, {iana_tz})")
 
-            # Преобразуем локальное время в UTC через zoneinfo
             local_dt = parse_local_datetime()
             utc_dt = local_to_utc(local_dt, iana_tz)
             year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
@@ -184,13 +173,11 @@ class CompatibilityCalculator:
             utc_str_saved = utc_dt.isoformat(timespec='seconds')
             logger.info(f"✅ После геокодинга и преобразования: UTC {utc_dt} для {name}")
 
-            # Если нужно сохранить в БД (но без await, сохраним в атрибут для последующего сохранения)
             if save_to_db and self.telegram_id:
                 self._computed_coords = (lat, lng, utc_str_saved)
                 self._computed_for_user = self.telegram_id
                 logger.info(f"💾 Координаты и UTC сохранены в атрибут для последующего сохранения в БД для {self.telegram_id}")
 
-        # Создаём субъект с UTC-временем и tz_str="UTC"
         return AstrologicalSubject(
             name=name,
             year=year, month=month, day=day,
@@ -347,6 +334,7 @@ class CompatibilityCalculator:
         return result
 
     def _filter_aspects(self) -> None:
+        """Фильтрует аспекты: оставляет только перекрёстные (A↔B) с правильными орбами."""
         if not self.synastry_data or not hasattr(self.synastry_data, 'aspects'):
             logger.warning("Нет аспектов в синастрии")
             return
@@ -367,6 +355,24 @@ class CompatibilityCalculator:
         def normalize_name(name):
             return angle_map.get(name, name)
 
+        # Функция определения владельца точки (1 или 2)
+        def get_owner(name):
+            name_norm = normalize_name(name)
+            # Проверяем в планетах и углах первого человека
+            for p in self.person_a['planets']:
+                if p['name'] == name_norm or normalize_name(p['name']) == name_norm:
+                    return '1'
+            # Проверяем в углах первого человека
+            if name_norm in self.person_a['angles'] and self.person_a['angles'][name_norm] is not None:
+                return '1'
+            # Проверяем в планетах второго человека
+            for p in self.person_b['planets']:
+                if p['name'] == name_norm or normalize_name(p['name']) == name_norm:
+                    return '2'
+            if name_norm in self.person_b['angles'] and self.person_b['angles'][name_norm] is not None:
+                return '2'
+            return None
+
         for a in self.synastry_data.aspects:
             p1 = getattr(a, 'p1_name', None)
             p2 = getattr(a, 'p2_name', None)
@@ -382,6 +388,13 @@ class CompatibilityCalculator:
 
             p1_norm = normalize_name(p1)
             p2_norm = normalize_name(p2)
+
+            owner1 = get_owner(p1_norm)
+            owner2 = get_owner(p2_norm)
+
+            # Пропускаем натальные аспекты (оба принадлежат одному человеку)
+            if owner1 == owner2 or owner1 is None or owner2 is None:
+                continue
 
             p1_in_main = p1_norm in self.MAIN_PLANETS
             p2_in_main = p2_norm in self.MAIN_PLANETS
@@ -431,6 +444,7 @@ class CompatibilityCalculator:
         logger.info(f"Отфильтровано аспектов: планетарных {len(planetary)}, extra {len(extra)}")
 
     def _get_planets_in_houses(self) -> Dict:
+        """Извлекает попадание планет одного человека в дома другого."""
         result = {'a_in_b': [], 'b_in_a': []}
 
         if not self.synastry_data:
@@ -438,25 +452,31 @@ class CompatibilityCalculator:
 
         if hasattr(self.synastry_data, 'house_comparison'):
             hc = self.synastry_data.house_comparison
-            if hasattr(hc, 'first_in_second_houses'):
-                for item in hc.first_in_second_houses:
-                    result['a_in_b'].append({
-                        'planet': item.get('first_point_name'),
-                        'house': item.get('second_house_number')
-                    })
-            if hasattr(hc, 'second_in_first_houses'):
-                for item in hc.second_in_first_houses:
-                    result['b_in_a'].append({
-                        'planet': item.get('second_point_name'),
-                        'house': item.get('first_house_number')
-                    })
+            # Проверяем, что hc не None и имеет нужные атрибуты
+            if hc:
+                if hasattr(hc, 'first_in_second_houses') and hc.first_in_second_houses:
+                    for item in hc.first_in_second_houses:
+                        if hasattr(item, 'first_point_name') and hasattr(item, 'second_house_number'):
+                            result['a_in_b'].append({
+                                'planet': getattr(item, 'first_point_name'),
+                                'house': getattr(item, 'second_house_number')
+                            })
+                if hasattr(hc, 'second_in_first_houses') and hc.second_in_first_houses:
+                    for item in hc.second_in_first_houses:
+                        if hasattr(item, 'second_point_name') and hasattr(item, 'first_house_number'):
+                            result['b_in_a'].append({
+                                'planet': getattr(item, 'second_point_name'),
+                                'house': getattr(item, 'first_house_number')
+                            })
 
         return result
 
     def build(self) -> str:
-        self.person_a = self._extract_person_data(self.subject_a, 'A')
-        self.person_b = self._extract_person_data(self.subject_b, 'B')
+        # Сначала извлекаем данные людей
+        self.person_a = self._extract_person_data(self.subject_a, '1')
+        self.person_b = self._extract_person_data(self.subject_b, '2')
 
+        # Затем фильтруем аспекты (используя данные людей для определения владельца)
         self._filter_aspects()
         self._planets_in_houses = self._get_planets_in_houses()
 
@@ -472,9 +492,9 @@ class CompatibilityCalculator:
         lines.append("Перспектива: Geocentric")
         lines.append("")
 
-        lines.extend(self._format_person(self.person_a, 'A'))
+        lines.extend(self._format_person(self.person_a, '1'))
         lines.append("")
-        lines.extend(self._format_person(self.person_b, 'B'))
+        lines.extend(self._format_person(self.person_b, '2'))
         lines.append("")
 
         if self._aspects['planetary']:
@@ -498,24 +518,24 @@ class CompatibilityCalculator:
             lines.append("")
 
         if self._planets_in_houses['a_in_b']:
-            lines.append("=== ПЛАНЕТЫ A В ДОМАХ B ===")
+            lines.append("=== ПЛАНЕТЫ 1 В ДОМАХ 2 ===")
             for item in self._planets_in_houses['a_in_b']:
                 planet = self.PLANET_MAP.get(item['planet'], item['planet'])
-                lines.append(f"{planet} A → {item['house']} дом B")
+                lines.append(f"{planet} 1 → {item['house']} дом 2")
             lines.append("")
         else:
-            lines.append("=== ПЛАНЕТЫ A В ДОМАХ B ===")
+            lines.append("=== ПЛАНЕТЫ 1 В ДОМАХ 2 ===")
             lines.append("Нет данных")
             lines.append("")
 
         if self._planets_in_houses['b_in_a']:
-            lines.append("=== ПЛАНЕТЫ B В ДОМАХ A ===")
+            lines.append("=== ПЛАНЕТЫ 2 В ДОМАХ 1 ===")
             for item in self._planets_in_houses['b_in_a']:
                 planet = self.PLANET_MAP.get(item['planet'], item['planet'])
-                lines.append(f"{planet} B → {item['house']} дом A")
+                lines.append(f"{planet} 2 → {item['house']} дом 1")
             lines.append("")
         else:
-            lines.append("=== ПЛАНЕТЫ B В ДОМАХ A ===")
+            lines.append("=== ПЛАНЕТЫ 2 В ДОМАХ 1 ===")
             lines.append("Нет данных")
             lines.append("")
 
@@ -606,11 +626,12 @@ class CompatibilityCalculator:
         p1 = aspect['p1']
         p2 = aspect['p2']
 
-        p1_label = self._get_object_label(p1)
-        p2_label = self._get_object_label(p2)
+        # Определяем владельца для вывода (1 или 2)
+        owner1 = self._get_object_label(p1)
+        owner2 = self._get_object_label(p2)
 
-        p1_display = self._get_display_name(p1, p1_label)
-        p2_display = self._get_display_name(p2, p2_label)
+        p1_display = self._get_display_name(p1, owner1)
+        p2_display = self._get_display_name(p2, owner2)
 
         aspect_name = self.ASPECT_MAP.get(aspect['aspect'].lower(), aspect['aspect'])
         orb = aspect['orb']
@@ -624,17 +645,20 @@ class CompatibilityCalculator:
         return f"{p1_display} — {aspect_name} — {p2_display}, орб {orb:.2f}°"
 
     def _get_object_label(self, name: str) -> str:
+        """Возвращает '1' или '2' для объекта."""
+        name_norm = self._normalize_angle(name)
+        # Проверяем в person_a
         for p in self.person_a['planets']:
-            if p['name'] == name or self._normalize_angle(p['name']) == name:
-                return 'A'
+            if p['name'] == name_norm or self._normalize_angle(p['name']) == name_norm:
+                return '1'
+        if name_norm in self.person_a['angles'] and self.person_a['angles'][name_norm] is not None:
+            return '1'
+        # Проверяем в person_b
         for p in self.person_b['planets']:
-            if p['name'] == name or self._normalize_angle(p['name']) == name:
-                return 'B'
-        if name in ['ASC', 'MC', 'DSC', 'IC']:
-            if self.person_a['angles'].get(name) is not None:
-                return 'A'
-            if self.person_b['angles'].get(name) is not None:
-                return 'B'
+            if p['name'] == name_norm or self._normalize_angle(p['name']) == name_norm:
+                return '2'
+        if name_norm in self.person_b['angles'] and self.person_b['angles'][name_norm] is not None:
+            return '2'
         return '?'
 
     def _normalize_angle(self, name: str) -> str:
