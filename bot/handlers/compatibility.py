@@ -448,6 +448,14 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
+    # Определяем, являются ли данные person1 данными из БД
+    # Если есть все три поля и они не None – считаем, что данные из БД
+    is_person1_from_db = (
+        person1.get('birth_lat') is not None and
+        person1.get('birth_lng') is not None and
+        person1.get('birth_timezone') is not None
+    )
+
     # Режим эмуляции
     emulation = await get_emulation_mode(user_id)
 
@@ -457,16 +465,22 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
     )
 
     try:
-        # 1. Создаём калькулятор и строим контекст
-        calc = CompatibilityCalculator(person1, person2, lang=lang)
+        # 1. Создаём калькулятор
+        calc = CompatibilityCalculator(
+            person_a_data=person1,
+            person_b_data=person2,
+            lang=lang,
+            telegram_id=user_id if is_person1_from_db else None,
+            save_for_person_a=is_person1_from_db
+        )
+
+        # 2. Строим контекст синастрии
         context = calc.build()
 
-        # 2. Формируем промпт для LLM
+        # 3. Формируем промпт для LLM
         if emulation:
-            # В режиме эмуляции возвращаем контекст как есть
             final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{context}"
         else:
-            # Отправляем в Gemini
             system_prompt = (
                 "Ты — профессиональный астролог. Проведи анализ совместимости двух людей, используя предоставленные данные.\n\n"
                 "Опиши сильные стороны, конфликты, притяжение, эмоциональную совместимость, коммуникацию и долгосрочный потенциал.\n"
@@ -485,16 +499,16 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             else:
                 final_text = "❌ Gemini сервис недоступен."
 
-        # 3. Сохраняем в архив и отмечаем использование
+        # 4. Сохраняем в архив и отмечаем использование
         await save_message_to_archive(user_id, 'compatibility', final_text)
         if not is_subscribed:
             await mark_feature_used_db(user_id, 'compatibility')
 
-        # 4. Отправляем результат (длинное сообщение)
+        # 5. Удаляем статус и отправляем результат
         await status_msg.delete()
         await send_long_message(callback.message, final_text, reply_markup=get_main_menu_button(lang))
 
-        # 5. Если не подписан, показываем промо-сообщение
+        # 6. Если не подписан, показываем промо-сообщение
         if not is_subscribed:
             await callback.message.answer(
                 await get_text(user_id, 'compatibility_promo'),
