@@ -379,23 +379,22 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
     lang = await get_user_language(user_id)
 
     # 1. Получаем данные пользователя (из БД или из временного хранилища)
-    # В вашем коде могли использоваться временные данные из astrology_data[user_id]
-    # Проверяем оба источника
-    user_data = astrology_data.get(user_id)
-    if user_data and user_data.get('is_manual'):
-        # данные введены вручную
-        user_data = {k: v for k, v in user_data.items() if k != 'is_manual'}
+    manual_data = astrology_data.get(user_id)
+    if manual_data and manual_data.get('is_manual'):
+        # Данные введены вручную
+        user_data = {k: v for k, v in manual_data.items() if k != 'is_manual'}
         astrology_data.pop(user_id, None)
     else:
-        # берём из БД
+        # Берём из БД
         user_data = await get_user_data(user_id)
         if not user_data or not user_data.get('name'):
             await callback.message.answer(await get_text(user_id, 'error_not_found'), reply_markup=get_main_menu(lang))
             await state.clear()
             return
 
-    # 2. Проверяем наличие оплаченных сессий
-    astro_count = user_data.get('astrology_count', 0)
+    # 2. Проверяем наличие оплаченных сессий (всегда из БД)
+    user_data_from_db = await get_user_data(user_id)
+    astro_count = user_data_from_db.get('astrology_count', 0) if user_data_from_db else 0
     if astro_count <= 0:
         await callback.message.answer(await get_text(user_id, 'astrology_payment_required'), reply_markup=get_astrology_payment_keyboard(lang))
         await state.set_state(AstrologyStates.PAYMENT)
@@ -409,7 +408,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         user_data=user_data,
         lang=lang,
         telegram_id=user_id,
-        coords=None,  # пусть сам определит
+        coords=None,
         emulation_mode=emulation,
         gemini_service=_gemini_service
     )
@@ -445,7 +444,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         await add_astrology_count(user_id, -1)
 
         # 8. Отправляем
-        await send_long_message(callback.message, final_text, reply_markup=get_main_menu_button(lang))
+        await callback.message.answer(final_text, reply_markup=get_main_menu_button(lang))
 
     except Exception as e:
         logger.error(f"Ошибка в astrology_confirm: {e}", exc_info=True)
