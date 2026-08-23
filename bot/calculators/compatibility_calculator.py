@@ -334,6 +334,7 @@ class CompatibilityCalculator:
         return result
 
     def _filter_aspects(self) -> None:
+        """Фильтрует аспекты: оставляет только перекрёстные (1↔2) с правильными орбами."""
         if not self.synastry_data:
             logger.warning("Нет данных синастрии")
             return
@@ -360,48 +361,28 @@ class CompatibilityCalculator:
         def normalize_name(name):
             return angle_map.get(name, name)
 
-        def get_owner(name):
-            # Прямой поиск по имени
-            for p in self.person_a['planets']:
-                if p['name'] == name:
-                    return '1'
-            if name in self.person_a['angles'] and self.person_a['angles'][name] is not None:
-                return '1'
-            for p in self.person_b['planets']:
-                if p['name'] == name:
-                    return '2'
-            if name in self.person_b['angles'] and self.person_b['angles'][name] is not None:
-                return '2'
-            return None
-
         for a in self.synastry_data.aspects:
-            p1 = getattr(a, 'p1_name', None)
-            p2 = getattr(a, 'p2_name', None)
+            # Используем first_point_name и second_point_name для явного определения владельца
+            first_name = getattr(a, 'first_point_name', None)
+            second_name = getattr(a, 'second_point_name', None)
             aspect = getattr(a, 'aspect', None)
             orbit = getattr(a, 'orbit', getattr(a, 'orb', None))
             movement = getattr(a, 'aspect_movement', None)
 
-            if not p1 or not p2 or not aspect or orbit is None:
+            if not first_name or not second_name or not aspect or orbit is None:
                 continue
 
             if aspect.lower() not in self.ALLOWED_ASPECTS:
                 continue
 
-            p1_norm = normalize_name(p1)
-            p2_norm = normalize_name(p2)
+            p1_norm = normalize_name(first_name)
+            p2_norm = normalize_name(second_name)
 
-            owner1 = get_owner(p1_norm)
-            owner2 = get_owner(p2_norm)
+            # Владельцы: первый – это первый субъект, второй – второй субъект
+            owner1 = '1'
+            owner2 = '2'
 
             logger.info(f"Аспект: {p1_norm}({owner1}) — {aspect} — {p2_norm}({owner2}), орб {orbit}")
-
-            if owner1 is None or owner2 is None:
-                logger.warning(f"Не удалось определить владельца для {p1_norm} или {p2_norm}, пропускаем")
-                continue
-
-            if owner1 == owner2:
-                logger.info(f"Натальный аспект: {p1_norm}({owner1}) — {aspect} — {p2_norm}({owner2}), пропускаем")
-                continue
 
             p1_in_main = p1_norm in self.MAIN_PLANETS
             p2_in_main = p2_norm in self.MAIN_PLANETS
@@ -418,6 +399,8 @@ class CompatibilityCalculator:
                     planetary.append({
                         'p1': p1_norm,
                         'p2': p2_norm,
+                        'owner1': owner1,
+                        'owner2': owner2,
                         'aspect': aspect,
                         'orb': orbit,
                         'movement': movement
@@ -426,8 +409,10 @@ class CompatibilityCalculator:
             elif (p1_in_main and p2_in_extra) or (p2_in_main and p1_in_extra):
                 if p1_in_main:
                     planet, extra_obj = p1_norm, p2_norm
+                    owner_planet, owner_extra = owner1, owner2
                 else:
                     planet, extra_obj = p2_norm, p1_norm
+                    owner_planet, owner_extra = owner2, owner1
 
                 key = (planet, extra_obj, aspect.lower())
                 if key in seen_extra:
@@ -443,6 +428,8 @@ class CompatibilityCalculator:
                     extra.append({
                         'p1': planet,
                         'p2': extra_obj,
+                        'owner1': owner_planet,
+                        'owner2': owner_extra,
                         'aspect': aspect,
                         'orb': orbit,
                         'movement': movement
@@ -647,10 +634,8 @@ class CompatibilityCalculator:
     def _format_aspect(self, aspect: Dict) -> str:
         p1 = aspect['p1']
         p2 = aspect['p2']
-
-        # Определяем владельца для вывода (1 или 2)
-        owner1 = self._get_object_label(p1)
-        owner2 = self._get_object_label(p2)
+        owner1 = aspect.get('owner1', '?')
+        owner2 = aspect.get('owner2', '?')
 
         p1_display = self._get_display_name(p1, owner1)
         p2_display = self._get_display_name(p2, owner2)
@@ -665,23 +650,6 @@ class CompatibilityCalculator:
                 return f"{p1_display} — {aspect_name} — {p2_display}, орб {orb:.2f}°, {phase}"
 
         return f"{p1_display} — {aspect_name} — {p2_display}, орб {orb:.2f}°"
-
-    def _get_object_label(self, name: str) -> str:
-        """Возвращает '1' или '2' для объекта."""
-        name_norm = self._normalize_angle(name)
-        # Проверяем в person_a
-        for p in self.person_a['planets']:
-            if p['name'] == name_norm or self._normalize_angle(p['name']) == name_norm:
-                return '1'
-        if name_norm in self.person_a['angles'] and self.person_a['angles'][name_norm] is not None:
-            return '1'
-        # Проверяем в person_b
-        for p in self.person_b['planets']:
-            if p['name'] == name_norm or self._normalize_angle(p['name']) == name_norm:
-                return '2'
-        if name_norm in self.person_b['angles'] and self.person_b['angles'][name_norm] is not None:
-            return '2'
-        return '?'
 
     def _normalize_angle(self, name: str) -> str:
         angle_map = {
