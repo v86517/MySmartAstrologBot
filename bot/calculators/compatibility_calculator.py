@@ -1,605 +1,655 @@
 #bot\calculators\compatibility_calculator.py
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
-from kerykeion import AstrologicalSubject, AspectsFactory, NatalAspects
-from .base_calculator import BaseCalculator
-from .astrology_calculator import AstrologyCalculator
-from .astrology_utils import (
-    calculate_aspects_manual,
-    extract_planets_from_subject,
-    get_house_for_longitude,
-    get_angles,
-    get_aspect_type,
-    calculate_score,
-    calculate_confidence,
-    get_life_areas,
-)
+
+from kerykeion import AstrologicalSubject, ChartDataFactory
+from kerykeion.models import DualChartDataModel, AspectModel
 
 logger = logging.getLogger(__name__)
 
 
-class CompatibilityCalculator(BaseCalculator):
+class CompatibilityCalculator:
     """
-    Класс для расчёта совместимости двух людей с использованием астрологических данных.
+    Генерирует текстовый контекст для анализа совместимости двух людей.
+    Использует штатный механизм Kerykeion для синастрии.
     """
 
-    PLANET_WEIGHTS = {
-        'Sun': 10, 'Moon': 10, 'Mercury': 7, 'Venus': 7, 'Mars': 7,
-        'Jupiter': 6, 'Saturn': 8, 'Uranus': 5, 'Neptune': 5, 'Pluto': 6,
-        'Chiron': 3, 'True_North_Lunar_Node': 5, 'True_South_Lunar_Node': 5,
-        'Mean_Lilith': 2,
+    # ========== MAPPING ==========
+    SIGN_MAP = {
+        'Ari': 'Овен', 'Tau': 'Телец', 'Gem': 'Близнецы',
+        'Can': 'Рак', 'Leo': 'Лев', 'Vir': 'Дева',
+        'Lib': 'Весы', 'Sco': 'Скорпион', 'Sag': 'Стрелец',
+        'Cap': 'Козерог', 'Aqu': 'Водолей', 'Pis': 'Рыбы'
     }
 
-    ASPECT_ORBS = {
-        'conjunction': 8, 'opposition': 8, 'trine': 6,
-        'square': 6, 'sextile': 5, 'quincunx': 4,
-        'semisextile': 3, 'sesquiquadrate': 4,
-        'quintile': 3, 'biquintile': 3,
+    PLANET_MAP = {
+        'Sun': 'Солнце', 'Moon': 'Луна', 'Mercury': 'Меркурий',
+        'Venus': 'Венера', 'Mars': 'Марс', 'Jupiter': 'Юпитер',
+        'Saturn': 'Сатурн', 'Uranus': 'Уран', 'Neptune': 'Нептун',
+        'Pluto': 'Плутон',
+        'True_North_Lunar_Node': 'Северный узел',
+        'True_South_Lunar_Node': 'Южный узел',
+        'Chiron': 'Хирон',
+        'True_Lilith': 'Лилит'
     }
 
-    def __init__(self, person1_data: Dict[str, Any], person2_data: Dict[str, Any]):
-        self.person1_data = person1_data
-        self.person2_data = person2_data
-        self.target_date = datetime.now().strftime("%d.%m.%Y")
+    ASPECT_MAP = {
+        'conjunction': 'соединение',
+        'opposition': 'оппозиция',
+        'trine': 'тригон',
+        'square': 'квадрат',
+        'sextile': 'секстиль'
+    }
 
-        # Создаём астрологические калькуляторы для каждого человека
-        self.calc1 = AstrologyCalculator(person1_data)
-        self.calc2 = AstrologyCalculator(person2_data)
+    PHASE_MAP = {
+        'applying': 'сходящийся',
+        'separating': 'расходящийся'
+    }
 
-        # Получаем натальные карты (словари с планетами, домами, аспектами)
-        self.chart1 = self.calc1._calculate_chart()
-        self.chart2 = self.calc2._calculate_chart()
+    HOUSE_MAP = {
+        'First_House': '1 дом',
+        'Second_House': '2 дом',
+        'Third_House': '3 дом',
+        'Fourth_House': '4 дом',
+        'Fifth_House': '5 дом',
+        'Sixth_House': '6 дом',
+        'Seventh_House': '7 дом',
+        'Eighth_House': '8 дом',
+        'Ninth_House': '9 дом',
+        'Tenth_House': '10 дом',
+        'Eleventh_House': '11 дом',
+        'Twelfth_House': '12 дом'
+    }
 
-        # Создаём субъекты для синастрии
-        self.subject1 = self._create_subject(person1_data)
-        self.subject2 = self._create_subject(person2_data)
+    # ========== ОРБЫ АСПЕКТОВ ==========
+    # Основные планеты (10 планет A ↔ 10 планет B)
+    SYNASTRY_ASPECT_ORBS = {
+        'conjunction': 8.0,
+        'opposition': 8.0,
+        'trine': 7.0,
+        'square': 7.0,
+        'sextile': 5.0
+    }
 
-        # Базовые нумерологические расчёты
-        self.life_path1 = self.calculate_life_path_number(person1_data['birth_date'])
-        self.life_path2 = self.calculate_life_path_number(person2_data['birth_date'])
-        self.compatibility_number = self.calculate_compatibility_number(
-            person1_data['birth_date'], person2_data['birth_date']
-        )
-        self.compatibility_arcan = self.calculate_compatibility_arcan(
-            person1_data['birth_date'], person2_data['birth_date']
-        )
-        self.lunar_day = self.get_lunar_day(self.target_date)
-        self.moon_illumination = self.moon_phase_percent(self.target_date)
-        self.target_weekday = self.week_day_name(self.target_date)
+    # Дополнительные точки (узлы, Chiron) и углы
+    EXTRA_ASPECT_ORBS = {
+        'conjunction': 5.0,
+        'opposition': 5.0,
+        'trine': 5.0,
+        'square': 5.0,
+        'sextile': 5.0
+    }
 
-        # Получаем синастрические аспекты (ручной расчёт)
-        self.synastry_aspects = self._get_synastry_aspects_manual(self.subject1, self.subject2)
+    # True Lilith – отдельный орб
+    LILITH_ASPECT_ORBS = {
+        'conjunction': 3.0,
+        'opposition': 3.0,
+        'trine': 3.0,
+        'square': 3.0,
+        'sextile': 3.0
+    }
 
-    def _create_subject(self, data: Dict[str, Any]) -> AstrologicalSubject:
-        """Создаёт AstrologicalSubject из данных пользователя"""
+    ALLOWED_ASPECTS = {'conjunction', 'opposition', 'trine', 'square', 'sextile'}
+
+    # Основные планеты
+    MAIN_PLANETS = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
+                    'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'}
+
+    # Дополнительные объекты
+    EXTRA_OBJECTS = {'True_North_Lunar_Node', 'True_South_Lunar_Node',
+                     'Chiron', 'True_Lilith', 'ASC', 'MC', 'DSC', 'IC'}
+
+    def __init__(self, person_a_data: Dict[str, Any], person_b_data: Dict[str, Any],
+                 lang: str = 'ru'):
+        self.person_a_data = person_a_data
+        self.person_b_data = person_b_data
+        self.lang = lang
+
+        # Создаём субъекты
+        self.subject_a = self._create_subject(person_a_data, 'A')
+        self.subject_b = self._create_subject(person_b_data, 'B')
+
+        # Получаем синастрию через Kerykeion
+        self.synastry_data = self._get_synastry_data()
+
+        # Извлечённые данные
+        self.person_a = {}
+        self.person_b = {}
+        self._aspects = {'planetary': [], 'extra': []}
+        self._planets_in_houses = {}
+
+    def _create_subject(self, data: Dict[str, Any], label: str) -> AstrologicalSubject:
+        """Создаёт AstrologicalSubject из данных пользователя."""
+        name = data.get('name', f'Person {label}')
         birth_date = data.get('birth_date')
-        birth_time = data.get('birth_time', '00:00')
-        birth_place = data.get('birth_place', 'Москва, Россия')
+        birth_time = data.get('birth_time')
+        birth_place = data.get('birth_place', '')
 
-        calc = AstrologyCalculator(data)
-        year, month, day, hour, minute = calc._parse_birth_datetime()
-        city, country = calc._parse_birth_place()
-        lat, lng, tz_str = calc._get_coordinates_and_timezone()
+        # Парсим дату и время
+        try:
+            dt = datetime.strptime(f"{birth_date} {birth_time}", "%d.%m.%Y %H:%M")
+            year, month, day, hour, minute = dt.year, dt.month, dt.day, dt.hour, dt.minute
+        except:
+            year, month, day, hour, minute = 2000, 1, 1, 12, 0
+            logger.warning(f"Не удалось распарсить дату/время для {name}")
+
+        # Определяем координаты
+        lat = data.get('birth_lat')
+        lng = data.get('birth_lng')
+        tz_str = data.get('birth_timezone')
+
+        if lat is None or lng is None:
+            # fallback – геокодинг через PlaceResolver
+            from bot.utils.place_resolver import PlaceResolver
+            resolver = PlaceResolver()
+            city, country = self._parse_place(birth_place)
+            lat, lng, tz_str = resolver.resolve(city, country)
+            logger.info(f"Геокодинг для {name}: ({lat}, {lng}, {tz_str})")
 
         return AstrologicalSubject(
-            name=data.get('name', 'Человек'),
-            year=year,
-            month=month,
-            day=day,
-            hour=hour,
-            minute=minute,
-            lat=lat,
-            lng=lng,
-            tz_str=tz_str,
+            name=name,
+            year=year, month=month, day=day,
+            hour=hour, minute=minute,
+            lat=lat, lng=lng,
+            tz_str=tz_str or "UTC"
         )
 
-    def _format_planets(self, chart: dict) -> str:
-        """Форматирует список планет из натальной карты"""
-        planets = chart.get('planets', [])
-        if not planets:
-            return "не известно"
-        lines = []
-        for p in planets:
-            lines.append(f"  • {p['name']} в {p['sign']} ({p['degree']:.2f}°) в {p['house']} доме")
-        return "\n".join(lines)
+    def _parse_place(self, place: str) -> Tuple[str, str]:
+        place = place.strip()
+        if not place:
+            return "Москва", "RU"
+        parts = [p.strip() for p in place.split(',') if p.strip()]
+        city = parts[0] if parts else "Москва"
+        country = parts[1] if len(parts) > 1 else "RU"
+        return city, country
 
-    def _format_aspects(self, chart: dict) -> str:
-        """Форматирует список аспектов из натальной карты"""
-        aspects = chart.get('aspects', [])
-        if not aspects:
-            return "не известно"
-        lines = []
-        for a in aspects:
-            lines.append(f"  • {a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)")
-        return "\n".join(lines)
+    def _get_synastry_data(self) -> DualChartDataModel:
+        """Получает данные синастрии через Kerykeion."""
+        try:
+            chart_data = ChartDataFactory.create_synastry_chart_data(
+                first_subject=self.subject_a,
+                second_subject=self.subject_b,
+                include_house_comparison=True
+            )
+            logger.info("✅ Synastry Chart Data получен")
+            return chart_data
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения синастрии: {e}")
+            raise
 
-    def _format_cusps(self, chart: dict) -> str:
-        """Форматирует куспиды домов из натальной карты"""
-        houses = chart.get('houses', [])
-        if not houses:
-            return "не известно"
-        lines = []
-        for h in houses:
-            lines.append(f"  • {h['number']}-й дом: {h['sign']} ({h['degree']:.2f}°)")
-        return "\n".join(lines)
+    def _extract_person_data(self, subject: AstrologicalSubject, label: str) -> Dict:
+        """Извлекает данные одной карты (планеты, углы, дома)."""
+        model = subject.model() if callable(subject.model) else subject.model
+        data = model.dict() if hasattr(model, 'dict') else model.__dict__
 
-    def get_prompt_data(self) -> Dict[str, Any]:
-        """Возвращает данные для подстановки в промпт (старый метод)"""
-        p1 = self.person1_data
-        p2 = self.person2_data
-
-        # Извлекаем знаки, элементы, качества
-        zodiac1 = self.get_zodiac_sign(
-            int(p1['birth_date'].split('.')[0]),
-            int(p1['birth_date'].split('.')[1])
-        )
-        zodiac2 = self.get_zodiac_sign(
-            int(p2['birth_date'].split('.')[0]),
-            int(p2['birth_date'].split('.')[1])
-        )
-
-        element1 = self.get_zodiac_element(zodiac1)
-        element2 = self.get_zodiac_element(zodiac2)
-        quality1 = self.get_zodiac_quality(zodiac1)
-        quality2 = self.get_zodiac_quality(zodiac2)
-
-        # Форматируем планеты, аспекты, куспиды из натальных карт
-        planets_str1 = self._format_planets(self.chart1)
-        planets_str2 = self._format_planets(self.chart2)
-        aspects_str1 = self._format_aspects(self.chart1)
-        aspects_str2 = self._format_aspects(self.chart2)
-        cusps_str1 = self._format_cusps(self.chart1)
-        cusps_str2 = self._format_cusps(self.chart2)
-
-        # Синастрические аспекты
-        synastry_str = self._format_synastry_aspects()
-
-        # Солнце, Луна, Асцендент из карт
-        sun1 = next((p for p in self.chart1.get('planets', []) if p['name'].lower() == 'sun'), None)
-        moon1 = next((p for p in self.chart1.get('planets', []) if p['name'].lower() == 'moon'), None)
-        asc1 = self.chart1.get('houses', [{}])[0].get('sign', 'не известно') if self.chart1.get('houses') else 'не известно'
-
-        sun2 = next((p for p in self.chart2.get('planets', []) if p['name'].lower() == 'sun'), None)
-        moon2 = next((p for p in self.chart2.get('planets', []) if p['name'].lower() == 'moon'), None)
-        asc2 = self.chart2.get('houses', [{}])[0].get('sign', 'не известно') if self.chart2.get('houses') else 'не известно'
-
-        return {
-            "p1_name": p1.get('name', 'Не указано'),
-            "p1_gender_text": "Мужчина" if p1.get('gender') == 'M' else "Женщина",
-            "p1_birth_date": p1.get('birth_date', 'не указана'),
-            "p1_birth_time": p1.get('birth_time', 'не указано'),
-            "p1_birth_place": p1.get('birth_place', 'не указано'),
-            "p1_zodiac": zodiac1,
-            "p1_element": element1,
-            "p1_quality": quality1,
-            "p1_life_path": self.life_path1,
-            "p1_planets_list": planets_str1,
-            "p1_aspects_list": aspects_str1,
-            "p1_cusps_list": cusps_str1,
-            "p1_sun_sign": sun1['sign'] if sun1 else "не известно",
-            "p1_moon_sign": moon1['sign'] if moon1 else "не известно",
-            "p1_ascendant": asc1,
-
-            "p2_name": p2.get('name', 'Не указано'),
-            "p2_gender_text": "Мужчина" if p2.get('gender') == 'M' else "Женщина",
-            "p2_birth_date": p2.get('birth_date', 'не указана'),
-            "p2_birth_time": p2.get('birth_time', 'не указано'),
-            "p2_birth_place": p2.get('birth_place', 'не указано'),
-            "p2_zodiac": zodiac2,
-            "p2_element": element2,
-            "p2_quality": quality2,
-            "p2_life_path": self.life_path2,
-            "p2_planets_list": planets_str2,
-            "p2_aspects_list": aspects_str2,
-            "p2_cusps_list": cusps_str2,
-            "p2_sun_sign": sun2['sign'] if sun2 else "не известно",
-            "p2_moon_sign": moon2['sign'] if moon2 else "не известно",
-            "p2_ascendant": asc2,
-
-            "aspects_synastry_list": synastry_str,
-            "compatibility_number": self.compatibility_number,
-            "compatibility_arcan": self.compatibility_arcan,
-            "target_date": self.target_date,
-            "target_weekday": self.target_weekday,
-            "lunar_day": self.lunar_day,
-            "moon_illumination": self.moon_illumination,
+        result = {
+            'label': label,
+            'name': subject.name,
+            'planets': [],
+            'angles': {},
+            'houses': []
         }
 
-    def _format_synastry_aspects(self) -> str:
-        """Форматирует синастрические аспекты в строку (старый метод)"""
-        if not self.synastry_aspects:
-            return "не известно"
-        lines = []
-        for a in self.synastry_aspects:
-            lines.append(f"  • {a['p1']} {a['aspect']} {a['p2']} (орбис: {a['orb']:.2f}°)")
-        return "\n".join(lines)
+        # --- Извлечение планет ---
+        planet_keys = [
+            'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
+            'uranus', 'neptune', 'pluto'
+        ]
+        for key in planet_keys:
+            if key in data:
+                obj = data[key]
+                if isinstance(obj, dict):
+                    if 'sign' in obj and 'position' in obj:
+                        result['planets'].append({
+                            'name': key.capitalize(),
+                            'sign': obj.get('sign'),
+                            'position': obj.get('position'),
+                            'abs_pos': obj.get('abs_pos'),
+                            'house': obj.get('house'),
+                            'retrograde': obj.get('retrograde', False),
+                        })
+                else:
+                    if hasattr(obj, 'sign') and hasattr(obj, 'position'):
+                        result['planets'].append({
+                            'name': key.capitalize(),
+                            'sign': getattr(obj, 'sign'),
+                            'position': getattr(obj, 'position'),
+                            'abs_pos': getattr(obj, 'abs_pos'),
+                            'house': getattr(obj, 'house'),
+                            'retrograde': getattr(obj, 'retrograde', False),
+                        })
 
-    def _get_synastry_aspects_manual(self, subj1: AstrologicalSubject, subj2: AstrologicalSubject) -> List[Dict]:
-        """Ручной расчёт синастрических аспектов (старый, сохранён для обратной совместимости)"""
-        planets1 = self._extract_planets(subj1)
-        planets2 = self._extract_planets(subj2)
+        # --- Дополнительные точки ---
+        extra_keys = [
+            ('true_north_lunar_node', 'True_North_Lunar_Node'),
+            ('true_south_lunar_node', 'True_South_Lunar_Node'),
+            ('chiron', 'Chiron'),
+            ('true_lilith', 'True_Lilith')
+        ]
+        for key, name in extra_keys:
+            if key in data and data[key] is not None:
+                obj = data[key]
+                if isinstance(obj, dict):
+                    if 'sign' in obj and 'position' in obj:
+                        result['planets'].append({
+                            'name': name,
+                            'sign': obj.get('sign'),
+                            'position': obj.get('position'),
+                            'abs_pos': obj.get('abs_pos'),
+                            'house': obj.get('house'),
+                            'retrograde': obj.get('retrograde', False),
+                        })
+                else:
+                    if hasattr(obj, 'sign') and hasattr(obj, 'position'):
+                        result['planets'].append({
+                            'name': name,
+                            'sign': getattr(obj, 'sign'),
+                            'position': getattr(obj, 'position'),
+                            'abs_pos': getattr(obj, 'abs_pos'),
+                            'house': getattr(obj, 'house'),
+                            'retrograde': getattr(obj, 'retrograde', False),
+                        })
 
-        if not planets1 or not planets2:
-            logger.warning("Не удалось извлечь планеты для ручного расчёта синастрии")
-            return []
+        # Если True_Lilith отсутствует – логируем предупреждение
+        if not any(p['name'] == 'True_Lilith' for p in result['planets']):
+            logger.warning(f"True_Lilith отсутствует для {subject.name}")
 
-        aspects = []
-        aspect_types = {
-            'conjunction': 8,
-            'opposition': 8,
-            'trine': 6,
-            'square': 6,
-            'sextile': 5,
+        # --- Углы ---
+        def _extract_angle(obj):
+            if obj is None:
+                return None
+            if isinstance(obj, dict):
+                return {'sign': obj.get('sign'), 'position': obj.get('position'), 'abs_pos': obj.get('abs_pos')}
+            if hasattr(obj, 'sign') and hasattr(obj, 'position'):
+                return {'sign': getattr(obj, 'sign'), 'position': getattr(obj, 'position'), 'abs_pos': getattr(obj, 'abs_pos')}
+            return None
+
+        asc = _extract_angle(data.get('ascendant'))
+        mc = _extract_angle(data.get('medium_coeli'))
+        dsc = _extract_angle(data.get('descendant'))
+        ic = _extract_angle(data.get('imum_coeli'))
+
+        if not asc and hasattr(subject, 'ascendant'):
+            asc = _extract_angle(subject.ascendant)
+        if not mc and hasattr(subject, 'midheaven'):
+            mc = _extract_angle(subject.midheaven)
+
+        result['angles'] = {
+            'ASC': asc,
+            'MC': mc,
+            'DSC': dsc,
+            'IC': ic
         }
 
-        for p1 in planets1:
-            for p2 in planets2:
-                diff = abs(p1['degree'] - p2['degree']) % 360
-                if diff > 180:
-                    diff = 360 - diff
-
-                for aspect_name, orb in aspect_types.items():
-                    if aspect_name == 'conjunction' and diff <= orb:
-                        aspects.append({
-                            'p1': p1['name'],
-                            'p2': p2['name'],
-                            'aspect': aspect_name,
-                            'orb': diff,
+        # --- Дома ---
+        house_keys = [
+            'first_house', 'second_house', 'third_house', 'fourth_house',
+            'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
+            'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house'
+        ]
+        for key in house_keys:
+            if key in data:
+                obj = data[key]
+                if isinstance(obj, dict):
+                    if 'sign' in obj and 'position' in obj:
+                        result['houses'].append({
+                            'key': key,
+                            'sign': obj.get('sign'),
+                            'position': obj.get('position'),
+                            'abs_pos': obj.get('abs_pos'),
                         })
-                        break
-                    elif aspect_name == 'opposition' and abs(diff - 180) <= orb:
-                        aspects.append({
-                            'p1': p1['name'],
-                            'p2': p2['name'],
-                            'aspect': aspect_name,
-                            'orb': abs(diff - 180),
+                else:
+                    if hasattr(obj, 'sign') and hasattr(obj, 'position'):
+                        result['houses'].append({
+                            'key': key,
+                            'sign': getattr(obj, 'sign'),
+                            'position': getattr(obj, 'position'),
+                            'abs_pos': getattr(obj, 'abs_pos'),
                         })
-                        break
-                    elif aspect_name == 'trine' and abs(diff - 120) <= orb:
-                        aspects.append({
-                            'p1': p1['name'],
-                            'p2': p2['name'],
-                            'aspect': aspect_name,
-                            'orb': abs(diff - 120),
-                        })
-                        break
-                    elif aspect_name == 'square' and abs(diff - 90) <= orb:
-                        aspects.append({
-                            'p1': p1['name'],
-                            'p2': p2['name'],
-                            'aspect': aspect_name,
-                            'orb': abs(diff - 90),
-                        })
-                        break
-                    elif aspect_name == 'sextile' and abs(diff - 60) <= orb:
-                        aspects.append({
-                            'p1': p1['name'],
-                            'p2': p2['name'],
-                            'aspect': aspect_name,
-                            'orb': abs(diff - 60),
-                        })
-                        break
 
-        logger.info(f"Синастрические аспекты (ручной расчёт): {len(aspects)}")
-        return aspects
+        return result
 
-    def _extract_planets(self, subject: AstrologicalSubject) -> List[Dict]:
-        """Извлекает список планет с их градусами из субъекта (старый метод)"""
-        planets = []
-        if hasattr(subject, 'planets') and subject.planets:
-            for p in subject.planets:
-                planets.append({"name": p.name, "degree": p.position, "sign": p.sign, "house": p.house})
-        elif hasattr(subject, 'model'):
-            model = subject.model() if callable(subject.model) else subject.model
-            data = model.dict() if hasattr(model, 'dict') else model.__dict__
-            planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
-                           'uranus', 'neptune', 'pluto', 'chiron', 'mean_lilith', 'true_lilith']
-            for key in planet_keys:
-                if key in data:
-                    obj = data[key]
-                    if isinstance(obj, dict):
-                        if 'position' in obj:
-                            planets.append({
-                                "name": key.capitalize(),
-                                "degree": obj['position'],
-                                "sign": obj.get('sign', 'unknown'),
-                                "house": obj.get('house', 0)
-                            })
-                    else:
-                        if hasattr(obj, 'position'):
-                            planets.append({
-                                "name": key.capitalize(),
-                                "degree": obj.position,
-                                "sign": getattr(obj, 'sign', 'unknown'),
-                                "house": getattr(obj, 'house', 0)
-                            })
-        return planets
+    def _filter_aspects(self) -> None:
+        """Фильтрует аспекты из синастрии, разделяет на планеты и extra."""
+        if not self.synastry_data or not hasattr(self.synastry_data, 'aspects'):
+            logger.warning("Нет аспектов в синастрии")
+            return
 
-    # ========================================================================
-    # НОВЫЕ МЕТОДЫ ДЛЯ СИНАСТРИИ (по ТЗ)
-    # ========================================================================
+        planetary = []
+        extra = []
 
-    def get_synastry_aspects(self, direction: str = 'both') -> List[Dict[str, Any]]:
-        """Возвращает синастрические аспекты между планетами двух людей."""
-        if not hasattr(self, '_synastry_aspects'):
-            self._synastry_aspects = self._calculate_synastry_aspects()
-        if direction == 'both':
-            return self._synastry_aspects
-        elif direction == 'a_to_b':
-            return [a for a in self._synastry_aspects if a['direction'] == 'a_to_b']
-        else:  # b_to_a
-            return [a for a in self._synastry_aspects if a['direction'] == 'b_to_a']
+        seen_planetary = set()
+        seen_extra = set()
 
-    def _calculate_synastry_aspects(self) -> List[Dict[str, Any]]:
-        """Расчёт синастрических аспектов (A→B и B→A) с использованием новых функций."""
-        planets1 = extract_planets_from_subject(self.subject1)
-        planets2 = extract_planets_from_subject(self.subject2)
-        aspects = []
+        # Нормализация имён углов
+        angle_map = {
+            'Ascendant': 'ASC',
+            'Midheaven': 'MC',
+            'Descendant': 'DSC',
+            'ImumCoeli': 'IC'
+        }
 
-        for p1 in planets1:
-            for p2 in planets2:
-                # A→B
-                aspect_type, orb = get_aspect_type(p1['degree'], p2['degree'], self.ASPECT_ORBS)
-                if aspect_type:
-                    weight1 = self.PLANET_WEIGHTS.get(p1['name'], 5)
-                    weight2 = self.PLANET_WEIGHTS.get(p2['name'], 5)
-                    aspect_weight = {
-                        'conjunction': 10, 'opposition': 9, 'trine': 8,
-                        'square': 7, 'sextile': 6, 'quincunx': 5,
-                        'semisextile': 4, 'sesquiquadrate': 4,
-                        'quintile': 3, 'biquintile': 3
-                    }.get(aspect_type, 5)
-                    score = calculate_score(weight1, weight2, aspect_weight, orb)
-                    confidence = calculate_confidence(score, orb)
-                    themes = self._get_aspect_themes(p1['name'], p2['name'], aspect_type)
-                    aspects.append({
-                        "person_a_planet": p1['name'],
-                        "person_b_planet": p2['name'],
-                        "aspect": aspect_type,
-                        "orb": round(orb, 2),
-                        "exact_angle": round(orb, 2),
-                        "a_planet_sign": p1['sign'],
-                        "a_planet_house": p1['house'],
-                        "b_planet_sign": p2['sign'],
-                        "b_planet_house": p2['house'],
-                        "score": round(score, 2),
-                        "confidence": round(confidence, 2),
-                        "themes": themes,
-                        "direction": "a_to_b"
+        def normalize_name(name):
+            return angle_map.get(name, name)
+
+        for a in self.synastry_data.aspects:
+            p1 = getattr(a, 'p1_name', None)
+            p2 = getattr(a, 'p2_name', None)
+            aspect = getattr(a, 'aspect', None)
+            orbit = getattr(a, 'orbit', getattr(a, 'orb', None))
+            movement = getattr(a, 'aspect_movement', None)
+
+            if not p1 or not p2 or not aspect or orbit is None:
+                continue
+
+            if aspect.lower() not in self.ALLOWED_ASPECTS:
+                continue
+
+            # Нормализуем имена
+            p1_norm = normalize_name(p1)
+            p2_norm = normalize_name(p2)
+
+            # Определяем категорию
+            p1_in_main = p1_norm in self.MAIN_PLANETS
+            p2_in_main = p2_norm in self.MAIN_PLANETS
+            p1_in_extra = p1_norm in self.EXTRA_OBJECTS
+            p2_in_extra = p2_norm in self.EXTRA_OBJECTS
+
+            if p1_in_main and p2_in_main:
+                key = (p1_norm, p2_norm, aspect.lower())
+                if key in seen_planetary:
+                    continue
+                seen_planetary.add(key)
+                max_orb = self.SYNASTRY_ASPECT_ORBS.get(aspect.lower(), 8.0)
+                if orbit <= max_orb:
+                    planetary.append({
+                        'p1': p1_norm,
+                        'p2': p2_norm,
+                        'aspect': aspect,
+                        'orb': orbit,
+                        'movement': movement
                     })
-                # B→A (можно использовать симметрию, но для полноты делаем)
-                aspect_type2, orb2 = get_aspect_type(p2['degree'], p1['degree'], self.ASPECT_ORBS)
-                if aspect_type2:
-                    weight2_b = self.PLANET_WEIGHTS.get(p2['name'], 5)
-                    weight1_b = self.PLANET_WEIGHTS.get(p1['name'], 5)
-                    aspect_weight2 = {
-                        'conjunction': 10, 'opposition': 9, 'trine': 8,
-                        'square': 7, 'sextile': 6, 'quincunx': 5,
-                        'semisextile': 4, 'sesquiquadrate': 4,
-                        'quintile': 3, 'biquintile': 3
-                    }.get(aspect_type2, 5)
-                    score2 = calculate_score(weight2_b, weight1_b, aspect_weight2, orb2)
-                    confidence2 = calculate_confidence(score2, orb2)
-                    themes2 = self._get_aspect_themes(p2['name'], p1['name'], aspect_type2)
-                    aspects.append({
-                        "person_a_planet": p2['name'],
-                        "person_b_planet": p1['name'],
-                        "aspect": aspect_type2,
-                        "orb": round(orb2, 2),
-                        "exact_angle": round(orb2, 2),
-                        "a_planet_sign": p2['sign'],
-                        "a_planet_house": p2['house'],
-                        "b_planet_sign": p1['sign'],
-                        "b_planet_house": p1['house'],
-                        "score": round(score2, 2),
-                        "confidence": round(confidence2, 2),
-                        "themes": themes2,
-                        "direction": "b_to_a"
-                    })
-        return aspects
+            elif (p1_in_main and p2_in_extra) or (p2_in_main and p1_in_extra):
+                if p1_in_main:
+                    planet, extra_obj = p1_norm, p2_norm
+                else:
+                    planet, extra_obj = p2_norm, p1_norm
 
-    def get_planets_in_houses(self) -> Dict[str, List[Dict]]:
-        """Возвращает планеты каждого человека в домах другого."""
-        houses1 = self.chart1.get('houses', [])
-        houses2 = self.chart2.get('houses', [])
-        planets1 = extract_planets_from_subject(self.subject1)
-        planets2 = extract_planets_from_subject(self.subject2)
+                key = (planet, extra_obj, aspect.lower())
+                if key in seen_extra:
+                    continue
+                seen_extra.add(key)
 
-        def planets_in_houses(planets, houses):
-            result = []
-            for p in planets:
-                # Определяем дом по долготе
-                house = get_house_for_longitude(p['degree'], houses)
-                if house:
-                    result.append({
-                        "planet": p['name'],
-                        "house": house,
-                        "sign": p['sign'],
-                        "degree": p['degree']
+                if extra_obj == 'True_Lilith':
+                    max_orb = self.LILITH_ASPECT_ORBS.get(aspect.lower(), 3.0)
+                else:
+                    max_orb = self.EXTRA_ASPECT_ORBS.get(aspect.lower(), 5.0)
+
+                if orbit <= max_orb:
+                    extra.append({
+                        'p1': planet,
+                        'p2': extra_obj,
+                        'aspect': aspect,
+                        'orb': orbit,
+                        'movement': movement
                     })
+
+        self._aspects = {'planetary': planetary, 'extra': extra}
+        logger.info(f"Отфильтровано аспектов: планетарных {len(planetary)}, extra {len(extra)}")
+
+    def _get_planets_in_houses(self) -> Dict:
+        """Извлекает попадание планет одного человека в дома другого."""
+        result = {'a_in_b': [], 'b_in_a': []}
+
+        if not self.synastry_data:
             return result
 
-        return {
-            "a_in_b_houses": planets_in_houses(planets1, houses2),
-            "b_in_a_houses": planets_in_houses(planets2, houses1)
-        }
-
-    def get_synastry_angle_aspects(self) -> List[Dict[str, Any]]:
-        """Аспекты планет одного человека к углам другого."""
-        angles1 = self.chart1.get('angles', {})
-        angles2 = self.chart2.get('angles', {})
-        if not angles1 or not angles2:
-            angles1 = get_angles(self.subject1)
-            angles2 = get_angles(self.subject2)
-
-        planets1 = extract_planets_from_subject(self.subject1)
-        planets2 = extract_planets_from_subject(self.subject2)
-        aspects = []
-
-        for p1 in planets1:
-            for angle_name, angle_deg in angles2.items():
-                if angle_deg == 0:
-                    continue
-                aspect_type, orb = get_aspect_type(p1['degree'], angle_deg, self.ASPECT_ORBS)
-                if aspect_type:
-                    weight = self.PLANET_WEIGHTS.get(p1['name'], 5)
-                    angle_weight = 10
-                    aspect_weight = {
-                        'conjunction': 10, 'opposition': 9, 'trine': 8,
-                        'square': 7, 'sextile': 6, 'quincunx': 5,
-                        'semisextile': 4, 'sesquiquadrate': 4,
-                        'quintile': 3, 'biquintile': 3
-                    }.get(aspect_type, 5)
-                    score = calculate_score(weight, angle_weight, aspect_weight, orb)
-                    confidence = calculate_confidence(score, orb)
-                    aspects.append({
-                        "person_planet": p1['name'],
-                        "person_sign": p1['sign'],
-                        "person_house": p1['house'],
-                        "other_angle": angle_name,
-                        "aspect": aspect_type,
-                        "orb": round(orb, 2),
-                        "score": round(score, 2),
-                        "confidence": round(confidence, 2),
-                        "direction": "a_to_b_angles"
+        # Планеты A в домах B
+        if hasattr(self.synastry_data, 'house_comparison'):
+            hc = self.synastry_data.house_comparison
+            if hasattr(hc, 'first_in_second_houses'):
+                for item in hc.first_in_second_houses:
+                    result['a_in_b'].append({
+                        'planet': item.get('first_point_name'),
+                        'house': item.get('second_house_number')
                     })
-        # Аналогично для планет 2 к углам 1
-        for p2 in planets2:
-            for angle_name, angle_deg in angles1.items():
-                if angle_deg == 0:
-                    continue
-                aspect_type, orb = get_aspect_type(p2['degree'], angle_deg, self.ASPECT_ORBS)
-                if aspect_type:
-                    weight = self.PLANET_WEIGHTS.get(p2['name'], 5)
-                    angle_weight = 10
-                    aspect_weight = {
-                        'conjunction': 10, 'opposition': 9, 'trine': 8,
-                        'square': 7, 'sextile': 6, 'quincunx': 5,
-                        'semisextile': 4, 'sesquiquadrate': 4,
-                        'quintile': 3, 'biquintile': 3
-                    }.get(aspect_type, 5)
-                    score = calculate_score(weight, angle_weight, aspect_weight, orb)
-                    confidence = calculate_confidence(score, orb)
-                    aspects.append({
-                        "person_planet": p2['name'],
-                        "person_sign": p2['sign'],
-                        "person_house": p2['house'],
-                        "other_angle": angle_name,
-                        "aspect": aspect_type,
-                        "orb": round(orb, 2),
-                        "score": round(score, 2),
-                        "confidence": round(confidence, 2),
-                        "direction": "b_to_a_angles"
+            if hasattr(hc, 'second_in_first_houses'):
+                for item in hc.second_in_first_houses:
+                    result['b_in_a'].append({
+                        'planet': item.get('second_point_name'),
+                        'house': item.get('first_house_number')
                     })
-        return aspects
 
-    def get_mutual_receptions(self) -> List[Dict[str, Any]]:
-        """Определяет взаимные рецепции между планетами двух людей."""
-        sign_rulers = {
-            'Aries': 'Mars', 'Taurus': 'Venus', 'Gemini': 'Mercury',
-            'Cancer': 'Moon', 'Leo': 'Sun', 'Virgo': 'Mercury',
-            'Libra': 'Venus', 'Scorpio': 'Pluto', 'Sagittarius': 'Jupiter',
-            'Capricorn': 'Saturn', 'Aquarius': 'Uranus', 'Pisces': 'Neptune'
+        return result
+
+    def build(self) -> str:
+        """Основной метод: возвращает текстовый контекст синастрии."""
+        # Извлекаем данные обоих людей
+        self.person_a = self._extract_person_data(self.subject_a, 'A')
+        self.person_b = self._extract_person_data(self.subject_b, 'B')
+
+        # Фильтруем аспекты
+        self._filter_aspects()
+
+        # Получаем планеты в домах
+        self._planets_in_houses = self._get_planets_in_houses()
+
+        return self._format()
+
+    def _format(self) -> str:
+        """Формирует финальный текстовый блок."""
+        lines = []
+        lines.append("=== АНАЛИЗ СОВМЕСТИМОСТИ ===")
+        lines.append("")
+        lines.append("Тип анализа: Натальная синастрия")
+        lines.append("Зодиак: Tropical")
+        lines.append("Система домов: Placidus")
+        lines.append("Перспектива: Geocentric")
+        lines.append("")
+
+        # Человек A
+        lines.extend(self._format_person(self.person_a, 'A'))
+        lines.append("")
+
+        # Человек B
+        lines.extend(self._format_person(self.person_b, 'B'))
+        lines.append("")
+
+        # Аспекты между планетами
+        if self._aspects['planetary']:
+            lines.append("=== АСПЕКТЫ МЕЖДУ ПЛАНЕТАМИ ===")
+            for a in self._aspects['planetary']:
+                lines.append(self._format_aspect(a))
+            lines.append("")
+        else:
+            lines.append("=== АСПЕКТЫ МЕЖДУ ПЛАНЕТАМИ ===")
+            lines.append("Нет значимых аспектов")
+            lines.append("")
+
+        # Аспекты к дополнительным точкам и углам
+        if self._aspects['extra']:
+            lines.append("=== АСПЕКТЫ К ДОПОЛНИТЕЛЬНЫМ ТОЧКАМ И УГЛАМ ===")
+            for a in self._aspects['extra']:
+                lines.append(self._format_aspect(a))
+            lines.append("")
+        else:
+            lines.append("=== АСПЕКТЫ К ДОПОЛНИТЕЛЬНЫМ ТОЧКАМ И УГЛАМ ===")
+            lines.append("Нет значимых аспектов")
+            lines.append("")
+
+        # Планеты A в домах B
+        if self._planets_in_houses['a_in_b']:
+            lines.append("=== ПЛАНЕТЫ A В ДОМАХ B ===")
+            for item in self._planets_in_houses['a_in_b']:
+                planet = self.PLANET_MAP.get(item['planet'], item['planet'])
+                lines.append(f"{planet} A → {item['house']} дом B")
+            lines.append("")
+        else:
+            lines.append("=== ПЛАНЕТЫ A В ДОМАХ B ===")
+            lines.append("Нет данных")
+            lines.append("")
+
+        # Планеты B в домах A
+        if self._planets_in_houses['b_in_a']:
+            lines.append("=== ПЛАНЕТЫ B В ДОМАХ A ===")
+            for item in self._planets_in_houses['b_in_a']:
+                planet = self.PLANET_MAP.get(item['planet'], item['planet'])
+                lines.append(f"{planet} B → {item['house']} дом A")
+            lines.append("")
+        else:
+            lines.append("=== ПЛАНЕТЫ B В ДОМАХ A ===")
+            lines.append("Нет данных")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _format_person(self, person: Dict, label: str) -> List[str]:
+        """Форматирует данные одного человека."""
+        lines = []
+        lines.append(f"=== ЧЕЛОВЕК {label} ===")
+        lines.append("")
+
+        # Рождение
+        lines.append("Рождение:")
+        lines.append(f"Имя: {person['name']}")
+        lines.append("")
+
+        # Углы
+        lines.append("Углы:")
+        for angle_name in ['ASC', 'MC', 'DSC', 'IC']:
+            angle = person['angles'].get(angle_name)
+            if angle:
+                sign = self.SIGN_MAP.get(angle.get('sign'), angle.get('sign'))
+                pos = angle.get('position', 0.0)
+                lines.append(f"{angle_name}: {sign} {pos:.2f}°")
+            else:
+                lines.append(f"{angle_name}: —")
+        lines.append("")
+
+        # Планеты (основные)
+        planet_order = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
+                        'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']
+        lines.append("Планеты:")
+        for name in planet_order:
+            planet = next((p for p in person['planets'] if p['name'] == name), None)
+            if planet:
+                lines.append(self._format_planet(planet))
+        lines.append("")
+
+        # Дополнительные точки
+        extra_order = ['True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron', 'True_Lilith']
+        lines.append("Дополнительные точки:")
+        has_extra = False
+        for name in extra_order:
+            point = next((p for p in person['planets'] if p['name'] == name), None)
+            if point:
+                lines.append(self._format_planet(point))
+                has_extra = True
+        if not has_extra:
+            lines.append("Нет дополнительных точек")
+        lines.append("")
+
+        # Куспиды домов
+        lines.append("Куспиды домов:")
+        house_order = ['first_house', 'second_house', 'third_house', 'fourth_house',
+                       'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
+                       'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house']
+        for key in house_order:
+            house = next((h for h in person['houses'] if h['key'] == key), None)
+            if house:
+                sign = self.SIGN_MAP.get(house['sign'], house['sign'])
+                pos = house['position']
+                house_display = self.HOUSE_MAP.get(self._house_key_to_standard(key), key)
+                lines.append(f"{house_display}: {sign} {pos:.2f}°")
+            else:
+                house_display = self.HOUSE_MAP.get(self._house_key_to_standard(key), key)
+                lines.append(f"{house_display}: —")
+        lines.append("")
+
+        return lines
+
+    def _house_key_to_standard(self, key: str) -> str:
+        """Преобразует 'first_house' → 'First_House'."""
+        return key.replace('_', ' ').title().replace(' ', '_')
+
+    def _format_planet(self, planet: Dict) -> str:
+        """Форматирует одну планету в строку."""
+        name = self.PLANET_MAP.get(planet['name'], planet['name'])
+        sign = self.SIGN_MAP.get(planet['sign'], planet['sign'])
+        pos = planet['position']
+        house = planet['house']
+        retro = planet['retrograde']
+
+        if house is None or house == 0:
+            house_display = "неизвестный дом"
+        elif isinstance(house, int):
+            house_display = f"{house} дом"
+        elif isinstance(house, str):
+            house_display = self.HOUSE_MAP.get(house, house)
+        else:
+            house_display = "неизвестный дом"
+
+        if retro:
+            return f"{name}: {sign} {pos:.2f}°, {house_display}, ретроградный"
+        else:
+            return f"{name}: {sign} {pos:.2f}°, {house_display}"
+
+    def _format_aspect(self, aspect: Dict) -> str:
+        """Форматирует аспект с указанием A/B."""
+        p1 = aspect['p1']
+        p2 = aspect['p2']
+
+        # Определяем, к кому относится планета
+        # Если p1 в MAIN_PLANETS, проверяем, есть ли она у Person A или B
+        p1_label = self._get_object_label(p1)
+        p2_label = self._get_object_label(p2)
+
+        p1_display = self._get_display_name(p1, p1_label)
+        p2_display = self._get_display_name(p2, p2_label)
+
+        aspect_name = self.ASPECT_MAP.get(aspect['aspect'].lower(), aspect['aspect'])
+        orb = aspect['orb']
+        movement = aspect.get('movement')
+
+        if movement:
+            phase = self.PHASE_MAP.get(movement.lower(), '')
+            if phase:
+                return f"{p1_display} — {aspect_name} — {p2_display}, орб {orb:.2f}°, {phase}"
+
+        return f"{p1_display} — {aspect_name} — {p2_display}, орб {orb:.2f}°"
+
+    def _get_object_label(self, name: str) -> str:
+        """Определяет, кому принадлежит объект (A или B)."""
+        # Проверяем в планетах A
+        for p in self.person_a['planets']:
+            if p['name'] == name or self._normalize_angle(p['name']) == name:
+                return 'A'
+        # Проверяем в планетах B
+        for p in self.person_b['planets']:
+            if p['name'] == name or self._normalize_angle(p['name']) == name:
+                return 'B'
+        # Проверяем углы A
+        if name in ['ASC', 'MC', 'DSC', 'IC']:
+            if self.person_a['angles'].get(name) is not None:
+                return 'A'
+            if self.person_b['angles'].get(name) is not None:
+                return 'B'
+        return '?'
+
+    def _normalize_angle(self, name: str) -> str:
+        """Нормализует имя угла."""
+        angle_map = {
+            'Ascendant': 'ASC',
+            'Midheaven': 'MC',
+            'Descendant': 'DSC',
+            'ImumCoeli': 'IC'
         }
-        receptions = []
-        planets1 = extract_planets_from_subject(self.subject1)
-        planets2 = extract_planets_from_subject(self.subject2)
+        return angle_map.get(name, name)
 
-        for p1 in planets1:
-            for p2 in planets2:
-                # Проверяем рецепцию: p1 в знаке, которым управляет p2, и p2 в знаке, которым управляет p1
-                if p2['name'] == sign_rulers.get(p1['sign'], '') and p1['name'] == sign_rulers.get(p2['sign'], ''):
-                    receptions.append({
-                        "planet_a": p1['name'],
-                        "planet_b": p2['name'],
-                        "theme": "mutual_reception",
-                        "strength": 8.0  # можно вычислить по весам
-                    })
-        return receptions
-
-    def get_compatibility_themes(self) -> Dict[str, Any]:
-        """Агрегирует темы из всех синастрических данных."""
-        themes = {}
-        # Из аспектов
-        for asp in self.get_synastry_aspects():
-            for theme in asp.get('themes', []):
-                if theme not in themes:
-                    themes[theme] = {"evidence": [], "score": 0, "count": 0}
-                themes[theme]["evidence"].append({
-                    "type": "synastry",
-                    "source": f"{asp['person_a_planet']} {asp['aspect']} {asp['person_b_planet']}",
-                    "score": asp['score'],
-                    "confidence": asp['confidence']
-                })
-                themes[theme]["count"] += 1
-                themes[theme]["score"] += asp['score']
-        # Из планет в домах
-        houses_data = self.get_planets_in_houses()
-        for item in houses_data['a_in_b_houses']:
-            theme = f"planet_{item['planet']}_in_house_{item['house']}"
-            if theme not in themes:
-                themes[theme] = {"evidence": [], "score": 0, "count": 0}
-            themes[theme]["evidence"].append({
-                "type": "planet_in_house",
-                "source": f"{item['planet']} in {item['house']} house",
-                "score": 6.0,
-                "confidence": 0.8
-            })
-            themes[theme]["count"] += 1
-            themes[theme]["score"] += 6.0
-        for item in houses_data['b_in_a_houses']:
-            theme = f"planet_{item['planet']}_in_house_{item['house']}"
-            if theme not in themes:
-                themes[theme] = {"evidence": [], "score": 0, "count": 0}
-            themes[theme]["evidence"].append({
-                "type": "planet_in_house",
-                "source": f"{item['planet']} in {item['house']} house",
-                "score": 6.0,
-                "confidence": 0.8
-            })
-            themes[theme]["count"] += 1
-            themes[theme]["score"] += 6.0
-        # Усредняем
-        for theme in themes:
-            themes[theme]["score"] = round(themes[theme]["score"] / themes[theme]["count"], 2)
-            themes[theme]["confidence"] = round(
-                sum(e['confidence'] for e in themes[theme]["evidence"]) / themes[theme]["count"], 2
-            )
-            themes[theme]["evidence"] = themes[theme]["evidence"][:5]
-        return themes
-
-    def get_full_synastry_data(self) -> Dict[str, Any]:
-        """Возвращает все данные для нового промпта совместимости."""
-        return {
-            "synastry_aspects_a_to_b": [a for a in self.get_synastry_aspects() if a['direction'] == 'a_to_b'],
-            "synastry_aspects_b_to_a": [a for a in self.get_synastry_aspects() if a['direction'] == 'b_to_a'],
-            "planets_in_houses": self.get_planets_in_houses(),
-            "synastry_angle_aspects": self.get_synastry_angle_aspects(),
-            "mutual_receptions": self.get_mutual_receptions(),
-            "compatibility_themes": self.get_compatibility_themes(),
-        }
-
-    def _get_aspect_themes(self, p1: str, p2: str, aspect: str) -> List[str]:
-        """Возвращает темы для аспекта между двумя планетами (для синастрии)."""
-        themes_map = {
-            'Sun': ['identity', 'self_expression', 'vitality'],
-            'Moon': ['emotions', 'family', 'intuition'],
-            'Mercury': ['communication', 'learning', 'intellect'],
-            'Venus': ['love', 'beauty', 'values'],
-            'Mars': ['action', 'drive', 'conflict'],
-            'Jupiter': ['growth', 'expansion', 'wisdom'],
-            'Saturn': ['structure', 'responsibility', 'discipline'],
-            'Uranus': ['change', 'innovation', 'freedom'],
-            'Neptune': ['intuition', 'spirituality', 'illusion'],
-            'Pluto': ['transformation', 'power', 'depth'],
-            'Chiron': ['healing', 'wound', 'teaching'],
-            'ASC': ['self', 'appearance', 'personality'],
-            'MC': ['career', 'status', 'ambition'],
-            'DSC': ['relationships', 'partnership'],
-            'IC': ['home', 'family', 'roots'],
-        }
-        themes1 = themes_map.get(p1, ['unknown'])
-        themes2 = themes_map.get(p2, ['unknown'])
-        combined = themes1 + themes2
-        return list(dict.fromkeys(combined))
+    def _get_display_name(self, name: str, label: str) -> str:
+        """Возвращает отображаемое имя с меткой A/B."""
+        display = self.PLANET_MAP.get(name, name)
+        if label and label != '?':
+            return f"{display} {label}"
+        return display

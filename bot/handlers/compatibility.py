@@ -33,6 +33,8 @@ from bot.db import (
 )
 from bot.calculators.compatibility_calculator import CompatibilityCalculator
 from bot.calculators.astrology_data_builder import AstrologyDataBuilder
+from bot.db import get_emulation_mode
+
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -436,135 +438,75 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
+    # Проверка подписки или бесплатного лимита
+    is_subscribed = await check_subscription_db(user_id)
+    if not is_subscribed and not await can_use_feature_db(user_id, 'compatibility'):
+        await callback.message.answer(
+            await get_text(user_id, 'compatibility_limit'),
+            reply_markup=get_subscription_keyboard(lang)
+        )
+        await state.clear()
+        return
+
+    # Режим эмуляции
+    emulation = await get_emulation_mode(user_id)
+
     status_msg = await callback.message.answer(
         await get_text(user_id, 'compatibility_status_analyzing'),
         reply_markup=ReplyKeyboardRemove()
     )
 
     try:
-        try:
-            await status_msg.edit_text(await get_text(user_id, 'compatibility_status_aspects'))
-            await asyncio.sleep(1)
-            await status_msg.edit_text(await get_text(user_id, 'compatibility_status_natal'))
-            await asyncio.sleep(1)
-            await status_msg.edit_text(await get_text(user_id, 'compatibility_status_forecast'))
-            await asyncio.sleep(1)
-        except:
-            pass
+        # 1. Создаём калькулятор и строим контекст
+        calc = CompatibilityCalculator(person1, person2, lang=lang)
+        context = calc.build()
 
-        if _gemini_service:
-            # --- НОВАЯ ЛОГИКА С ИСПОЛЬЗОВАНИЕМ СИНАСТРИИ И НАТАЛЬНЫХ ДАННЫХ ---
-            # 1. Получаем натальные данные для каждого человека (JSON v2)
-            natal1 = AstrologyDataBuilder(person1, lang, include_transits=False, telegram_id=user_id)
-            natal_data1 = natal1.build()
-            if hasattr(natal1.natal_calc, '_calculated_coords'):
-                coords = natal1.natal_calc._calculated_coords
-                logger.info(f"🔍 Найдены координаты из natal1: {coords}")
-                if coords:
-                    await save_user_coords(user_id, coords[0], coords[1], coords[2])
-                    logger.info(f"✅ Координаты сохранены для пользователя {user_id} (из natal1)")
+        # 2. Формируем промпт для LLM
+        if emulation:
+            # В режиме эмуляции возвращаем контекст как есть
+            final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{context}"
+        else:
+            # Отправляем в Gemini
+            system_prompt = (
+                "Ты — профессиональный астролог. Проведи анализ совместимости двух людей, используя предоставленные данные.\n\n"
+                "Опиши сильные стороны, конфликты, притяжение, эмоциональную совместимость, коммуникацию и долгосрочный потенциал.\n"
+                "Дай практические советы. Ответ должен быть структурированным, с заголовками и абзацами.\n\n"
+            )
+            if lang == 'en':
+                system_prompt += "IMPORTANT: Respond in English only."
+            else:
+                system_prompt += "ВАЖНО: Отвечай только на русском языке."
 
-            natal2 = AstrologyDataBuilder(person2, lang, include_transits=False, telegram_id=user_id)
-            natal_data2 = natal2.build()
-            if hasattr(natal2.natal_calc, '_calculated_coords'):
-                coords = natal2.natal_calc._calculated_coords
-                logger.info(f"🔍 Найдены координаты из natal2: {coords}")
-                if coords:
-                    await save_user_coords(user_id, coords[0], coords[1], coords[2])
-                    logger.info(f"✅ Координаты сохранены для пользователя {user_id} (из natal2)")
+            prompt = system_prompt + "\n\n" + context
 
-            # 2. Получаем синастрические данные
-            comp_calc = CompatibilityCalculator(person1, person2)
-            synastry_data = comp_calc.get_full_synastry_data()
+            if _gemini_service:
+                result = _gemini_service.send_raw_prompt(prompt)
+                final_text = result
+            else:
+                final_text = "❌ Gemini сервис недоступен."
 
-            # 3. Генерируем текст через Gemini (новый метод)
-            compat_text = await _gemini_service.generate_compatibility_with_data(user_id, person1, person2, natal1, natal2, synastry_data, lang)
+        # 3. Сохраняем в архив и отмечаем использование
+        await save_message_to_archive(user_id, 'compatibility', final_text)
+        if not is_subscribed:
+            await mark_feature_used_db(user_id, 'compatibility')
 
-            # 4. Формируем вывод
-            # is_admin = await is_user_admin(user_id)
-            #
-            # basic1 = format_basic_astrology_parameters(person1, lang)
-            # basic2 = format_basic_astrology_parameters(person2, lang)
-            #
-            # if is_admin:
-            #     full1 = format_full_astrology_parameters(natal1, None, lang)  # без транзитов
-            #     full2 = format_full_astrology_parameters(natal2, None, lang)
-            #     final_message = (
-            #         f"💕 Анализ совместимости\n"
-            #         f"━━━━━━━━━━━━━━━━━━━━━\n"
-            #         f"👤 ЧЕЛОВЕК 1\n{basic1}\n"
-            #         f"━━━━━━━━━━━━━━━━━━━━━\n"
-            #         f"👤 ЧЕЛОВЕК 2\n{basic2}\n"
-            #         f"━━━━━━━━━━━━━━━━━━━━━\n"
-            #         f"--- ПОЛНЫЕ ДАННЫЕ ЧЕЛОВЕКА 1 ---\n{full1}\n"
-            #         f"--- ПОЛНЫЕ ДАННЫЕ ЧЕЛОВЕКА 2 ---\n{full2}\n"
-            #         f"--- СИНАСТРИЧЕСКИЕ ДАННЫЕ ---\n"
-            #         f"Аспекты A→B: {len(synastry_data.get('synastry_aspects_a_to_b', []))}\n"
-            #         f"Аспекты B→A: {len(synastry_data.get('synastry_aspects_b_to_a', []))}\n"
-            #         f"Планеты A в домах B: {len(synastry_data.get('planets_in_houses', {}).get('a_in_b_houses', []))}\n"
-            #         f"Планеты B в домах A: {len(synastry_data.get('planets_in_houses', {}).get('b_in_a_houses', []))}\n"
-            #         f"Аспекты к углам: {len(synastry_data.get('synastry_angle_aspects', []))}\n"
-            #         f"Взаимные рецепции: {len(synastry_data.get('mutual_receptions', []))}\n"
-            #         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-            #         f"{compat_text}"
-            #     )
-            # else:
-            #     final_message = (
-            #         f"💕 Анализ совместимости\n"
-            #         f"━━━━━━━━━━━━━━━━━━━━━\n"
-            #         f"👤 ЧЕЛОВЕК 1\n{basic1}\n"
-            #         f"━━━━━━━━━━━━━━━━━━━━━\n"
-            #         f"👤 ЧЕЛОВЕК 2\n{basic2}\n"
-            #         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-            #         f"{compat_text}"
-            #     )
+        # 4. Отправляем результат (длинное сообщение)
+        await status_msg.delete()
+        await send_long_message(callback.message, final_text, reply_markup=get_main_menu_button(lang))
 
-            basic1 = format_basic_astrology_parameters(person1, lang)
-            basic2 = format_basic_astrology_parameters(person2, lang)
-
-            final_message = (
-                f"💕 Анализ совместимости\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 ЧЕЛОВЕК 1\n{basic1}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 ЧЕЛОВЕК 2\n{basic2}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"{compat_text}"
+        # 5. Если не подписан, показываем промо-сообщение
+        if not is_subscribed:
+            await callback.message.answer(
+                await get_text(user_id, 'compatibility_promo'),
+                reply_markup=get_subscription_promo_keyboard(lang)
             )
 
-
-
-
-
-
-            await mark_feature_used_db(user_id, 'compatibility')
-            await save_message_to_archive(user_id, 'compatibility', final_message)
-
-            await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
-
-            try:
-                await status_msg.delete()
-            except:
-                pass
-
-            if not await check_subscription_db(user_id):
-                await callback.message.answer(
-                    await get_text(user_id, 'compatibility_promo'),
-                    reply_markup=get_subscription_promo_keyboard(lang)
-                )
-        else:
-            await callback.message.answer(await get_text(user_id, 'error_service_unavailable'))
-            try:
-                await status_msg.delete()
-            except:
-                pass
     except Exception as e:
         logger.error(f"Ошибка в confirm_compatibility: {e}", exc_info=True)
-        await callback.message.answer(f"❌ Произошла ошибка при анализе совместимости. Пожалуйста, попробуйте позже.")
         try:
-            await status_msg.delete()
+            await status_msg.edit_text(f"❌ Произошла ошибка при анализе совместимости. Пожалуйста, попробуйте позже.")
         except:
-            pass
+            await callback.message.answer(f"❌ Ошибка: {str(e)}")
     finally:
         await state.clear()
 
