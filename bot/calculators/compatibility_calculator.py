@@ -334,7 +334,12 @@ class CompatibilityCalculator:
         return result
 
     def _filter_aspects(self) -> None:
-        """Фильтрует аспекты: оставляет только перекрёстные (1↔2) с правильными орбами."""
+        """
+        Фильтрует аспекты из синастрии:
+        - Оставляет только перекрёстные аспекты (между двумя людьми).
+        - Разделяет на планетарные (10 планет ↔ 10 планет) и extra (с узлами, Хироном, Лилит, углами).
+        - Применяет орбы согласно SYNASTRY_ASPECT_ORBS, EXTRA_ASPECT_ORBS, LILITH_ASPECT_ORBS.
+        """
         if not self.synastry_data:
             logger.warning("Нет данных синастрии")
             return
@@ -343,7 +348,14 @@ class CompatibilityCalculator:
             logger.warning("Нет аспектов в синастрии")
             return
 
-        logger.info(f"Всего аспектов в синастрии: {len(self.synastry_data.aspects)}")
+        aspects = self.synastry_data.aspects
+        logger.info(f"Всего аспектов в синастрии: {len(aspects)}")
+
+        # Если есть хотя бы один аспект, посмотрим его структуру
+        if aspects:
+            first = aspects[0]
+            logger.info(f"Первый аспект: {first}")
+            logger.info(f"Атрибуты первого аспекта: {dir(first)}")
 
         planetary = []
         extra = []
@@ -361,34 +373,45 @@ class CompatibilityCalculator:
         def normalize_name(name):
             return angle_map.get(name, name)
 
-        for a in self.synastry_data.aspects:
-            # Используем first_point_name и second_point_name для явного определения владельца
-            first_name = getattr(a, 'first_point_name', None)
-            second_name = getattr(a, 'second_point_name', None)
+        for a in aspects:
+            # Пытаемся получить имена планет
+            p1 = getattr(a, 'p1_name', None)
+            p2 = getattr(a, 'p2_name', None)
+            if not p1 or not p2:
+                # Если p1_name/p2_name нет, пробуем first_point_name/second_point_name
+                p1 = getattr(a, 'first_point_name', None)
+                p2 = getattr(a, 'second_point_name', None)
+
             aspect = getattr(a, 'aspect', None)
             orbit = getattr(a, 'orbit', getattr(a, 'orb', None))
             movement = getattr(a, 'aspect_movement', None)
 
-            if not first_name or not second_name or not aspect or orbit is None:
+            if not p1 or not p2 or not aspect or orbit is None:
                 continue
 
-            if aspect.lower() not in self.ALLOWED_ASPECTS:
-                continue
+            # Нормализуем имена (ASC, MC и т.д.)
+            p1_norm = normalize_name(p1)
+            p2_norm = normalize_name(p2)
 
-            p1_norm = normalize_name(first_name)
-            p2_norm = normalize_name(second_name)
-
-            # Владельцы: первый – это первый субъект, второй – второй субъект
+            # Владельцы: первый аспект всегда от первого субъекта, второй от второго
             owner1 = '1'
             owner2 = '2'
 
-            logger.info(f"Аспект: {p1_norm}({owner1}) — {aspect} — {p2_norm}({owner2}), орб {orbit}")
+            # Логируем каждый аспект для отладки
+            logger.info(f"Аспект: {p1_norm}({owner1}) — {aspect} — {p2_norm}({owner2}), орб {orbit:.2f}")
 
+            # Проверяем, что аспект входит в разрешённые (major)
+            if aspect.lower() not in self.ALLOWED_ASPECTS:
+                logger.info(f"Аспект {aspect} не входит в ALLOWED_ASPECTS, пропускаем")
+                continue
+
+            # Определяем категорию
             p1_in_main = p1_norm in self.MAIN_PLANETS
             p2_in_main = p2_norm in self.MAIN_PLANETS
             p1_in_extra = p1_norm in self.EXTRA_OBJECTS
             p2_in_extra = p2_norm in self.EXTRA_OBJECTS
 
+            # Планетарный аспект: оба объекта – основные планеты
             if p1_in_main and p2_in_main:
                 key = (p1_norm, p2_norm, aspect.lower())
                 if key in seen_planetary:
@@ -405,7 +428,12 @@ class CompatibilityCalculator:
                         'orb': orbit,
                         'movement': movement
                     })
-                    logger.info(f"Добавлен планетарный аспект: {p1_norm} — {aspect} — {p2_norm}, орб {orbit}")
+                    logger.info(f"Добавлен планетарный аспект: {p1_norm} — {aspect} — {p2_norm}, орб {orbit:.2f}")
+                else:
+                    logger.info(
+                        f"Планетарный аспект {p1_norm} — {aspect} — {p2_norm} имеет орб {orbit:.2f} > {max_orb}, пропускаем")
+
+            # Аспект к дополнительным точкам/углам: один из объектов – основная планета, другой – extra
             elif (p1_in_main and p2_in_extra) or (p2_in_main and p1_in_extra):
                 if p1_in_main:
                     planet, extra_obj = p1_norm, p2_norm
@@ -434,7 +462,12 @@ class CompatibilityCalculator:
                         'orb': orbit,
                         'movement': movement
                     })
-                    logger.info(f"Добавлен extra аспект: {planet} — {aspect} — {extra_obj}, орб {orbit}")
+                    logger.info(f"Добавлен extra аспект: {planet} — {aspect} — {extra_obj}, орб {orbit:.2f}")
+                else:
+                    logger.info(
+                        f"Extra аспект {planet} — {aspect} — {extra_obj} имеет орб {orbit:.2f} > {max_orb}, пропускаем")
+            else:
+                logger.info(f"Аспект {p1_norm} — {aspect} — {p2_norm} не подходит ни под одну категорию, пропускаем")
 
         self._aspects = {'planetary': planetary, 'extra': extra}
         logger.info(f"Итого: планетарных {len(planetary)}, extra {len(extra)}")
@@ -632,6 +665,9 @@ class CompatibilityCalculator:
         return f"{name}: {sign} {pos:.2f}°, {house_display}"
 
     def _format_aspect(self, aspect: Dict) -> str:
+        """
+        Форматирует один аспект в строку с указанием владельца (1 или 2).
+        """
         p1 = aspect['p1']
         p2 = aspect['p2']
         owner1 = aspect.get('owner1', '?')
