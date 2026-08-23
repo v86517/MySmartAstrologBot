@@ -1,10 +1,8 @@
-#bot\calculators\compatibility_calculator.py
 import logging
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 
 from kerykeion import AstrologicalSubject, ChartDataFactory
-from kerykeion.models import DualChartDataModel, AspectModel
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +60,7 @@ class CompatibilityCalculator:
         'Twelfth_House': '12 дом'
     }
 
-    # ========== ОРБЫ АСПЕКТОВ ==========
-    # Основные планеты (10 планет A ↔ 10 планет B)
+    # ========== ОРБЫ ==========
     SYNASTRY_ASPECT_ORBS = {
         'conjunction': 8.0,
         'opposition': 8.0,
@@ -72,7 +69,6 @@ class CompatibilityCalculator:
         'sextile': 5.0
     }
 
-    # Дополнительные точки (узлы, Chiron) и углы
     EXTRA_ASPECT_ORBS = {
         'conjunction': 5.0,
         'opposition': 5.0,
@@ -81,7 +77,6 @@ class CompatibilityCalculator:
         'sextile': 5.0
     }
 
-    # True Lilith – отдельный орб
     LILITH_ASPECT_ORBS = {
         'conjunction': 3.0,
         'opposition': 3.0,
@@ -91,12 +86,8 @@ class CompatibilityCalculator:
     }
 
     ALLOWED_ASPECTS = {'conjunction', 'opposition', 'trine', 'square', 'sextile'}
-
-    # Основные планеты
     MAIN_PLANETS = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                     'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'}
-
-    # Дополнительные объекты
     EXTRA_OBJECTS = {'True_North_Lunar_Node', 'True_South_Lunar_Node',
                      'Chiron', 'True_Lilith', 'ASC', 'MC', 'DSC', 'IC'}
 
@@ -106,14 +97,11 @@ class CompatibilityCalculator:
         self.person_b_data = person_b_data
         self.lang = lang
 
-        # Создаём субъекты
         self.subject_a = self._create_subject(person_a_data, 'A')
         self.subject_b = self._create_subject(person_b_data, 'B')
 
-        # Получаем синастрию через Kerykeion
         self.synastry_data = self._get_synastry_data()
 
-        # Извлечённые данные
         self.person_a = {}
         self.person_b = {}
         self._aspects = {'planetary': [], 'extra': []}
@@ -126,7 +114,6 @@ class CompatibilityCalculator:
         birth_time = data.get('birth_time')
         birth_place = data.get('birth_place', '')
 
-        # Парсим дату и время
         try:
             dt = datetime.strptime(f"{birth_date} {birth_time}", "%d.%m.%Y %H:%M")
             year, month, day, hour, minute = dt.year, dt.month, dt.day, dt.hour, dt.minute
@@ -134,13 +121,11 @@ class CompatibilityCalculator:
             year, month, day, hour, minute = 2000, 1, 1, 12, 0
             logger.warning(f"Не удалось распарсить дату/время для {name}")
 
-        # Определяем координаты
         lat = data.get('birth_lat')
         lng = data.get('birth_lng')
         tz_str = data.get('birth_timezone')
 
         if lat is None or lng is None:
-            # fallback – геокодинг через PlaceResolver
             from bot.utils.place_resolver import PlaceResolver
             resolver = PlaceResolver()
             city, country = self._parse_place(birth_place)
@@ -164,7 +149,7 @@ class CompatibilityCalculator:
         country = parts[1] if len(parts) > 1 else "RU"
         return city, country
 
-    def _get_synastry_data(self) -> DualChartDataModel:
+    def _get_synastry_data(self) -> Any:
         """Получает данные синастрии через Kerykeion."""
         try:
             chart_data = ChartDataFactory.create_synastry_chart_data(
@@ -191,11 +176,9 @@ class CompatibilityCalculator:
             'houses': []
         }
 
-        # --- Извлечение планет ---
-        planet_keys = [
-            'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
-            'uranus', 'neptune', 'pluto'
-        ]
+        # --- Планеты ---
+        planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter',
+                       'saturn', 'uranus', 'neptune', 'pluto']
         for key in planet_keys:
             if key in data:
                 obj = data[key]
@@ -251,7 +234,6 @@ class CompatibilityCalculator:
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
 
-        # Если True_Lilith отсутствует – логируем предупреждение
         if not any(p['name'] == 'True_Lilith' for p in result['planets']):
             logger.warning(f"True_Lilith отсутствует для {subject.name}")
 
@@ -322,7 +304,6 @@ class CompatibilityCalculator:
         seen_planetary = set()
         seen_extra = set()
 
-        # Нормализация имён углов
         angle_map = {
             'Ascendant': 'ASC',
             'Midheaven': 'MC',
@@ -346,11 +327,9 @@ class CompatibilityCalculator:
             if aspect.lower() not in self.ALLOWED_ASPECTS:
                 continue
 
-            # Нормализуем имена
             p1_norm = normalize_name(p1)
             p2_norm = normalize_name(p2)
 
-            # Определяем категорию
             p1_in_main = p1_norm in self.MAIN_PLANETS
             p2_in_main = p2_norm in self.MAIN_PLANETS
             p1_in_extra = p1_norm in self.EXTRA_OBJECTS
@@ -405,7 +384,6 @@ class CompatibilityCalculator:
         if not self.synastry_data:
             return result
 
-        # Планеты A в домах B
         if hasattr(self.synastry_data, 'house_comparison'):
             hc = self.synastry_data.house_comparison
             if hasattr(hc, 'first_in_second_houses'):
@@ -425,14 +403,10 @@ class CompatibilityCalculator:
 
     def build(self) -> str:
         """Основной метод: возвращает текстовый контекст синастрии."""
-        # Извлекаем данные обоих людей
         self.person_a = self._extract_person_data(self.subject_a, 'A')
         self.person_b = self._extract_person_data(self.subject_b, 'B')
 
-        # Фильтруем аспекты
         self._filter_aspects()
-
-        # Получаем планеты в домах
         self._planets_in_houses = self._get_planets_in_houses()
 
         return self._format()
@@ -448,15 +422,11 @@ class CompatibilityCalculator:
         lines.append("Перспектива: Geocentric")
         lines.append("")
 
-        # Человек A
         lines.extend(self._format_person(self.person_a, 'A'))
         lines.append("")
-
-        # Человек B
         lines.extend(self._format_person(self.person_b, 'B'))
         lines.append("")
 
-        # Аспекты между планетами
         if self._aspects['planetary']:
             lines.append("=== АСПЕКТЫ МЕЖДУ ПЛАНЕТАМИ ===")
             for a in self._aspects['planetary']:
@@ -467,7 +437,6 @@ class CompatibilityCalculator:
             lines.append("Нет значимых аспектов")
             lines.append("")
 
-        # Аспекты к дополнительным точкам и углам
         if self._aspects['extra']:
             lines.append("=== АСПЕКТЫ К ДОПОЛНИТЕЛЬНЫМ ТОЧКАМ И УГЛАМ ===")
             for a in self._aspects['extra']:
@@ -478,7 +447,6 @@ class CompatibilityCalculator:
             lines.append("Нет значимых аспектов")
             lines.append("")
 
-        # Планеты A в домах B
         if self._planets_in_houses['a_in_b']:
             lines.append("=== ПЛАНЕТЫ A В ДОМАХ B ===")
             for item in self._planets_in_houses['a_in_b']:
@@ -490,7 +458,6 @@ class CompatibilityCalculator:
             lines.append("Нет данных")
             lines.append("")
 
-        # Планеты B в домах A
         if self._planets_in_houses['b_in_a']:
             lines.append("=== ПЛАНЕТЫ B В ДОМАХ A ===")
             for item in self._planets_in_houses['b_in_a']:
@@ -509,13 +476,10 @@ class CompatibilityCalculator:
         lines = []
         lines.append(f"=== ЧЕЛОВЕК {label} ===")
         lines.append("")
-
-        # Рождение
         lines.append("Рождение:")
         lines.append(f"Имя: {person['name']}")
         lines.append("")
 
-        # Углы
         lines.append("Углы:")
         for angle_name in ['ASC', 'MC', 'DSC', 'IC']:
             angle = person['angles'].get(angle_name)
@@ -527,7 +491,6 @@ class CompatibilityCalculator:
                 lines.append(f"{angle_name}: —")
         lines.append("")
 
-        # Планеты (основные)
         planet_order = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                         'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']
         lines.append("Планеты:")
@@ -537,7 +500,6 @@ class CompatibilityCalculator:
                 lines.append(self._format_planet(planet))
         lines.append("")
 
-        # Дополнительные точки
         extra_order = ['True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron', 'True_Lilith']
         lines.append("Дополнительные точки:")
         has_extra = False
@@ -550,7 +512,6 @@ class CompatibilityCalculator:
             lines.append("Нет дополнительных точек")
         lines.append("")
 
-        # Куспиды домов
         lines.append("Куспиды домов:")
         house_order = ['first_house', 'second_house', 'third_house', 'fourth_house',
                        'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
@@ -570,11 +531,9 @@ class CompatibilityCalculator:
         return lines
 
     def _house_key_to_standard(self, key: str) -> str:
-        """Преобразует 'first_house' → 'First_House'."""
         return key.replace('_', ' ').title().replace(' ', '_')
 
     def _format_planet(self, planet: Dict) -> str:
-        """Форматирует одну планету в строку."""
         name = self.PLANET_MAP.get(planet['name'], planet['name'])
         sign = self.SIGN_MAP.get(planet['sign'], planet['sign'])
         pos = planet['position']
@@ -592,16 +551,12 @@ class CompatibilityCalculator:
 
         if retro:
             return f"{name}: {sign} {pos:.2f}°, {house_display}, ретроградный"
-        else:
-            return f"{name}: {sign} {pos:.2f}°, {house_display}"
+        return f"{name}: {sign} {pos:.2f}°, {house_display}"
 
     def _format_aspect(self, aspect: Dict) -> str:
-        """Форматирует аспект с указанием A/B."""
         p1 = aspect['p1']
         p2 = aspect['p2']
 
-        # Определяем, к кому относится планета
-        # Если p1 в MAIN_PLANETS, проверяем, есть ли она у Person A или B
         p1_label = self._get_object_label(p1)
         p2_label = self._get_object_label(p2)
 
@@ -620,16 +575,12 @@ class CompatibilityCalculator:
         return f"{p1_display} — {aspect_name} — {p2_display}, орб {orb:.2f}°"
 
     def _get_object_label(self, name: str) -> str:
-        """Определяет, кому принадлежит объект (A или B)."""
-        # Проверяем в планетах A
         for p in self.person_a['planets']:
             if p['name'] == name or self._normalize_angle(p['name']) == name:
                 return 'A'
-        # Проверяем в планетах B
         for p in self.person_b['planets']:
             if p['name'] == name or self._normalize_angle(p['name']) == name:
                 return 'B'
-        # Проверяем углы A
         if name in ['ASC', 'MC', 'DSC', 'IC']:
             if self.person_a['angles'].get(name) is not None:
                 return 'A'
@@ -638,7 +589,6 @@ class CompatibilityCalculator:
         return '?'
 
     def _normalize_angle(self, name: str) -> str:
-        """Нормализует имя угла."""
         angle_map = {
             'Ascendant': 'ASC',
             'Midheaven': 'MC',
@@ -648,7 +598,6 @@ class CompatibilityCalculator:
         return angle_map.get(name, name)
 
     def _get_display_name(self, name: str, label: str) -> str:
-        """Возвращает отображаемое имя с меткой A/B."""
         display = self.PLANET_MAP.get(name, name)
         if label and label != '?':
             return f"{display} {label}"
