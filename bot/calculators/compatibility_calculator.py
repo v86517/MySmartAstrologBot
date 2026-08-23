@@ -334,7 +334,6 @@ class CompatibilityCalculator:
         return result
 
     def _filter_aspects(self) -> None:
-        """Фильтрует аспекты: оставляет только перекрёстные (1↔2) с правильными орбами."""
         if not self.synastry_data:
             logger.warning("Нет данных синастрии")
             return
@@ -362,16 +361,16 @@ class CompatibilityCalculator:
             return angle_map.get(name, name)
 
         def get_owner(name):
-            name_norm = normalize_name(name)
+            # Прямой поиск по имени
             for p in self.person_a['planets']:
-                if p['name'] == name_norm or normalize_name(p['name']) == name_norm:
+                if p['name'] == name:
                     return '1'
-            if name_norm in self.person_a['angles'] and self.person_a['angles'][name_norm] is not None:
+            if name in self.person_a['angles'] and self.person_a['angles'][name] is not None:
                 return '1'
             for p in self.person_b['planets']:
-                if p['name'] == name_norm or normalize_name(p['name']) == name_norm:
+                if p['name'] == name:
                     return '2'
-            if name_norm in self.person_b['angles'] and self.person_b['angles'][name_norm] is not None:
+            if name in self.person_b['angles'] and self.person_b['angles'][name] is not None:
                 return '2'
             return None
 
@@ -394,10 +393,8 @@ class CompatibilityCalculator:
             owner1 = get_owner(p1_norm)
             owner2 = get_owner(p2_norm)
 
-            # Логируем для отладки
             logger.info(f"Аспект: {p1_norm}({owner1}) — {aspect} — {p2_norm}({owner2}), орб {orbit}")
 
-            # Пропускаем, если владельцы не определены или одинаковы
             if owner1 is None or owner2 is None:
                 logger.warning(f"Не удалось определить владельца для {p1_norm} или {p2_norm}, пропускаем")
                 continue
@@ -469,27 +466,26 @@ class CompatibilityCalculator:
         hc = self.synastry_data.house_comparison
         logger.info(f"house_comparison получен: {hc}")
 
-        # Пробуем разные способы извлечения
-        if hasattr(hc, 'first_in_second_houses') and hc.first_in_second_houses:
-            for item in hc.first_in_second_houses:
-                # item может быть словарём или объектом
+        # Используем правильные названия полей из лога
+        if hasattr(hc, 'first_points_in_second_houses') and hc.first_points_in_second_houses:
+            for item in hc.first_points_in_second_houses:
                 if isinstance(item, dict):
-                    planet = item.get('first_point_name')
-                    house = item.get('second_house_number')
+                    planet = item.get('point_name')
+                    house = item.get('projected_house_number')
                 else:
-                    planet = getattr(item, 'first_point_name', None)
-                    house = getattr(item, 'second_house_number', None)
+                    planet = getattr(item, 'point_name', None)
+                    house = getattr(item, 'projected_house_number', None)
                 if planet and house:
                     result['a_in_b'].append({'planet': planet, 'house': house})
 
-        if hasattr(hc, 'second_in_first_houses') and hc.second_in_first_houses:
-            for item in hc.second_in_first_houses:
+        if hasattr(hc, 'second_points_in_first_houses') and hc.second_points_in_first_houses:
+            for item in hc.second_points_in_first_houses:
                 if isinstance(item, dict):
-                    planet = item.get('second_point_name')
-                    house = item.get('first_house_number')
+                    planet = item.get('point_name')
+                    house = item.get('projected_house_number')
                 else:
-                    planet = getattr(item, 'second_point_name', None)
-                    house = getattr(item, 'first_house_number', None)
+                    planet = getattr(item, 'point_name', None)
+                    house = getattr(item, 'projected_house_number', None)
                 if planet and house:
                     result['b_in_a'].append({'planet': planet, 'house': house})
 
@@ -497,11 +493,12 @@ class CompatibilityCalculator:
         return result
 
     def build(self) -> str:
-        # Сначала извлекаем данные людей
         self.person_a = self._extract_person_data(self.subject_a, '1')
         self.person_b = self._extract_person_data(self.subject_b, '2')
 
-        # Затем фильтруем аспекты (используя данные людей для определения владельца)
+        logger.info(f"Планеты person_a: {[p['name'] for p in self.person_a['planets']]}")
+        logger.info(f"Планеты person_b: {[p['name'] for p in self.person_b['planets']]}")
+
         self._filter_aspects()
         self._planets_in_houses = self._get_planets_in_houses()
 
