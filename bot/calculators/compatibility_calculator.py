@@ -118,16 +118,94 @@ class CompatibilityCalculator:
         self._planets_in_houses = {}
 
     def _create_subject(self, data: Dict[str, Any], label: str, save_to_db: bool = False) -> AstrologicalSubject:
-        # ... (без изменений, как в предыдущей версии)
-        pass  # замените на ваш код
+        """Создаёт AstrologicalSubject из данных пользователя."""
+        name = data.get('name', f'Человек {label}')
+        birth_date = data.get('birth_date')
+        birth_time = data.get('birth_time')
+        birth_place = data.get('birth_place', '')
+        utc_str = data.get('birth_timezone')
+        lat = data.get('birth_lat')
+        lng = data.get('birth_lng')
+
+        def parse_local_datetime():
+            try:
+                return datetime.strptime(f"{birth_date} {birth_time}", "%d.%m.%Y %H:%M")
+            except:
+                logger.warning(f"Не удалось распарсить дату/время для {name}, используем 2000-01-01 12:00")
+                return datetime(2000, 1, 1, 12, 0)
+
+        def local_to_utc(local_dt: datetime, iana_tz: str) -> datetime:
+            try:
+                tz = zoneinfo.ZoneInfo(iana_tz)
+                local_with_tz = local_dt.replace(tzinfo=tz)
+                return local_with_tz.astimezone(timezone.utc)
+            except Exception as e:
+                logger.warning(f"Ошибка преобразования времени для {name}: {e}, используем UTC как fallback")
+                return local_dt.replace(tzinfo=timezone.utc)
+
+        coords_available = lat is not None and lng is not None and utc_str is not None
+
+        if coords_available:
+            try:
+                utc_str_clean = utc_str.replace('Z', '+00:00')
+                utc_dt = datetime.fromisoformat(utc_str_clean)
+                year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
+                hour, minute = utc_dt.hour, utc_dt.minute
+                logger.info(f"✅ Используем UTC-время из БД для {name}: {utc_dt}")
+                tz_str_for_subject = "UTC"
+            except ValueError:
+                logger.warning(f"Не удалось распарсить UTC-строку {utc_str} для {name}, выполняем геокодинг")
+                coords_available = False
+
+        if not coords_available:
+            resolver = PlaceResolver()
+            city, country = self._parse_place(birth_place)
+            logger.info(f"🌐 Выполняем геокодинг для {name}: {city}, {country}")
+            lat, lng, iana_tz = resolver.resolve(city, country)
+            logger.info(f"🌐 Геокодинг выполнен: ({lat}, {lng}, {iana_tz})")
+
+            local_dt = parse_local_datetime()
+            utc_dt = local_to_utc(local_dt, iana_tz)
+            year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
+            hour, minute = utc_dt.hour, utc_dt.minute
+            tz_str_for_subject = "UTC"
+            utc_str_saved = utc_dt.isoformat(timespec='seconds')
+            logger.info(f"✅ После геокодинга и преобразования: UTC {utc_dt} для {name}")
+
+            if save_to_db and self.telegram_id:
+                self._computed_coords = (lat, lng, utc_str_saved)
+                self._computed_for_user = self.telegram_id
+                logger.info(f"💾 Координаты и UTC сохранены в атрибут для последующего сохранения в БД для {self.telegram_id}")
+
+        return AstrologicalSubject(
+            name=name,
+            year=year, month=month, day=day,
+            hour=hour, minute=minute,
+            lat=lat, lng=lng,
+            tz_str=tz_str_for_subject
+        )
 
     def _parse_place(self, place: str) -> Tuple[str, str]:
-        # ... (без изменений)
-        pass
+        place = place.strip()
+        if not place:
+            return "Москва", "RU"
+        parts = [p.strip() for p in place.split(',') if p.strip()]
+        city = parts[0] if parts else "Москва"
+        country = parts[1] if len(parts) > 1 else "RU"
+        return city, country
 
     def _get_synastry_data(self) -> Any:
-        # ... (без изменений)
-        pass
+        try:
+            chart_data = ChartDataFactory.create_synastry_chart_data(
+                first_subject=self.subject_a.model(),
+                second_subject=self.subject_b.model(),
+                include_house_comparison=True
+            )
+            logger.info("✅ Synastry Chart Data получен")
+            return chart_data
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения синастрии: {e}")
+            raise
 
     def _extract_person_data(self, subject: AstrologicalSubject, label: str, raw_data: Dict[str, Any]) -> Dict:
         """Извлекает данные одной карты + дату/время/координаты из raw_data."""
@@ -206,7 +284,9 @@ class CompatibilityCalculator:
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
 
-        # Если True_Lilith отсутствует, логируем предупреждение (уже есть)
+        # Если True_Lilith отсутствует, логируем предупреждение
+        if not any(p['name'] == 'True_Lilith' for p in result['planets']):
+            logger.warning(f"True_Lilith отсутствует для {subject.name}")
 
         # Углы
         def _extract_angle(obj):
@@ -264,10 +344,131 @@ class CompatibilityCalculator:
         return result
 
     def _filter_aspects(self) -> None:
-        # ... (этот метод уже работает корректно, но убедитесь, что Mean_Lilith не проходит фильтр)
-        # В текущей реализации Mean_Lilith не входит ни в MAIN_PLANETS, ни в EXTRA_OBJECTS,
-        # поэтому аспекты с Mean_Lilith пропускаются. Оставляем как есть.
-        pass  # замените на ваш код (он уже был обновлён ранее)
+        """
+        Фильтрует аспекты из синастрии:
+        - Оставляет только перекрёстные аспекты (между двумя людьми).
+        - Разделяет на планетарные (10 планет ↔ 10 планет) и extra (с узлами, Хироном, Лилит, углами).
+        - Применяет орбы согласно SYNASTRY_ASPECT_ORBS, EXTRA_ASPECT_ORBS, LILITH_ASPECT_ORBS.
+        """
+        if not self.synastry_data:
+            logger.warning("Нет данных синастрии")
+            return
+
+        if not hasattr(self.synastry_data, 'aspects'):
+            logger.warning("Нет аспектов в синастрии")
+            return
+
+        aspects = self.synastry_data.aspects
+        logger.info(f"Всего аспектов в синастрии: {len(aspects)}")
+
+        if aspects:
+            first = aspects[0]
+            logger.info(f"Первый аспект: {first}")
+            logger.info(f"Атрибуты первого аспекта: {dir(first)}")
+
+        planetary = []
+        extra = []
+
+        seen_planetary = set()
+        seen_extra = set()
+
+        angle_map = {
+            'Ascendant': 'ASC',
+            'Midheaven': 'MC',
+            'Descendant': 'DSC',
+            'ImumCoeli': 'IC'
+        }
+
+        def normalize_name(name):
+            return angle_map.get(name, name)
+
+        for a in aspects:
+            p1 = getattr(a, 'p1_name', None)
+            p2 = getattr(a, 'p2_name', None)
+            if not p1 or not p2:
+                p1 = getattr(a, 'first_point_name', None)
+                p2 = getattr(a, 'second_point_name', None)
+
+            aspect = getattr(a, 'aspect', None)
+            orbit = getattr(a, 'orbit', getattr(a, 'orb', None))
+            movement = getattr(a, 'aspect_movement', None)
+
+            if not p1 or not p2 or not aspect or orbit is None:
+                continue
+
+            p1_norm = normalize_name(p1)
+            p2_norm = normalize_name(p2)
+
+            owner1 = '1'
+            owner2 = '2'
+
+            logger.info(f"Аспект: {p1_norm}({owner1}) — {aspect} — {p2_norm}({owner2}), орб {orbit:.2f}")
+
+            if aspect.lower() not in self.ALLOWED_ASPECTS:
+                logger.info(f"Аспект {aspect} не входит в ALLOWED_ASPECTS, пропускаем")
+                continue
+
+            p1_in_main = p1_norm in self.MAIN_PLANETS
+            p2_in_main = p2_norm in self.MAIN_PLANETS
+            p1_in_extra = p1_norm in self.EXTRA_OBJECTS
+            p2_in_extra = p2_norm in self.EXTRA_OBJECTS
+
+            if p1_in_main and p2_in_main:
+                key = (p1_norm, p2_norm, aspect.lower())
+                if key in seen_planetary:
+                    continue
+                seen_planetary.add(key)
+                max_orb = self.SYNASTRY_ASPECT_ORBS.get(aspect.lower(), 8.0)
+                if orbit <= max_orb:
+                    planetary.append({
+                        'p1': p1_norm,
+                        'p2': p2_norm,
+                        'owner1': owner1,
+                        'owner2': owner2,
+                        'aspect': aspect,
+                        'orb': orbit,
+                        'movement': movement
+                    })
+                    logger.info(f"Добавлен планетарный аспект: {p1_norm} — {aspect} — {p2_norm}, орб {orbit:.2f}")
+                else:
+                    logger.info(f"Планетарный аспект {p1_norm} — {aspect} — {p2_norm} имеет орб {orbit:.2f} > {max_orb}, пропускаем")
+
+            elif (p1_in_main and p2_in_extra) or (p2_in_main and p1_in_extra):
+                if p1_in_main:
+                    planet, extra_obj = p1_norm, p2_norm
+                    owner_planet, owner_extra = owner1, owner2
+                else:
+                    planet, extra_obj = p2_norm, p1_norm
+                    owner_planet, owner_extra = owner2, owner1
+
+                key = (planet, extra_obj, aspect.lower())
+                if key in seen_extra:
+                    continue
+                seen_extra.add(key)
+
+                if extra_obj == 'True_Lilith':
+                    max_orb = self.LILITH_ASPECT_ORBS.get(aspect.lower(), 3.0)
+                else:
+                    max_orb = self.EXTRA_ASPECT_ORBS.get(aspect.lower(), 5.0)
+
+                if orbit <= max_orb:
+                    extra.append({
+                        'p1': planet,
+                        'p2': extra_obj,
+                        'owner1': owner_planet,
+                        'owner2': owner_extra,
+                        'aspect': aspect,
+                        'orb': orbit,
+                        'movement': movement
+                    })
+                    logger.info(f"Добавлен extra аспект: {planet} — {aspect} — {extra_obj}, орб {orbit:.2f}")
+                else:
+                    logger.info(f"Extra аспект {planet} — {aspect} — {extra_obj} имеет орб {orbit:.2f} > {max_orb}, пропускаем")
+            else:
+                logger.info(f"Аспект {p1_norm} — {aspect} — {p2_norm} не подходит ни под одну категорию, пропускаем")
+
+        self._aspects = {'planetary': planetary, 'extra': extra}
+        logger.info(f"Итого: планетарных {len(planetary)}, extra {len(extra)}")
 
     def _get_planets_in_houses(self) -> Dict:
         """Извлекает попадание планет одного человека в дома другого.
@@ -327,8 +528,63 @@ class CompatibilityCalculator:
         return self._format()
 
     def _format(self) -> str:
-        # ... (без изменений, использует _format_person, _format_aspect)
-        pass
+        lines = []
+        lines.append("=== АНАЛИЗ СОВМЕСТИМОСТИ ===")
+        lines.append("")
+        lines.append("Тип анализа: Натальная синастрия")
+        lines.append("Зодиак: Tropical")
+        lines.append("Система домов: Placidus")
+        lines.append("Перспектива: Geocentric")
+        lines.append("")
+
+        lines.extend(self._format_person(self.person_a, '1'))
+        lines.append("")
+        lines.extend(self._format_person(self.person_b, '2'))
+        lines.append("")
+
+        if self._aspects['planetary']:
+            lines.append("=== АСПЕКТЫ МЕЖДУ ПЛАНЕТАМИ ===")
+            for a in self._aspects['planetary']:
+                lines.append(self._format_aspect(a))
+            lines.append("")
+        else:
+            lines.append("=== АСПЕКТЫ МЕЖДУ ПЛАНЕТАМИ ===")
+            lines.append("Нет значимых аспектов")
+            lines.append("")
+
+        if self._aspects['extra']:
+            lines.append("=== АСПЕКТЫ К ДОПОЛНИТЕЛЬНЫМ ТОЧКАМ И УГЛАМ ===")
+            for a in self._aspects['extra']:
+                lines.append(self._format_aspect(a))
+            lines.append("")
+        else:
+            lines.append("=== АСПЕКТЫ К ДОПОЛНИТЕЛЬНЫМ ТОЧКАМ И УГЛАМ ===")
+            lines.append("Нет значимых аспектов")
+            lines.append("")
+
+        if self._planets_in_houses['a_in_b']:
+            lines.append("=== ПЛАНЕТЫ ЧЕЛОВЕКА 1 В ДОМАХ ЧЕЛОВЕКА 2 ===")
+            for item in self._planets_in_houses['a_in_b']:
+                planet = self.PLANET_MAP.get(item['planet'], item['planet'])
+                lines.append(f"{planet} 1 → {item['house']} дом 2")
+            lines.append("")
+        else:
+            lines.append("=== ПЛАНЕТЫ ЧЕЛОВЕКА 1 В ДОМАХ ЧЕЛОВЕКА 2 ===")
+            lines.append("Нет данных")
+            lines.append("")
+
+        if self._planets_in_houses['b_in_a']:
+            lines.append("=== ПЛАНЕТЫ ЧЕЛОВЕКА 2 В ДОМАХ ЧЕЛОВЕКА 1 ===")
+            for item in self._planets_in_houses['b_in_a']:
+                planet = self.PLANET_MAP.get(item['planet'], item['planet'])
+                lines.append(f"{planet} 2 → {item['house']} дом 1")
+            lines.append("")
+        else:
+            lines.append("=== ПЛАНЕТЫ ЧЕЛОВЕКА 2 В ДОМАХ ЧЕЛОВЕКА 1 ===")
+            lines.append("Нет данных")
+            lines.append("")
+
+        return "\n".join(lines)
 
     def _format_person(self, person: Dict, label: str) -> List[str]:
         lines = []
@@ -336,12 +592,10 @@ class CompatibilityCalculator:
         lines.append("")
         lines.append("Рождение:")
         lines.append(f"Имя: {person['name']}")
-        # Дата и время
         birth_date = person.get('birth_date', 'не указана')
         birth_time = person.get('birth_time', 'не указано')
         lines.append(f"Дата: {birth_date}")
         lines.append(f"Время: {birth_time}")
-        # Координаты и часовой пояс
         lat = person.get('lat')
         lng = person.get('lng')
         if lat is not None and lng is not None:
@@ -352,7 +606,6 @@ class CompatibilityCalculator:
         lines.append(f"Часовой пояс: {timezone if timezone else 'не указан'}")
         lines.append("")
 
-        # Углы
         lines.append("Углы:")
         for angle_name in ['ASC', 'MC', 'DSC', 'IC']:
             angle = person['angles'].get(angle_name)
@@ -364,7 +617,6 @@ class CompatibilityCalculator:
                 lines.append(f"{angle_name}: —")
         lines.append("")
 
-        # Планеты (основные)
         planet_order = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                         'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']
         lines.append("Планеты:")
@@ -374,7 +626,6 @@ class CompatibilityCalculator:
                 lines.append(self._format_planet(planet))
         lines.append("")
 
-        # Дополнительные точки (только True_Lilith, если есть)
         extra_order = ['True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron', 'True_Lilith']
         lines.append("Дополнительные точки:")
         has_extra = False
@@ -387,7 +638,6 @@ class CompatibilityCalculator:
             lines.append("Нет дополнительных точек")
         lines.append("")
 
-        # Куспиды домов
         lines.append("Куспиды домов:")
         house_order = ['first_house', 'second_house', 'third_house', 'fourth_house',
                        'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
