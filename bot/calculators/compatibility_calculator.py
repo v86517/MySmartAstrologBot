@@ -104,8 +104,10 @@ class CompatibilityCalculator:
         self.telegram_id = telegram_id
         self.save_for_person_a = save_for_person_a
 
-        self._computed_coords_a = None   # для человека 1
-        self._computed_coords_b = None   # для человека 2
+        self._computed_coords_a = None
+        self._computed_coords_b = None
+        self._utc_dt_a = None
+        self._utc_dt_b = None
 
         self.subject_a = self._create_subject(person_a_data, '1', save_to_db=save_for_person_a)
         if self.subject_a is None:
@@ -177,7 +179,6 @@ class CompatibilityCalculator:
                 utc_str_saved = utc_dt.isoformat(timespec='seconds')
                 logger.info(f"✅ После геокодинга и преобразования: UTC {utc_dt} для {name}")
 
-                # Сохраняем вычисленные координаты в атрибут объекта
                 computed = (lat, lng, utc_str_saved)
                 if label == '1':
                     self._computed_coords_a = computed
@@ -186,6 +187,12 @@ class CompatibilityCalculator:
 
                 if save_to_db and self.telegram_id:
                     self._computed_coords_for_db = computed
+
+            # Сохраняем UTC-время для вывода в промпте
+            if label == '1':
+                self._utc_dt_a = utc_dt
+            else:
+                self._utc_dt_b = utc_dt
 
             return AstrologicalSubject(
                 name=name,
@@ -221,13 +228,22 @@ class CompatibilityCalculator:
             raise
 
     def _extract_person_data(self, subject: AstrologicalSubject, label: str, raw_data: Dict[str, Any]) -> Dict:
-        """Извлекает данные одной карты + дату/время/координаты из raw_data и вычисленных координат."""
+        """Извлекает данные одной карты + UTC-дату/время/координаты."""
         if subject is None:
             raise ValueError(f"Subject for {label} is None")
         model = subject.model() if callable(subject.model) else subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
 
-        # Берём координаты из raw_data, если они есть, иначе из вычисленных
+        # Получаем UTC-дату и время из сохранённых значений
+        utc_dt = self._utc_dt_a if label == '1' else self._utc_dt_b
+        if utc_dt:
+            birth_date_utc = utc_dt.strftime('%d.%m.%Y')
+            birth_time_utc = utc_dt.strftime('%H:%M')
+        else:
+            birth_date_utc = raw_data.get('birth_date', 'не указана')
+            birth_time_utc = raw_data.get('birth_time', 'не указано')
+
+        # Координаты
         lat = raw_data.get('birth_lat')
         lng = raw_data.get('birth_lng')
         if lat is None or lng is None:
@@ -239,12 +255,12 @@ class CompatibilityCalculator:
         result = {
             'label': label,
             'name': subject.name,
-            'birth_date': raw_data.get('birth_date'),
-            'birth_time': raw_data.get('birth_time'),
+            'birth_date': birth_date_utc,
+            'birth_time': birth_time_utc,
             'birth_place': raw_data.get('birth_place'),
             'lat': lat,
             'lng': lng,
-            'timezone': "UTC",  # всегда UTC
+            'timezone': "UTC",
             'planets': [],
             'angles': {},
             'houses': []
@@ -277,7 +293,7 @@ class CompatibilityCalculator:
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
 
-        # Дополнительные точки (только True_Lilith, без Mean_Lilith)
+        # Дополнительные точки (только True_Lilith)
         extra_keys = [
             ('true_north_lunar_node', 'True_North_Lunar_Node'),
             ('true_south_lunar_node', 'True_South_Lunar_Node'),
@@ -308,7 +324,6 @@ class CompatibilityCalculator:
                             'retrograde': getattr(obj, 'retrograde', False),
                         })
 
-        # Если True_Lilith отсутствует, логируем предупреждение
         if not any(p['name'] == 'True_Lilith' for p in result['planets']):
             logger.warning(f"True_Lilith отсутствует для {subject.name}")
 
@@ -609,10 +624,8 @@ class CompatibilityCalculator:
         lines.append("")
         lines.append("Рождение:")
         lines.append(f"Имя: {person['name']}")
-        birth_date = person.get('birth_date', 'не указана')
-        birth_time = person.get('birth_time', 'не указано')
-        lines.append(f"Дата: {birth_date}")
-        lines.append(f"Время: {birth_time}")
+        lines.append(f"Дата: {person.get('birth_date', 'не указана')}")
+        lines.append(f"Время: {person.get('birth_time', 'не указано')}")
         lat = person.get('lat')
         lng = person.get('lng')
         if lat is not None and lng is not None:
