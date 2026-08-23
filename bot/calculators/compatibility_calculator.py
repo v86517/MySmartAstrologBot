@@ -104,8 +104,8 @@ class CompatibilityCalculator:
         self.telegram_id = telegram_id
         self.save_for_person_a = save_for_person_a
 
-        self._computed_coords = None
-        self._computed_for_user = None
+        self._computed_coords_a = None   # для человека 1
+        self._computed_coords_b = None   # для человека 2
 
         self.subject_a = self._create_subject(person_a_data, '1', save_to_db=save_for_person_a)
         if self.subject_a is None:
@@ -177,10 +177,15 @@ class CompatibilityCalculator:
                 utc_str_saved = utc_dt.isoformat(timespec='seconds')
                 logger.info(f"✅ После геокодинга и преобразования: UTC {utc_dt} для {name}")
 
+                # Сохраняем вычисленные координаты в атрибут объекта
+                computed = (lat, lng, utc_str_saved)
+                if label == '1':
+                    self._computed_coords_a = computed
+                else:
+                    self._computed_coords_b = computed
+
                 if save_to_db and self.telegram_id:
-                    self._computed_coords = (lat, lng, utc_str_saved)
-                    self._computed_for_user = self.telegram_id
-                    logger.info(f"💾 Координаты и UTC сохранены в атрибут для последующего сохранения в БД для {self.telegram_id}")
+                    self._computed_coords_for_db = computed
 
             return AstrologicalSubject(
                 name=name,
@@ -216,11 +221,20 @@ class CompatibilityCalculator:
             raise
 
     def _extract_person_data(self, subject: AstrologicalSubject, label: str, raw_data: Dict[str, Any]) -> Dict:
-        """Извлекает данные одной карты + дату/время/координаты из raw_data."""
+        """Извлекает данные одной карты + дату/время/координаты из raw_data и вычисленных координат."""
         if subject is None:
             raise ValueError(f"Subject for {label} is None")
         model = subject.model() if callable(subject.model) else subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
+
+        # Берём координаты из raw_data, если они есть, иначе из вычисленных
+        lat = raw_data.get('birth_lat')
+        lng = raw_data.get('birth_lng')
+        if lat is None or lng is None:
+            if label == '1' and self._computed_coords_a:
+                lat, lng, _ = self._computed_coords_a
+            elif label == '2' and self._computed_coords_b:
+                lat, lng, _ = self._computed_coords_b
 
         result = {
             'label': label,
@@ -228,9 +242,9 @@ class CompatibilityCalculator:
             'birth_date': raw_data.get('birth_date'),
             'birth_time': raw_data.get('birth_time'),
             'birth_place': raw_data.get('birth_place'),
-            'lat': raw_data.get('birth_lat'),
-            'lng': raw_data.get('birth_lng'),
-            'timezone': raw_data.get('birth_timezone'),
+            'lat': lat,
+            'lng': lng,
+            'timezone': "UTC",  # всегда UTC
             'planets': [],
             'angles': {},
             'houses': []
@@ -475,6 +489,8 @@ class CompatibilityCalculator:
         logger.info(f"Итого: планетарных {len(planetary)}, extra {len(extra)}")
 
     def _get_planets_in_houses(self) -> Dict:
+        """Извлекает попадание планет одного человека в дома другого.
+        Исключает Mean_Lilith и углы (ASC, MC, DSC, IC)."""
         result = {'a_in_b': [], 'b_in_a': []}
 
         if not self.synastry_data:
@@ -603,8 +619,7 @@ class CompatibilityCalculator:
             lines.append(f"Координаты: {lat:.4f}° N, {lng:.4f}° E")
         else:
             lines.append("Координаты: не указаны")
-        timezone = person.get('timezone')
-        lines.append(f"Часовой пояс: {timezone if timezone else 'не указан'}")
+        lines.append("Часовой пояс: UTC")
         lines.append("")
 
         lines.append("Углы:")
