@@ -108,7 +108,11 @@ class CompatibilityCalculator:
         self._computed_for_user = None
 
         self.subject_a = self._create_subject(person_a_data, '1', save_to_db=save_for_person_a)
+        if self.subject_a is None:
+            raise ValueError("Не удалось создать субъект для человека A")
         self.subject_b = self._create_subject(person_b_data, '2', save_to_db=False)
+        if self.subject_b is None:
+            raise ValueError("Не удалось создать субъект для человека B")
 
         self.synastry_data = self._get_synastry_data()
 
@@ -117,73 +121,77 @@ class CompatibilityCalculator:
         self._aspects = {'planetary': [], 'extra': []}
         self._planets_in_houses = {}
 
-    def _create_subject(self, data: Dict[str, Any], label: str, save_to_db: bool = False) -> AstrologicalSubject:
+    def _create_subject(self, data: Dict[str, Any], label: str, save_to_db: bool = False) -> Optional[AstrologicalSubject]:
         """Создаёт AstrologicalSubject из данных пользователя."""
-        name = data.get('name', f'Человек {label}')
-        birth_date = data.get('birth_date')
-        birth_time = data.get('birth_time')
-        birth_place = data.get('birth_place', '')
-        utc_str = data.get('birth_timezone')
-        lat = data.get('birth_lat')
-        lng = data.get('birth_lng')
+        try:
+            name = data.get('name', f'Человек {label}')
+            birth_date = data.get('birth_date')
+            birth_time = data.get('birth_time')
+            birth_place = data.get('birth_place', '')
+            utc_str = data.get('birth_timezone')
+            lat = data.get('birth_lat')
+            lng = data.get('birth_lng')
 
-        def parse_local_datetime():
-            try:
-                return datetime.strptime(f"{birth_date} {birth_time}", "%d.%m.%Y %H:%M")
-            except:
-                logger.warning(f"Не удалось распарсить дату/время для {name}, используем 2000-01-01 12:00")
-                return datetime(2000, 1, 1, 12, 0)
+            def parse_local_datetime():
+                try:
+                    return datetime.strptime(f"{birth_date} {birth_time}", "%d.%m.%Y %H:%M")
+                except:
+                    logger.warning(f"Не удалось распарсить дату/время для {name}, используем 2000-01-01 12:00")
+                    return datetime(2000, 1, 1, 12, 0)
 
-        def local_to_utc(local_dt: datetime, iana_tz: str) -> datetime:
-            try:
-                tz = zoneinfo.ZoneInfo(iana_tz)
-                local_with_tz = local_dt.replace(tzinfo=tz)
-                return local_with_tz.astimezone(timezone.utc)
-            except Exception as e:
-                logger.warning(f"Ошибка преобразования времени для {name}: {e}, используем UTC как fallback")
-                return local_dt.replace(tzinfo=timezone.utc)
+            def local_to_utc(local_dt: datetime, iana_tz: str) -> datetime:
+                try:
+                    tz = zoneinfo.ZoneInfo(iana_tz)
+                    local_with_tz = local_dt.replace(tzinfo=tz)
+                    return local_with_tz.astimezone(timezone.utc)
+                except Exception as e:
+                    logger.warning(f"Ошибка преобразования времени для {name}: {e}, используем UTC как fallback")
+                    return local_dt.replace(tzinfo=timezone.utc)
 
-        coords_available = lat is not None and lng is not None and utc_str is not None
+            coords_available = lat is not None and lng is not None and utc_str is not None
 
-        if coords_available:
-            try:
-                utc_str_clean = utc_str.replace('Z', '+00:00')
-                utc_dt = datetime.fromisoformat(utc_str_clean)
+            if coords_available:
+                try:
+                    utc_str_clean = utc_str.replace('Z', '+00:00')
+                    utc_dt = datetime.fromisoformat(utc_str_clean)
+                    year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
+                    hour, minute = utc_dt.hour, utc_dt.minute
+                    logger.info(f"✅ Используем UTC-время из БД для {name}: {utc_dt}")
+                    tz_str_for_subject = "UTC"
+                except ValueError:
+                    logger.warning(f"Не удалось распарсить UTC-строку {utc_str} для {name}, выполняем геокодинг")
+                    coords_available = False
+
+            if not coords_available:
+                resolver = PlaceResolver()
+                city, country = self._parse_place(birth_place)
+                logger.info(f"🌐 Выполняем геокодинг для {name}: {city}, {country}")
+                lat, lng, iana_tz = resolver.resolve(city, country)
+                logger.info(f"🌐 Геокодинг выполнен: ({lat}, {lng}, {iana_tz})")
+
+                local_dt = parse_local_datetime()
+                utc_dt = local_to_utc(local_dt, iana_tz)
                 year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
                 hour, minute = utc_dt.hour, utc_dt.minute
-                logger.info(f"✅ Используем UTC-время из БД для {name}: {utc_dt}")
                 tz_str_for_subject = "UTC"
-            except ValueError:
-                logger.warning(f"Не удалось распарсить UTC-строку {utc_str} для {name}, выполняем геокодинг")
-                coords_available = False
+                utc_str_saved = utc_dt.isoformat(timespec='seconds')
+                logger.info(f"✅ После геокодинга и преобразования: UTC {utc_dt} для {name}")
 
-        if not coords_available:
-            resolver = PlaceResolver()
-            city, country = self._parse_place(birth_place)
-            logger.info(f"🌐 Выполняем геокодинг для {name}: {city}, {country}")
-            lat, lng, iana_tz = resolver.resolve(city, country)
-            logger.info(f"🌐 Геокодинг выполнен: ({lat}, {lng}, {iana_tz})")
+                if save_to_db and self.telegram_id:
+                    self._computed_coords = (lat, lng, utc_str_saved)
+                    self._computed_for_user = self.telegram_id
+                    logger.info(f"💾 Координаты и UTC сохранены в атрибут для последующего сохранения в БД для {self.telegram_id}")
 
-            local_dt = parse_local_datetime()
-            utc_dt = local_to_utc(local_dt, iana_tz)
-            year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
-            hour, minute = utc_dt.hour, utc_dt.minute
-            tz_str_for_subject = "UTC"
-            utc_str_saved = utc_dt.isoformat(timespec='seconds')
-            logger.info(f"✅ После геокодинга и преобразования: UTC {utc_dt} для {name}")
-
-            if save_to_db and self.telegram_id:
-                self._computed_coords = (lat, lng, utc_str_saved)
-                self._computed_for_user = self.telegram_id
-                logger.info(f"💾 Координаты и UTC сохранены в атрибут для последующего сохранения в БД для {self.telegram_id}")
-
-        return AstrologicalSubject(
-            name=name,
-            year=year, month=month, day=day,
-            hour=hour, minute=minute,
-            lat=lat, lng=lng,
-            tz_str=tz_str_for_subject
-        )
+            return AstrologicalSubject(
+                name=name,
+                year=year, month=month, day=day,
+                hour=hour, minute=minute,
+                lat=lat, lng=lng,
+                tz_str=tz_str_for_subject
+            )
+        except Exception as e:
+            logger.error(f"Ошибка создания субъекта для {label}: {e}")
+            return None
 
     def _parse_place(self, place: str) -> Tuple[str, str]:
         place = place.strip()
@@ -209,6 +217,8 @@ class CompatibilityCalculator:
 
     def _extract_person_data(self, subject: AstrologicalSubject, label: str, raw_data: Dict[str, Any]) -> Dict:
         """Извлекает данные одной карты + дату/время/координаты из raw_data."""
+        if subject is None:
+            raise ValueError(f"Subject for {label} is None")
         model = subject.model() if callable(subject.model) else subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
 
@@ -344,12 +354,6 @@ class CompatibilityCalculator:
         return result
 
     def _filter_aspects(self) -> None:
-        """
-        Фильтрует аспекты из синастрии:
-        - Оставляет только перекрёстные аспекты (между двумя людьми).
-        - Разделяет на планетарные (10 планет ↔ 10 планет) и extra (с узлами, Хироном, Лилит, углами).
-        - Применяет орбы согласно SYNASTRY_ASPECT_ORBS, EXTRA_ASPECT_ORBS, LILITH_ASPECT_ORBS.
-        """
         if not self.synastry_data:
             logger.warning("Нет данных синастрии")
             return
@@ -471,8 +475,6 @@ class CompatibilityCalculator:
         logger.info(f"Итого: планетарных {len(planetary)}, extra {len(extra)}")
 
     def _get_planets_in_houses(self) -> Dict:
-        """Извлекает попадание планет одного человека в дома другого.
-        Исключает Mean_Lilith и углы (ASC, MC, DSC, IC)."""
         result = {'a_in_b': [], 'b_in_a': []}
 
         if not self.synastry_data:
@@ -483,7 +485,6 @@ class CompatibilityCalculator:
 
         hc = self.synastry_data.house_comparison
 
-        # Разрешённые объекты: 10 планет + узлы + Chiron + True_Lilith
         allowed_objects = set(self.MAIN_PLANETS)
         allowed_objects.add('True_North_Lunar_Node')
         allowed_objects.add('True_South_Lunar_Node')
