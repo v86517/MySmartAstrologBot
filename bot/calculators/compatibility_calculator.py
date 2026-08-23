@@ -5,7 +5,6 @@ from typing import Dict, Any, Optional, List, Tuple
 
 from kerykeion import AstrologicalSubject, ChartDataFactory
 
-from bot.db import save_user_coords
 from bot.utils.place_resolver import PlaceResolver
 
 logger = logging.getLogger(__name__)
@@ -105,6 +104,10 @@ class CompatibilityCalculator:
         self.telegram_id = telegram_id
         self.save_for_person_a = save_for_person_a
 
+        # Атрибуты для хранения вычисленных координат (если потребуется сохранить в БД)
+        self._computed_coords = None  # (lat, lng, utc_str)
+        self._computed_for_user = None
+
         self.subject_a = self._create_subject(person_a_data, 'A', save_to_db=save_for_person_a)
         self.subject_b = self._create_subject(person_b_data, 'B', save_to_db=False)
 
@@ -121,7 +124,8 @@ class CompatibilityCalculator:
         Логика полностью соответствует астрологии:
         1. Если есть координаты и UTC-строка (birth_timezone) – используем их.
         2. Если нет – геокодинг + преобразование локального времени в UTC через zoneinfo.
-        3. Если save_to_db=True и координаты были вычислены заново – сохраняем их в БД.
+        3. Если save_to_db=True и координаты были вычислены заново – сохраняем их в атрибут
+           для последующего сохранения в хендлере (синхронно, без await).
         """
         name = data.get('name', f'Person {label}')
         birth_date = data.get('birth_date')
@@ -149,7 +153,6 @@ class CompatibilityCalculator:
                 return local_dt.replace(tzinfo=timezone.utc)
 
         coords_available = lat is not None and lng is not None and utc_str is not None
-        computed = False  # флаг, что координаты были вычислены заново
 
         if coords_available:
             # Парсим UTC-строку
@@ -181,16 +184,11 @@ class CompatibilityCalculator:
             utc_str_saved = utc_dt.isoformat(timespec='seconds')
             logger.info(f"✅ После геокодинга и преобразования: UTC {utc_dt} для {name}")
 
-            computed = True  # координаты были вычислены
-
-            # Если нужно сохранить в БД
+            # Если нужно сохранить в БД (но без await, сохраним в атрибут для последующего сохранения)
             if save_to_db and self.telegram_id:
-                logger.info(f"💾 Сохраняем координаты и UTC в БД для {self.telegram_id}: lat={lat}, lng={lng}, utc={utc_str_saved}")
-                result = await save_user_coords(self.telegram_id, lat, lng, utc_str_saved)
-                if result:
-                    logger.info(f"✅ Координаты и UTC сохранены в БД для {self.telegram_id}")
-                else:
-                    logger.error(f"❌ Ошибка сохранения координат для {self.telegram_id}")
+                self._computed_coords = (lat, lng, utc_str_saved)
+                self._computed_for_user = self.telegram_id
+                logger.info(f"💾 Координаты и UTC сохранены в атрибут для последующего сохранения в БД для {self.telegram_id}")
 
         # Создаём субъект с UTC-временем и tz_str="UTC"
         return AstrologicalSubject(

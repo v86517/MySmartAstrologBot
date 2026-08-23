@@ -449,14 +449,12 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
         return
 
     # Определяем, являются ли данные person1 данными из БД
-    # Если есть все три поля и они не None – считаем, что данные из БД
     is_person1_from_db = (
         person1.get('birth_lat') is not None and
         person1.get('birth_lng') is not None and
         person1.get('birth_timezone') is not None
     )
 
-    # Режим эмуляции
     emulation = await get_emulation_mode(user_id)
 
     status_msg = await callback.message.answer(
@@ -474,10 +472,20 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             save_for_person_a=is_person1_from_db
         )
 
-        # 2. Строим контекст синастрии
+        # 2. Если координаты были вычислены и нужно сохранить – сохраняем
+        if hasattr(calc, '_computed_coords') and calc._computed_coords and calc._computed_for_user:
+            lat, lng, utc_str = calc._computed_coords
+            logger.info(f"💾 Сохраняем координаты и UTC в БД для {calc._computed_for_user}: lat={lat}, lng={lng}, utc={utc_str}")
+            result = await save_user_coords(calc._computed_for_user, lat, lng, utc_str)
+            if result:
+                logger.info(f"✅ Координаты и UTC сохранены в БД для {calc._computed_for_user}")
+            else:
+                logger.error(f"❌ Ошибка сохранения координат для {calc._computed_for_user}")
+
+        # 3. Строим контекст синастрии
         context = calc.build()
 
-        # 3. Формируем промпт для LLM
+        # 4. Формируем промпт для LLM
         if emulation:
             final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{context}"
         else:
@@ -494,21 +502,21 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             prompt = system_prompt + "\n\n" + context
 
             if _gemini_service:
-                result = _gemini_service.send_raw_prompt(prompt)
-                final_text = result
+                result_text = _gemini_service.send_raw_prompt(prompt)
+                final_text = result_text
             else:
                 final_text = "❌ Gemini сервис недоступен."
 
-        # 4. Сохраняем в архив и отмечаем использование
+        # 5. Сохраняем в архив и отмечаем использование
         await save_message_to_archive(user_id, 'compatibility', final_text)
         if not is_subscribed:
             await mark_feature_used_db(user_id, 'compatibility')
 
-        # 5. Удаляем статус и отправляем результат
+        # 6. Удаляем статус и отправляем результат
         await status_msg.delete()
         await send_long_message(callback.message, final_text, reply_markup=get_main_menu_button(lang))
 
-        # 6. Если не подписан, показываем промо-сообщение
+        # 7. Если не подписан, показываем промо-сообщение
         if not is_subscribed:
             await callback.message.answer(
                 await get_text(user_id, 'compatibility_promo'),
