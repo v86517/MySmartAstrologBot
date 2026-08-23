@@ -210,9 +210,10 @@ class CompatibilityCalculator:
 
     def _get_synastry_data(self) -> Any:
         try:
+            # В kerykeion 5.x нужно передавать модели субъектов
             chart_data = ChartDataFactory.create_synastry_chart_data(
-                first_subject=self.subject_a,
-                second_subject=self.subject_b,
+                first_subject=self.subject_a.model,   # или self.subject_a._model
+                second_subject=self.subject_b.model,
                 include_house_comparison=True
             )
             logger.info("✅ Synastry Chart Data получен")
