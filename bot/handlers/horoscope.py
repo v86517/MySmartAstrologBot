@@ -1,7 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
-import pytz
+from datetime import datetime, timezone
 from pathlib import Path
 
 from aiogram import Router, F
@@ -18,6 +17,7 @@ from bot.keyboards.keyboards import (
     get_subscription_promo_keyboard,
     get_cancel_keyboard,
     get_horoscope_period_keyboard,
+    get_main_menu,
 )
 from bot.states.states import HoroscopeStates, UserDataStates
 from bot.db import (
@@ -37,9 +37,11 @@ router = Router()
 
 _gemini_service = None
 
+
 def set_gemini_service(service):
     global _gemini_service
     _gemini_service = service
+
 
 async def load_prompt_template(filename: str) -> str:
     """Загружает шаблон промпта из папки prompts."""
@@ -50,6 +52,7 @@ async def load_prompt_template(filename: str) -> str:
     except FileNotFoundError:
         logger.error(f"Шаблон {filename} не найден")
         return ""
+
 
 # ====================== СТАРТ ГОРОСКОПА ======================
 
@@ -72,12 +75,13 @@ async def start_horoscope(message: Message, state: FSMContext):
             reply_markup=get_cancel_keyboard(lang)
         )
 
+
 # ====================== ВЫБОР ПЕРИОДА ======================
 
 @router.callback_query(F.data.startswith("horoscope_"), HoroscopeStates.SELECT_PERIOD)
 async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    period = callback.data.split("_")[1]
+    period = callback.data.split("_")[1]  # today, month, year
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
@@ -123,6 +127,7 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
     )
     await state.clear()
 
+
 # ====================== ГЕНЕРАЦИЯ ГОРОСКОПА ======================
 
 @router.callback_query(F.data.startswith("confirm_horoscope_"))
@@ -161,7 +166,7 @@ async def confirm_horoscope(callback: CallbackQuery):
     status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
 
     try:
-        # 1. Создаём калькулятор транзитов
+        # 1. Создаём калькулятор
         calc = HoroscopeCalculator(
             user_data=user_data,
             lang=lang,
@@ -170,13 +175,13 @@ async def confirm_horoscope(callback: CallbackQuery):
             emulation_mode=emulation
         )
 
-        # 2. Определяем целевую дату (UTC)
+        # 2. Целевая дата (UTC)
         target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
         # 3. Строим контекст
         context = calc.build_context(period=period, target_date=target_date)
 
-        # 4. Загружаем шаблон
+        # 4. Загружаем шаблон промпта
         template = await load_prompt_template('prompt_horoscope.txt')
         if not template:
             await callback.message.answer("❌ Шаблон промпта не найден.")
@@ -196,10 +201,19 @@ async def confirm_horoscope(callback: CallbackQuery):
         prompt = prompt.replace('{period}', period_name)
         prompt = prompt.replace('{context}', context)
 
-        # 8. Режим эмуляции или реальный запрос
+        # 8. Если включён режим эмуляции – показываем диагностику и промпт
         if emulation:
-            final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+            # Получаем диагностический отчёт
+            diag_report = calc.get_diagnostic_report()
+            logger.info(f"Диагностический отчёт:\n{diag_report}")
+
+            final_text = (
+                f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть)\n\n"
+                f"--- ДИАГНОСТИКА ---\n{diag_report}\n\n"
+                f"--- ПРОМПТ ---\n{prompt}"
+            )
         else:
+            # Реальный запрос к Gemini
             result_text = _gemini_service.send_raw_prompt(prompt)
             final_text = result_text
 
@@ -223,3 +237,14 @@ async def confirm_horoscope(callback: CallbackQuery):
             await status_msg.edit_text(f"❌ Произошла ошибка при генерации гороскопа. Пожалуйста, попробуйте позже.")
         except:
             await callback.message.answer(f"❌ Ошибка: {str(e)}")
+
+
+# ====================== ОТМЕНА ======================
+
+@router.callback_query(F.data == "cancel_horoscope")
+async def cancel_horoscope(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.delete()
+    user_id = callback.from_user.id
+    lang = await get_user_language(user_id)
+    await callback.message.answer("🏠", reply_markup=get_main_menu_button(lang))
