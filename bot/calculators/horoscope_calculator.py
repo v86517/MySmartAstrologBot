@@ -77,30 +77,33 @@ class TransitCalculator:
         # Получаем натальную карту
         self.astro_calc = AstrologyCalculator(
             user_data, lang=lang, telegram_id=telegram_id, coords=coords,
-            emulation_mode=False  # натальная карта строится всегда
+            emulation_mode=False
         )
         self.natal_data = self.astro_calc._build_natal_chart()
         self.subject = self.astro_calc._subject
 
-        # Сохраняем натальные планеты и углы для быстрого доступа
+        # Сохраняем натальные планеты и углы
         self.natal_planets = self.natal_data['planets']
         self.natal_angles = self.natal_data['angles']
         self.natal_houses = self.natal_data['houses']
 
-        # Список натальных целей: планеты + углы + узлы + Хирон + True_Lilith (если есть)
+        # Список натальных целей (с унифицированным ключом 'position')
         self.natal_targets = []
+
         # Основные планеты
         main_names = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                       'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'}
         for p in self.natal_planets:
             if p['name'] in main_names:
-                self.natal_targets.append(p)
+                target = dict(p)
+                target['position'] = p.get('degree', 0.0)  # добавляем position из degree
+                self.natal_targets.append(target)
+
         # Углы
         angle_names = ['ASC', 'MC', 'DSC', 'IC']
         for name in angle_names:
             if name in self.natal_angles and self.natal_angles[name] is not None:
                 angle_data = self.natal_angles[name]
-                # Убедимся, что есть position
                 if isinstance(angle_data, dict) and 'position' in angle_data:
                     self.natal_targets.append({
                         'name': name,
@@ -110,17 +113,15 @@ class TransitCalculator:
                         'retrograde': False,
                         'is_angle': True
                     })
-                else:
-                    logger.warning(f"Угол {name} не содержит position, пропускаем")
-        # Узлы, Хирон, True_Lilith (если есть)
+
+        # Дополнительные точки (узлы, Хирон, True_Lilith)
         extra_names = {'True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron', 'True_Lilith'}
         for p in self.natal_planets:
             if p['name'] in extra_names:
-                # Убедимся, что есть position
-                if 'position' in p:
-                    self.natal_targets.append(p)
-                else:
-                    logger.warning(f"Дополнительная точка {p['name']} не содержит position, пропускаем")
+                if 'degree' in p:
+                    target = dict(p)
+                    target['position'] = p['degree']
+                    self.natal_targets.append(target)
 
         # Кеш для транзитных позиций
         self._position_cache = {}
@@ -128,7 +129,6 @@ class TransitCalculator:
     # ---------- ПОЛУЧЕНИЕ ТРАНЗИТНЫХ ПОЗИЦИЙ ----------
 
     def _get_transit_subject(self, date: datetime) -> AstrologicalSubject:
-        """Создаёт субъект для транзитов на указанную дату (UTC)."""
         lat = self.natal_data['location']['lat']
         lng = self.natal_data['location']['lng']
         return AstrologicalSubject(
@@ -144,7 +144,6 @@ class TransitCalculator:
         )
 
     def _get_transit_positions(self, date: datetime) -> Dict[str, Dict]:
-        """Возвращает позиции транзитных планет на указанную дату. Кеширует."""
         key = date.strftime('%Y-%m-%d')
         if key in self._position_cache:
             return self._position_cache[key]
@@ -182,7 +181,6 @@ class TransitCalculator:
         return planets
 
     def _get_transit_house(self, longitude: float) -> int:
-        """Определяет натальный дом для транзитной планеты."""
         if not self.natal_houses:
             return 0
         sorted_houses = sorted(self.natal_houses, key=lambda h: h['degree'])
@@ -218,19 +216,15 @@ class TransitCalculator:
         return None
 
     def _get_aspects_for_day(self, date: datetime) -> List[Dict]:
-        """Возвращает транзитные аспекты на конкретную дату."""
         transit_positions = self._get_transit_positions(date)
         aspects = []
         for t_planet, t_data in transit_positions.items():
             t_lon = t_data['longitude']
             t_house = t_data['house']
             t_retro = t_data['retrograde']
-            t_speed = t_data['speed']
 
             for target in self.natal_targets:
-                # Защита от отсутствия position
                 if 'position' not in target:
-                    logger.warning(f"Цель {target.get('name')} не имеет position, пропускаем")
                     continue
                 n_lon = target['position']
                 aspect_info = self._calculate_aspect(t_lon, n_lon)
@@ -266,10 +260,6 @@ class TransitCalculator:
         return aspects
 
     def _scan_period(self, start: datetime, end: datetime, period_type: str) -> List[Dict]:
-        """
-        Сканирует период с шагом 1 день и собирает все значимые транзиты,
-        затем группирует по проходам и вычисляет даты входа/выхода.
-        """
         daily_aspects = []
         current = start
         while current <= end:
@@ -279,7 +269,6 @@ class TransitCalculator:
                 daily_aspects.append(a)
             current += timedelta(days=1)
 
-        # Группируем по (transit_planet, natal_target, aspect)
         groups = {}
         for a in daily_aspects:
             key = (a['transit_planet'], a['natal_target'], a['aspect'])
@@ -332,11 +321,8 @@ class TransitCalculator:
                 entry_date = seg[0]['date']
                 exit_date = seg[-1]['date']
 
-                # Определяем фазу (упрощённо: по изменению орба вокруг точной даты)
-                # Здесь можно добавить более точное определение по скоростям, но пока оставим как есть
-                # Если точная дата не на границе, то можно определить по тренду орба до и после
-                phase = 'applying'  # по умолчанию
-                # Попробуем определить по изменению орба на соседних днях
+                # Определяем фазу упрощённо
+                phase = 'applying'
                 if len(seg) >= 3:
                     idx = seg.index(min_orb_item)
                     if idx > 0 and idx < len(seg) - 1:
@@ -348,7 +334,6 @@ class TransitCalculator:
                             phase = 'separating'
                         else:
                             phase = 'stationary'
-                # Если не удалось, оставляем 'applying'
 
                 events.append({
                     'transit_planet': t_planet,
@@ -367,7 +352,6 @@ class TransitCalculator:
         return events
 
     def _filter_events(self, events: List[Dict], period_type: str, target_date: datetime = None) -> List[Dict]:
-        """Фильтрует события в зависимости от типа прогноза и приоритетов."""
         if period_type == 'today':
             filtered = []
             for ev in events:
@@ -401,7 +385,6 @@ class TransitCalculator:
                       start_date: Optional[datetime] = None,
                       end_date: Optional[datetime] = None,
                       target_date: Optional[datetime] = None) -> str:
-        """Основной метод: возвращает контекст для гороскопа."""
         if not start_date or not end_date or not target_date:
             if period == 'today':
                 target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -451,7 +434,7 @@ class TransitCalculator:
             planet = next((p for p in self.natal_planets if p['name'] == name), None)
             if planet:
                 sign = NatalContextBuilder.SIGN_MAP.get(planet['sign'], planet['sign'])
-                pos = planet['position']
+                pos = planet['degree']  # Используем degree
                 house = planet['house']
                 retro = planet['retrograde']
                 line = f"{name}: {sign} {pos:.2f}°, {house} дом"
