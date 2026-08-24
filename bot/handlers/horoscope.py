@@ -29,7 +29,7 @@ from bot.db import (
     get_user_language,
     get_emulation_mode,
 )
-from bot.calculators.horoscope_calculator import TransitCalculator
+from bot.calculators.horoscope_calculator import HoroscopeCalculator
 from bot.services.gemini import GeminiService
 
 logger = logging.getLogger(__name__)
@@ -162,7 +162,7 @@ async def confirm_horoscope(callback: CallbackQuery):
 
     try:
         # 1. Создаём калькулятор транзитов
-        calc = TransitCalculator(
+        calc = HoroscopeCalculator(
             user_data=user_data,
             lang=lang,
             telegram_id=user_id,
@@ -170,7 +170,7 @@ async def confirm_horoscope(callback: CallbackQuery):
             emulation_mode=emulation
         )
 
-        # 2. Определяем даты для расчёта
+        # 2. Определяем целевую дату (UTC)
         target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
         # 3. Строим контекст
@@ -223,12 +223,3 @@ async def confirm_horoscope(callback: CallbackQuery):
             await status_msg.edit_text(f"❌ Произошла ошибка при генерации гороскопа. Пожалуйста, попробуйте позже.")
         except:
             await callback.message.answer(f"❌ Ошибка: {str(e)}")
-
-
-@router.callback_query(F.data == "cancel_horoscope")
-async def cancel_horoscope(callback: CallbackQuery):
-    await callback.answer()
-    await callback.message.delete()
-    user_id = callback.from_user.id
-    lang = await get_user_language(user_id)
-    await callback.message.answer("🏠", reply_markup=get_main_menu_button(lang))
