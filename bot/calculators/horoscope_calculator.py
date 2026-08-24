@@ -145,6 +145,9 @@ class HoroscopeCalculator:
         self.natal_angles = self.natal_data['angles']
         self.natal_houses = self.natal_data['houses']
 
+        self.debug = True  # <-- добавить
+
+        # Строим список натальных целей
         self.natal_targets = self._build_natal_targets()
         self._transit_cache = {}
 
