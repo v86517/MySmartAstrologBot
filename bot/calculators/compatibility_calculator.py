@@ -550,18 +550,27 @@ class CompatibilityCalculator:
         logger.info(f"Планеты 1 в домах 2: {len(result['a_in_b'])}, Планеты 2 в домах 1: {len(result['b_in_a'])}")
         return result
 
-    def build(self) -> str:
+    def build_context(self) -> str:
+        """
+        Строит контекст синастрии в новом формате (без системной инструкции).
+        Используется для вставки в prompt_connect.txt.
+        """
         self.person_a = self._extract_person_data(self.subject_a, '1', self.person_a_data)
         self.person_b = self._extract_person_data(self.subject_b, '2', self.person_b_data)
 
         self._filter_aspects()
         self._planets_in_houses = self._get_planets_in_houses()
 
-        return self._format()
+        return self._format_context()
 
-    def _format(self) -> str:
+    def _format_context(self) -> str:
+        """
+        Формирует контекст в новом формате с заголовками ###.
+        """
         lines = []
-        lines.append("=== АНАЛИЗ СОВМЕСТИМОСТИ ===")
+
+        # 1. Параметры
+        lines.append("### Параметры")
         lines.append("")
         lines.append("Тип анализа: Натальная синастрия")
         lines.append("Зодиак: Tropical")
@@ -569,73 +578,90 @@ class CompatibilityCalculator:
         lines.append("Перспектива: Geocentric")
         lines.append("")
 
-        lines.extend(self._format_person(self.person_a, '1'))
-        lines.append("")
-        lines.extend(self._format_person(self.person_b, '2'))
-        lines.append("")
+        # 2. Человек 1
+        lines.extend(self._format_person_context(self.person_a, '1'))
 
+        # 3. Человек 2
+        lines.extend(self._format_person_context(self.person_b, '2'))
+
+        # 4. Аспекты между планетами
         if self._aspects['planetary']:
-            lines.append("=== АСПЕКТЫ МЕЖДУ ПЛАНЕТАМИ ===")
+            lines.append("### Аспекты между планетами")
+            lines.append("")
             for a in self._aspects['planetary']:
                 lines.append(self._format_aspect(a))
             lines.append("")
         else:
-            lines.append("=== АСПЕКТЫ МЕЖДУ ПЛАНЕТАМИ ===")
+            lines.append("### Аспекты между планетами")
+            lines.append("")
             lines.append("Нет значимых аспектов")
             lines.append("")
 
+        # 5. Аспекты к дополнительным точкам и углам
         if self._aspects['extra']:
-            lines.append("=== АСПЕКТЫ К ДОПОЛНИТЕЛЬНЫМ ТОЧКАМ И УГЛАМ ===")
+            lines.append("### Аспекты к дополнительным точкам и углам")
+            lines.append("")
             for a in self._aspects['extra']:
                 lines.append(self._format_aspect(a))
             lines.append("")
         else:
-            lines.append("=== АСПЕКТЫ К ДОПОЛНИТЕЛЬНЫМ ТОЧКАМ И УГЛАМ ===")
+            lines.append("### Аспекты к дополнительным точкам и углам")
+            lines.append("")
             lines.append("Нет значимых аспектов")
             lines.append("")
 
+        # 6. Планеты человека 1 в домах человека 2
         if self._planets_in_houses['a_in_b']:
-            lines.append("=== ПЛАНЕТЫ ЧЕЛОВЕКА 1 В ДОМАХ ЧЕЛОВЕКА 2 ===")
+            lines.append("### Планеты человека 1 в домах человека 2")
+            lines.append("")
             for item in self._planets_in_houses['a_in_b']:
                 planet = self.PLANET_MAP.get(item['planet'], item['planet'])
                 lines.append(f"{planet} 1 → {item['house']} дом 2")
             lines.append("")
         else:
-            lines.append("=== ПЛАНЕТЫ ЧЕЛОВЕКА 1 В ДОМАХ ЧЕЛОВЕКА 2 ===")
+            lines.append("### Планеты человека 1 в домах человека 2")
+            lines.append("")
             lines.append("Нет данных")
             lines.append("")
 
+        # 7. Планеты человека 2 в домах человека 1
         if self._planets_in_houses['b_in_a']:
-            lines.append("=== ПЛАНЕТЫ ЧЕЛОВЕКА 2 В ДОМАХ ЧЕЛОВЕКА 1 ===")
+            lines.append("### Планеты человека 2 в домах человека 1")
+            lines.append("")
             for item in self._planets_in_houses['b_in_a']:
                 planet = self.PLANET_MAP.get(item['planet'], item['planet'])
                 lines.append(f"{planet} 2 → {item['house']} дом 1")
             lines.append("")
         else:
-            lines.append("=== ПЛАНЕТЫ ЧЕЛОВЕКА 2 В ДОМАХ ЧЕЛОВЕКА 1 ===")
+            lines.append("### Планеты человека 2 в домах человека 1")
+            lines.append("")
             lines.append("Нет данных")
             lines.append("")
 
         return "\n".join(lines)
 
-    def _format_person(self, person: Dict, label: str) -> List[str]:
+    def _format_person_context(self, person: Dict, label: str) -> List[str]:
+        """
+        Форматирует данные одного человека для нового формата.
+        """
         lines = []
-        lines.append(f"=== ЧЕЛОВЕК {label} ===")
+        lines.append(f"### Человек {label}")
         lines.append("")
-        lines.append("Рождение:")
         lines.append(f"Имя: {person['name']}")
-        lines.append(f"Дата: {person.get('birth_date', 'не указана')}")
-        lines.append(f"Время: {person.get('birth_time', 'не указано')}")
+        lines.append(f"Дата рождения: {person.get('birth_date', 'не указана')}")
+        lines.append(f"Время рождения: {person.get('birth_time', 'не указано')}")
         lat = person.get('lat')
         lng = person.get('lng')
         if lat is not None and lng is not None:
-            lines.append(f"Координаты: {lat:.4f}° N, {lng:.4f}° E")
+            lines.append(f"Координаты рождения: {lat:.4f}° N, {lng:.4f}° E")
         else:
-            lines.append("Координаты: не указаны")
+            lines.append("Координаты рождения: не указаны")
         lines.append("Часовой пояс: UTC")
         lines.append("")
 
-        lines.append("Углы:")
+        # Углы
+        lines.append(f"### Углы человека {label}")
+        lines.append("")
         for angle_name in ['ASC', 'MC', 'DSC', 'IC']:
             angle = person['angles'].get(angle_name)
             if angle:
@@ -646,17 +672,21 @@ class CompatibilityCalculator:
                 lines.append(f"{angle_name}: —")
         lines.append("")
 
+        # Планеты
+        lines.append(f"### Планеты человека {label}")
+        lines.append("")
         planet_order = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                         'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']
-        lines.append("Планеты:")
         for name in planet_order:
             planet = next((p for p in person['planets'] if p['name'] == name), None)
             if planet:
                 lines.append(self._format_planet(planet))
         lines.append("")
 
+        # Дополнительные точки
         extra_order = ['True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron', 'True_Lilith']
-        lines.append("Дополнительные точки:")
+        lines.append(f"### Дополнительные точки человека {label}")
+        lines.append("")
         has_extra = False
         for name in extra_order:
             point = next((p for p in person['planets'] if p['name'] == name), None)
@@ -667,7 +697,9 @@ class CompatibilityCalculator:
             lines.append("Нет дополнительных точек")
         lines.append("")
 
-        lines.append("Куспиды домов:")
+        # Куспиды домов
+        lines.append(f"### Куспиды домов человека {label}")
+        lines.append("")
         house_order = ['first_house', 'second_house', 'third_house', 'fourth_house',
                        'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
                        'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house']

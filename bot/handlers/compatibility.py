@@ -34,12 +34,23 @@ from bot.db import (
 from bot.calculators.compatibility_calculator import CompatibilityCalculator
 from bot.calculators.astrology_data_builder import AstrologyDataBuilder
 from bot.db import get_emulation_mode
+from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 _gemini_service = None
+
+async def load_prompt_template(filename: str) -> str:
+    """Загружает шаблон промпта из папки prompts."""
+    base = Path(__file__).parent.parent.parent / 'prompts' / filename
+    try:
+        with open(base, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.error(f"Шаблон {filename} не найден")
+        return ""
 
 def set_gemini_service(service):
     global _gemini_service
@@ -472,51 +483,59 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
             save_for_person_a=is_person1_from_db
         )
 
-        # 2. Если координаты были вычислены и нужно сохранить – сохраняем
-        if hasattr(calc, '_computed_coords') and calc._computed_coords and calc._computed_for_user:
-            lat, lng, utc_str = calc._computed_coords
-            logger.info(f"💾 Сохраняем координаты и UTC в БД для {calc._computed_for_user}: lat={lat}, lng={lng}, utc={utc_str}")
-            result = await save_user_coords(calc._computed_for_user, lat, lng, utc_str)
+        # 2. Сохраняем координаты, если они были вычислены
+        if hasattr(calc, '_computed_coords_for_db') and calc._computed_coords_for_db:
+            lat, lng, utc_str = calc._computed_coords_for_db
+            logger.info(f"💾 Сохраняем координаты и UTC в БД для {user_id}: lat={lat}, lng={lng}, utc={utc_str}")
+            result = await save_user_coords(user_id, lat, lng, utc_str)
             if result:
-                logger.info(f"✅ Координаты и UTC сохранены в БД для {calc._computed_for_user}")
+                logger.info(f"✅ Координаты и UTC сохранены в БД для {user_id}")
             else:
-                logger.error(f"❌ Ошибка сохранения координат для {calc._computed_for_user}")
+                logger.error(f"❌ Ошибка сохранения координат для {user_id}")
 
-        # 3. Строим контекст синастрии
-        context = calc.build()
+        # 3. Строим контекст (новый формат)
+        context = calc.build_context()
 
-        # 4. Формируем промпт для LLM
-        if emulation:
-            final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{context}"
+        # 4. Загружаем шаблон промпта из файла
+        prompt_template = await load_prompt_template('prompt_connect.txt')
+        if not prompt_template:
+            await callback.message.answer("❌ Шаблон промпта не найден.")
+            return
+
+        # 5. Языковая инструкция
+        if lang == 'en':
+            language_instruction = "IMPORTANT: Respond in English only."
         else:
-            system_prompt = (
-                "Ты — профессиональный астролог. Проведи анализ совместимости двух людей, используя предоставленные данные.\n\n"
-                "Опиши сильные стороны, конфликты, притяжение, эмоциональную совместимость, коммуникацию и долгосрочный потенциал.\n"
-                "Дай практические советы. Ответ должен быть структурированным, с заголовками и абзацами.\n\n"
-            )
-            if lang == 'en':
-                system_prompt += "IMPORTANT: Respond in English only."
-            else:
-                system_prompt += "ВАЖНО: Отвечай только на русском языке."
+            language_instruction = "ВАЖНО: Отвечай только на русском языке."
 
-            prompt = system_prompt + "\n\n" + context
+        # 6. Подставляем в шаблон
+        prompt = prompt_template.replace('{language_instruction}', language_instruction)
+        prompt = prompt.replace('{context}', context)
+        name1 = person1.get('name', 'Человек 1')
+        name2 = person2.get('name', 'Человек 2')
+        prompt = prompt.replace('{name1}', name1)
+        prompt = prompt.replace('{name2}', name2)
 
+        # 7. Режим эмуляции или реальный запрос
+        if emulation:
+            final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+        else:
             if _gemini_service:
                 result_text = _gemini_service.send_raw_prompt(prompt)
                 final_text = result_text
             else:
                 final_text = "❌ Gemini сервис недоступен."
 
-        # 5. Сохраняем в архив и отмечаем использование
+        # 8. Сохраняем в архив и отмечаем использование
         await save_message_to_archive(user_id, 'compatibility', final_text)
         if not is_subscribed:
             await mark_feature_used_db(user_id, 'compatibility')
 
-        # 6. Удаляем статус и отправляем результат
+        # 9. Отправляем результат
         await status_msg.delete()
         await send_long_message(callback.message, final_text, reply_markup=get_main_menu_button(lang))
 
-        # 7. Если не подписан, показываем промо-сообщение
+        # 10. Если не подписан, показываем промо-сообщение
         if not is_subscribed:
             await callback.message.answer(
                 await get_text(user_id, 'compatibility_promo'),
