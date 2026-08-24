@@ -112,13 +112,24 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
 
+from bot.calculators.horoscope_calculator import TransitCalculator
+from pathlib import Path
+
+async def load_prompt_template(filename: str) -> str:
+    base = Path(__file__).parent.parent.parent / 'prompts' / filename
+    try:
+        with open(base, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.error(f"Шаблон {filename} не найден")
+        return ""
+
 @router.callback_query(F.data.startswith("confirm_horoscope_"))
 async def confirm_horoscope(callback: CallbackQuery):
-    """Генерация гороскопа для выбранного периода (вынесен в глобальную область)."""
     await callback.answer()
     await callback.message.delete()
 
-    period = callback.data.split("_")[2]  # today, month, year
+    period = callback.data.split("_")[2]
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
@@ -132,13 +143,14 @@ async def confirm_horoscope(callback: CallbackQuery):
         return
 
     is_subscribed = await check_subscription_db(user_id)
-
     if not is_subscribed and not await can_use_feature_db(user_id, 'horoscope'):
         await callback.message.answer(
             await get_text(user_id, 'horoscope_limit_reached'),
             reply_markup=get_subscription_keyboard(lang)
         )
         return
+
+    emulation = await get_emulation_mode(user_id)
 
     await callback.message.answer(
         await get_text(user_id, 'horoscope_generating'),
@@ -148,115 +160,56 @@ async def confirm_horoscope(callback: CallbackQuery):
     status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
 
     try:
-        # Расчёт временных границ
-        tz_offset = user_data.get('timezone_offset', 3)
-        now_utc = datetime.now(pytz.UTC)
-        now_local = now_utc + timedelta(hours=tz_offset)
-
-        if period == 'today':
-            start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_local = start_local + timedelta(days=1) - timedelta(seconds=1)
-            display_date = start_local.strftime('%d.%m.%Y')
-        elif period == 'month':
-            start_local = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            next_month = start_local.replace(day=28) + timedelta(days=4)
-            end_local = next_month - timedelta(days=next_month.day)
-            end_local = end_local.replace(hour=23, minute=59, second=59)
-            month_names_ru = {
-                1: 'январь', 2: 'февраль', 3: 'март', 4: 'апрель',
-                5: 'май', 6: 'июнь', 7: 'июль', 8: 'август',
-                9: 'сентябрь', 10: 'октябрь', 11: 'ноябрь', 12: 'декабрь'
-            }
-            month_names_en = {
-                1: 'January', 2: 'February', 3: 'March', 4: 'April',
-                5: 'May', 6: 'June', 7: 'July', 8: 'August',
-                9: 'September', 10: 'October', 11: 'November', 12: 'December'
-            }
-            if lang == 'ru':
-                display_date = f"{month_names_ru[start_local.month]} {start_local.year}"
-            else:
-                display_date = f"{month_names_en[start_local.month]} {start_local.year}"
-        else:  # year
-            start_local = now_local.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            end_local = now_local.replace(month=12, day=31, hour=23, minute=59, second=59)
-            display_date = str(start_local.year)
-
-        start_utc = start_local.replace(tzinfo=pytz.UTC)
-        end_utc = end_local.replace(tzinfo=pytz.UTC)
-
-        await status_msg.edit_text(await get_text(user_id, 'horoscope_status_chart'))
-        await asyncio.sleep(1)
-        await status_msg.edit_text(await get_text(user_id, 'horoscope_status_analyze'))
-        await asyncio.sleep(1)
-
-        # 1. Натальная карта
-        natal_builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=user_id)
-        natal_data = natal_builder.build()
-        if hasattr(natal_builder.natal_calc, '_calculated_coords'):
-            coords = natal_builder.natal_calc._calculated_coords
-            if coords:
-                await save_user_coords(user_id, coords[0], coords[1], coords[2])
-                user_data = await get_user_data(user_id)  # обновляем для транзитов
-
-        # 2. Транзиты
-        transit_calc = TransitHoroscopeCalculator(
-            user_data,
-            lang,
-            period=period,
-            start_utc=start_utc,
-            end_utc=end_utc,
-            telegram_id=user_id
+        # 1. Создаём калькулятор транзитов
+        calc = TransitCalculator(
+            user_data=user_data,
+            lang=lang,
+            telegram_id=user_id,
+            coords=None,
+            emulation_mode=emulation
         )
-        transit_data = transit_calc.get_full_transit_data()
 
-        # 3. Контекст
-        builder = AstrologyContextBuilder(user_data, natal_data, transit_data, lang)
-        if period == 'today':
-            context = builder.build_day_context()
-        elif period == 'month':
-            context = builder.build_month_context()
+        # 2. Определяем даты для расчёта
+        # Для простоты используем текущую дату (UTC)
+        target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # 3. Строим контекст
+        context = calc.build_context(period=period, target_date=target_date)
+
+        # 4. Загружаем шаблон
+        template = await load_prompt_template('prompt_horoscope.txt')
+        if not template:
+            await callback.message.answer("❌ Шаблон промпта не найден.")
+            return
+
+        # 5. Языковая инструкция
+        if lang == 'en':
+            language_instruction = "IMPORTANT: Respond in English only."
         else:
-            context = builder.build_year_context()
+            language_instruction = "ВАЖНО: Отвечай только на русском языке."
 
-        # 4. Генерация через Gemini
-        horoscope_text = await _gemini_service.generate_horoscope_with_context(
-            user_id,
-            context,
-            lang,
-            period=period,
-            display_date=display_date
-        )
+        # 6. Период в текстовом виде
+        period_name = "день" if period == 'today' else "месяц" if period == 'month' else "год"
 
-        # 5. Формирование вывода
-        basic_params = format_basic_astrology_parameters(user_data, lang)
+        # 7. Подставляем в шаблон
+        prompt = template.replace('{language_instruction}', language_instruction)
+        prompt = prompt.replace('{period}', period_name)
+        prompt = prompt.replace('{context}', context)
 
-        if period == 'today':
-            header_template = await get_text(user_id, 'horoscope_result_today')
-            header = header_template.format(date=display_date)
-        elif period == 'month':
-            header_template = await get_text(user_id, 'horoscope_result_month')
-            month_part, year_part = display_date.split()
-            header = header_template.format(month=month_part, year=year_part)
+        # 8. Режим эмуляции или реальный запрос
+        if emulation:
+            final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
         else:
-            header_template = await get_text(user_id, 'horoscope_result_year')
-            header = header_template.format(year=display_date)
+            result_text = _gemini_service.send_raw_prompt(prompt)
+            final_text = result_text
 
-        final_message = (
-            f"{header}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{basic_params}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{horoscope_text}"
-        )
-
-        await save_message_to_archive(user_id, 'horoscope', final_message)
-
+        # 9. Сохраняем в архив
+        await save_message_to_archive(user_id, 'horoscope', final_text)
         if not is_subscribed:
             await mark_feature_used_db(user_id, 'horoscope')
 
         await status_msg.delete()
-
-        await send_long_message(callback.message, final_message, reply_markup=get_main_menu_button(lang))
+        await send_long_message(callback.message, final_text, reply_markup=get_main_menu_button(lang))
 
         if not is_subscribed:
             await callback.message.answer(
@@ -269,7 +222,7 @@ async def confirm_horoscope(callback: CallbackQuery):
         try:
             await status_msg.edit_text(f"❌ Произошла ошибка при генерации гороскопа. Пожалуйста, попробуйте позже.")
         except:
-            await callback.message.answer(f"❌ Произошла ошибка: {str(e)}")
+            await callback.message.answer(f"❌ Ошибка: {str(e)}")
 
 
 @router.callback_query(F.data == "cancel_horoscope")
