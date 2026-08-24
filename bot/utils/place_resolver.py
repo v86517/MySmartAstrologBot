@@ -1,3 +1,4 @@
+#bot\utils\place_resolver.py
 import logging
 import re
 import json
