@@ -11,6 +11,7 @@ class NatalContextBuilder:
     """
     Строит текстовый контекст натальной карты для передачи в LLM.
     Использует только натальные данные из Kerykeion, без транзитов и прогнозов.
+    Формат соответствует новому стилю с заголовками ###.
     """
 
     # ========== MAPPING ==========
@@ -47,14 +48,6 @@ class NatalContextBuilder:
         'true_south_lunar_node': 'True_South_Lunar_Node',
         'chiron': 'Chiron',
         'true_lilith': 'True_Lilith'
-    }
-
-    ANGLE_NAME_MAP = {
-        'Ascendant': 'ASC',
-        'Midheaven': 'MC',
-        'MediumCoeli': 'MC',
-        'Descendant': 'DSC',
-        'ImumCoeli': 'IC',
     }
 
     ASPECT_MAP = {
@@ -120,10 +113,6 @@ class NatalContextBuilder:
     }
 
     ALLOWED_ASPECTS = {'conjunction', 'opposition', 'trine', 'square', 'sextile'}
-
-    # Дополнительные объекты для аспектов (канонические имена)
-    EXTRA_OBJECTS = {'True_North_Lunar_Node', 'True_South_Lunar_Node',
-                     'Chiron', 'True_Lilith', 'ASC', 'MC', 'DSC', 'IC'}
 
     def __init__(self, subject: AstrologicalSubject, lang: str = 'ru'):
         self.subject = subject
@@ -341,9 +330,8 @@ class NatalContextBuilder:
         main_planets = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                         'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'}
 
-        # Определим функцию нормализации имён углов
-        def normalize_angle(name):
-            return self.ANGLE_NAME_MAP.get(name, name)
+        extra_objects = {'True_North_Lunar_Node', 'True_South_Lunar_Node',
+                         'Chiron', 'True_Lilith', 'ASC', 'MC', 'DSC', 'IC'}
 
         for a in raw_aspects:
             p1 = getattr(a, 'p1_name', None)
@@ -358,15 +346,11 @@ class NatalContextBuilder:
             if aspect.lower() not in self.ALLOWED_ASPECTS:
                 continue
 
-            # Нормализуем имена углов
-            p1_norm = normalize_angle(p1)
-            p2_norm = normalize_angle(p2)
-
-            names = sorted([p1_norm, p2_norm])
-            p1_in_main = p1_norm in main_planets
-            p2_in_main = p2_norm in main_planets
-            p1_in_extra = p1_norm in self.EXTRA_OBJECTS
-            p2_in_extra = p2_norm in self.EXTRA_OBJECTS
+            names = sorted([p1, p2])
+            p1_in_main = p1 in main_planets
+            p2_in_main = p2 in main_planets
+            p1_in_extra = p1 in extra_objects
+            p2_in_extra = p2 in extra_objects
 
             if p1_in_main and p2_in_main:
                 key = (names[0], names[1], aspect.lower())
@@ -376,17 +360,16 @@ class NatalContextBuilder:
                 max_orb = self.PLANET_ASPECT_ORBS.get(aspect.lower(), 8.0)
                 if orbit <= max_orb:
                     planetary.append({
-                        'p1': p1_norm,
-                        'p2': p2_norm,
+                        'p1': p1, 'p2': p2,
                         'aspect': aspect,
                         'orb': orbit,
                         'movement': movement
                     })
             elif (p1_in_main and p2_in_extra) or (p2_in_main and p1_in_extra):
                 if p1_in_main:
-                    planet, extra_obj = p1_norm, p2_norm
+                    planet, extra_obj = p1, p2
                 else:
-                    planet, extra_obj = p2_norm, p1_norm
+                    planet, extra_obj = p2, p1
                 key = (planet, extra_obj, aspect.lower())
                 if key in seen_extra:
                     continue
@@ -397,8 +380,7 @@ class NatalContextBuilder:
                     max_orb = self.EXTRA_ASPECT_ORBS.get(aspect.lower(), 5.0)
                 if orbit <= max_orb:
                     extra.append({
-                        'p1': planet,
-                        'p2': extra_obj,
+                        'p1': planet, 'p2': extra_obj,
                         'aspect': aspect,
                         'orb': orbit,
                         'movement': movement
@@ -433,7 +415,7 @@ class NatalContextBuilder:
             'North_Node': any(p['name'] == 'True_North_Lunar_Node' for p in self._planets),
             'South_Node': any(p['name'] == 'True_South_Lunar_Node' for p in self._planets),
             'Chiron': any(p['name'] == 'Chiron' for p in self._planets),
-            # True_Lilith – опционально, не проверяем
+            'True_Lilith': any(p['name'] == 'True_Lilith' for p in self._planets),
             'Mean_Lilith_absent': not any(p['name'] == 'Mean_Lilith' for p in self._planets),
             '12_houses': len(self._houses) == 12,
             'elements_present': bool(self._elements),
@@ -448,21 +430,10 @@ class NatalContextBuilder:
 
     def _format(self) -> str:
         lines = []
-        lines.append("=== NATAL CHART ===")
-        lines.append("")
 
-        # Метаданные
-        model = self.subject.model() if callable(self.subject.model) else self.subject.model
-        data = model.dict() if hasattr(model, 'dict') else model.__dict__
-        zodiac = data.get('zodiac_type', 'Tropical')
-        house_system = data.get('house_system', 'Placidus')
-        lines.append("Тип карты: Натальная")
-        lines.append(f"Зодиак: {zodiac}")
-        lines.append(f"Система домов: {house_system}")
-        lines.append("Перспектива: Geocentric")
+        # 1. Данные рождения
+        lines.append("### Данные рождения")
         lines.append("")
-
-        # Рождение
         year = getattr(self.subject, 'year', None)
         month = getattr(self.subject, 'month', None)
         day = getattr(self.subject, 'day', None)
@@ -472,15 +443,28 @@ class NatalContextBuilder:
         lng = getattr(self.subject, 'lng', None)
         tz_str = getattr(self.subject, 'tz_str', None)
 
-        lines.append("Рождение:")
-        lines.append(f"Дата: {day:02d}.{month:02d}.{year}" if all([day, month, year]) else "Дата: не указана")
-        lines.append(f"Время: {hour:02d}:{minute:02d}" if hour is not None and minute is not None else "Время: не указано")
-        lines.append(f"Координаты: {lat:.4f}° N, {lng:.4f}° E" if lat and lng else "Координаты: не указаны")
+        lines.append(f"Дата рождения: {day:02d}.{month:02d}.{year}" if all([day, month, year]) else "Дата рождения: не указана")
+        lines.append(f"Время рождения: {hour:02d}:{minute:02d}" if hour is not None and minute is not None else "Время рождения: не указано")
+        lines.append(f"Координаты рождения: {lat:.4f}° N, {lng:.4f}° E" if lat and lng else "Координаты рождения: не указаны")
         lines.append(f"Часовой пояс: {tz_str}" if tz_str else "Часовой пояс: не указан")
         lines.append("")
 
-        # Углы
-        lines.append("Углы:")
+        # 2. Параметры карты
+        model = self.subject.model() if callable(self.subject.model) else self.subject.model
+        data = model.dict() if hasattr(model, 'dict') else model.__dict__
+        zodiac = data.get('zodiac_type', 'Tropical')
+        house_system = data.get('house_system', 'Placidus')
+        lines.append("### Параметры карты")
+        lines.append("")
+        lines.append(f"Тип карты: Натальная")
+        lines.append(f"Зодиак: {zodiac}")
+        lines.append(f"Система домов: {house_system}")
+        lines.append("Перспектива: Geocentric")
+        lines.append("")
+
+        # 3. Углы
+        lines.append("### Углы")
+        lines.append("")
         for angle_name in ['ASC', 'MC', 'DSC', 'IC']:
             angle = self._angles.get(angle_name)
             if angle:
@@ -491,27 +475,34 @@ class NatalContextBuilder:
                 lines.append(f"{angle_name}: —")
         lines.append("")
 
-        # Планеты
+        # 4. Планеты
         planet_order = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                         'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']
-        lines.append("Планеты:")
+        lines.append("### Планеты")
+        lines.append("")
         for name in planet_order:
             planet = next((p for p in self._planets if p['name'] == name), None)
             if planet:
                 lines.append(self._format_planet(planet))
         lines.append("")
 
-        # Дополнительные точки
+        # 5. Лунные узлы и дополнительные точки
         extra_order = ['True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron', 'True_Lilith']
-        lines.append("Лунные узлы и дополнительные точки:")
+        lines.append("### Лунные узлы и дополнительные точки")
+        lines.append("")
+        has_extra = False
         for name in extra_order:
             point = next((p for p in self._planets if p['name'] == name), None)
             if point:
                 lines.append(self._format_planet(point))
+                has_extra = True
+        if not has_extra:
+            lines.append("Нет дополнительных точек")
         lines.append("")
 
-        # Куспиды домов
-        lines.append("Куспиды домов:")
+        # 6. Куспиды домов
+        lines.append("### Куспиды домов")
+        lines.append("")
         house_order = ['first_house', 'second_house', 'third_house', 'fourth_house',
                        'fifth_house', 'sixth_house', 'seventh_house', 'eighth_house',
                        'ninth_house', 'tenth_house', 'eleventh_house', 'twelfth_house']
@@ -527,56 +518,71 @@ class NatalContextBuilder:
                 lines.append(f"{house_display}: —")
         lines.append("")
 
-        # Аспекты планет
+        # 7. Аспекты планет
         planetary_aspects = self._aspects.get('planetary', [])
         if planetary_aspects:
-            lines.append("Аспекты планет:")
+            lines.append("### Аспекты планет")
+            lines.append("")
             for a in planetary_aspects:
                 lines.append(self._format_aspect(a))
             lines.append("")
         else:
-            lines.append("Аспекты планет: нет")
+            lines.append("### Аспекты планет")
+            lines.append("")
+            lines.append("Нет значимых аспектов")
             lines.append("")
 
-        # Аспекты к дополнительным точкам и углам
+        # 8. Аспекты к дополнительным точкам и углам
         extra_aspects = self._aspects.get('extra', [])
         if extra_aspects:
-            lines.append("Аспекты к дополнительным точкам и углам:")
+            lines.append("### Аспекты к дополнительным точкам и углам")
+            lines.append("")
             for a in extra_aspects:
                 lines.append(self._format_aspect(a))
             lines.append("")
         else:
-            lines.append("Аспекты к дополнительным точкам и углам: нет")
+            lines.append("### Аспекты к дополнительным точкам и углам")
+            lines.append("")
+            lines.append("Нет значимых аспектов")
             lines.append("")
 
-        # Распределение стихий
+        # 9. Распределение стихий
         if self._elements:
-            lines.append("Распределение стихий:")
+            lines.append("### Распределение стихий")
+            lines.append("")
             for elem, value in self._elements.items():
                 lines.append(f"{elem}: {value}%")
             lines.append("")
         else:
-            lines.append("Распределение стихий: не рассчитано")
+            lines.append("### Распределение стихий")
+            lines.append("")
+            lines.append("Не рассчитано")
             lines.append("")
 
-        # Распределение качеств
+        # 10. Распределение качеств
         if self._qualities:
-            lines.append("Распределение качеств:")
+            lines.append("### Распределение качеств")
+            lines.append("")
             for qual, value in self._qualities.items():
                 lines.append(f"{qual}: {value}%")
             lines.append("")
         else:
-            lines.append("Распределение качеств: не рассчитано")
+            lines.append("### Распределение качеств")
+            lines.append("")
+            lines.append("Не рассчитано")
             lines.append("")
 
-        # Лунная фаза
+        # 11. Лунная фаза
         if self._lunar_phase and self._lunar_phase.get('name') and self._lunar_phase.get('angle') is not None:
-            lines.append("Лунная фаза:")
+            lines.append("### Лунная фаза")
+            lines.append("")
             lines.append(f"{self._lunar_phase['name']}")
             lines.append(f"Угол Солнце–Луна: {self._lunar_phase['angle']:.2f}°")
             lines.append("")
         else:
-            lines.append("Лунная фаза: не рассчитана")
+            lines.append("### Лунная фаза")
+            lines.append("")
+            lines.append("Не рассчитана")
             lines.append("")
 
         return "\n".join(lines)
