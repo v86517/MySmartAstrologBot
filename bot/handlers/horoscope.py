@@ -203,13 +203,11 @@ async def confirm_horoscope(callback: CallbackQuery):
 
         # 8. Если включён режим эмуляции – показываем диагностику и промпт
         if emulation:
-            # Получаем диагностический отчёт
-            diag_report = calc.get_diagnostic_report()
-            logger.info(f"Диагностический отчёт:\n{diag_report}")
-
+            qa_report = calc.get_qa_report()
+            logger.info(f"QA-отчёт:\n{qa_report}")
             final_text = (
-                f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть)\n\n"
-                f"--- ДИАГНОСТИКА ---\n{diag_report}\n\n"
+                f"🔍 РЕЖИМ ЭМУЛЯЦИИ\n\n"
+                f"--- QA ОТЧЁТ ---\n{qa_report}\n\n"
                 f"--- ПРОМПТ ---\n{prompt}"
             )
         else:

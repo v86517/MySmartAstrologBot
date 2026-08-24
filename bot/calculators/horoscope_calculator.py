@@ -831,6 +831,81 @@ class HoroscopeCalculator:
                 f"score={ev.priority_score:.2f}" +
                 (f", reason={ev.filter_reason}" if ev.filter_reason else ""))
 
+
+    def get_qa_report(self) -> str:
+        """Компактный QA-отчёт по 6 контрольным событиям."""
+        target_events = [
+            ('Sun', 'Mars'),
+            ('Uranus', 'ASC'),
+            ('Pluto', 'ASC'),
+            ('Neptune', 'ASC'),
+            ('Mars', 'MC'),
+            ('Neptune', 'IC'),
+        ]
+
+        # Все события, прошедшие валидацию и дедупликацию
+        all_events = self.ranked_events + self.background_events
+        final_ids = {id(e) for e in self.final_events}
+
+        # Находим контрольные события
+        found = {}
+        for ev in all_events:
+            key = (ev.transit_body, ev.natal_target)
+            if key in target_events and key not in found:
+                found[key] = ev
+
+        lines = []
+        lines.append("=== QA ОТЧЁТ ===")
+        lines.append("")
+        lines.append("| planet → target | aspect | orb | applying/sep | peak_date | days_to_peak | status | priority_score | FINAL/BACKGROUND | причина |")
+        lines.append("|-----------------|--------|-----|--------------|-----------|--------------|--------|---------------|------------------|---------|")
+
+        for key in target_events:
+            ev = found.get(key)
+            if ev:
+                peak_date = ev.exact_datetime.strftime('%d.%m.%Y') if ev.exact_datetime else 'N/A'
+                status = ev.status.value if ev.status else 'N/A'
+                applying = 'сходящийся' if ev.applying else 'расходящийся'
+                is_final = "FINAL" if id(ev) in final_ids else "BACKGROUND"
+                reason = ev.filter_reason if ev.filter_reason else ("Not in top 5 by priority score" if not is_final else "")
+                lines.append(
+                    f"| {ev.transit_body} → {ev.natal_target} | {ev.aspect} | {ev.orb:.4f} | {applying} | {peak_date} | {ev.days_to_peak:.2f} | {status} | {ev.priority_score:.2f} | {is_final} | {reason} |"
+                )
+            else:
+                lines.append(f"| {key[0]} → {key[1]} | НЕ НАЙДЕНО | - | - | - | - | - | - | - | - |")
+
+        lines.append("")
+
+        # Статистика
+        counts = {s: 0 for s in EventStatus}
+        for ev in self.classified_events:
+            counts[ev.status] += 1
+
+        lines.append(f"RAW total: {len(self.raw_events)}")
+        lines.append(f"VALIDATED total: {len(self.validated_events)}")
+        lines.append(f"DEDUP total: {len(self.dedup_events)}")
+        lines.append(f"TODAY: {counts.get(EventStatus.TODAY, 0)}")
+        lines.append(f"APPROACHING: {counts.get(EventStatus.APPROACHING, 0)}")
+        lines.append(f"SEPARATING: {counts.get(EventStatus.SEPARATING, 0)}")
+        lines.append(f"BACKGROUND: {counts.get(EventStatus.BACKGROUND, 0)}")
+        lines.append(f"FINAL: {len(self.final_events)}")
+
+        lines.append("")
+        lines.append("EXCLUDED:")
+        excluded = []
+        # События, попавшие в background (уже имеют filter_reason)
+        for ev in self.background_events:
+            excluded.append(f"- {ev.transit_body} → {ev.natal_target}: {ev.filter_reason}")
+        # События, которые не попали в финал, но не background
+        for ev in self.ranked_events:
+            if id(ev) not in final_ids:
+                excluded.append(f"- {ev.transit_body} → {ev.natal_target}: Not in top 5 by priority score (score={ev.priority_score:.2f})")
+        if not excluded:
+            excluded.append("Нет исключённых событий.")
+        lines.extend(excluded)
+
+        return "\n".join(lines)
+
     def get_stats(self) -> Dict:
         return {
             'raw': len(self.raw_events),
