@@ -96,7 +96,7 @@ class TransitCalculator:
         for p in self.natal_planets:
             if p['name'] in main_names:
                 target = dict(p)
-                target['position'] = p.get('degree', 0.0)  # добавляем position из degree
+                target['position'] = p.get('degree', 0.0)
                 self.natal_targets.append(target)
 
         # Углы
@@ -125,6 +125,13 @@ class TransitCalculator:
 
         # Кеш для транзитных позиций
         self._position_cache = {}
+
+        # Маппинг домов для вывода
+        self.HOUSE_DISPLAY = {
+            1: '1 дом', 2: '2 дом', 3: '3 дом', 4: '4 дом',
+            5: '5 дом', 6: '6 дом', 7: '7 дом', 8: '8 дом',
+            9: '9 дом', 10: '10 дом', 11: '11 дом', 12: '12 дом'
+        }
 
     # ---------- ПОЛУЧЕНИЕ ТРАНЗИТНЫХ ПОЗИЦИЙ ----------
 
@@ -196,9 +203,12 @@ class TransitCalculator:
                     return i + 1
         return 0
 
-    # ---------- РАСЧЁТ АСПЕКТОВ ----------
+    # ---------- РАСЧЁТ АСПЕКТОВ (все возможные) ----------
 
-    def _calculate_aspect(self, lon1: float, lon2: float) -> Optional[Tuple[str, float]]:
+    def _calculate_all_aspects(self, lon1: float, lon2: float) -> List[Tuple[str, float]]:
+        """
+        Возвращает список всех аспектов (тип, орб) между двумя долготами.
+        """
         diff = abs(lon1 - lon2) % 360
         if diff > 180:
             diff = 360 - diff
@@ -209,11 +219,12 @@ class TransitCalculator:
             'square': 90,
             'sextile': 60,
         }
+        aspects = []
         for aspect, angle in targets.items():
             orb = abs(diff - angle)
-            if orb <= 5.0:
-                return aspect, orb
-        return None
+            if orb <= 5.0:  # предварительный фильтр
+                aspects.append((aspect, orb))
+        return aspects
 
     def _get_aspects_for_day(self, date: datetime) -> List[Dict]:
         transit_positions = self._get_transit_positions(date)
@@ -227,36 +238,33 @@ class TransitCalculator:
                 if 'position' not in target:
                     continue
                 n_lon = target['position']
-                aspect_info = self._calculate_aspect(t_lon, n_lon)
-                if not aspect_info:
-                    continue
-                aspect_type, orb = aspect_info
+                all_aspects = self._calculate_all_aspects(t_lon, n_lon)
+                for aspect_type, orb in all_aspects:
+                    # Определяем максимальный орб для этого типа
+                    if target.get('is_angle'):
+                        max_orb = self.ANGLE_ORBS.get(aspect_type, 2.0)
+                    elif target['name'] in ('True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron'):
+                        max_orb = self.EXTRA_ORBS.get(aspect_type, 2.0)
+                    else:
+                        max_orb = self.PLANET_ORBS.get(aspect_type, 3.0)
 
-                # Определяем орб
-                if target.get('is_angle'):
-                    max_orb = self.ANGLE_ORBS.get(aspect_type, 2.0)
-                elif target['name'] in ('True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron'):
-                    max_orb = self.EXTRA_ORBS.get(aspect_type, 2.0)
-                else:
-                    max_orb = self.PLANET_ORBS.get(aspect_type, 3.0)
+                    if t_planet == 'Moon':
+                        max_orb = self.MOON_ORB
 
-                if t_planet == 'Moon':
-                    max_orb = self.MOON_ORB
+                    if orb > max_orb:
+                        continue
 
-                if orb > max_orb:
-                    continue
-
-                aspects.append({
-                    'transit_planet': t_planet,
-                    'natal_target': target['name'],
-                    'aspect': aspect_type,
-                    'orb': orb,
-                    'transit_house': t_house,
-                    'natal_house': target.get('house'),
-                    'transit_retrograde': t_retro,
-                    'target_is_angle': target.get('is_angle', False),
-                    'date': date,
-                })
+                    aspects.append({
+                        'transit_planet': t_planet,
+                        'natal_target': target['name'],
+                        'aspect': aspect_type,
+                        'orb': orb,
+                        'transit_house': t_house,
+                        'natal_house': target.get('house'),
+                        'transit_retrograde': t_retro,
+                        'target_is_angle': target.get('is_angle', False),
+                        'date': date,
+                    })
         return aspects
 
     def _scan_period(self, start: datetime, end: datetime, period_type: str) -> List[Dict]:
@@ -379,6 +387,7 @@ class TransitCalculator:
                 elif planet in self.GROUP_B:
                     if ev['orb_min'] <= 0.5 and ev['natal_target'] in ('Sun', 'Moon', 'ASC', 'MC'):
                         filtered.append(ev)
+                # Planet in GROUP_C – не добавляем
             return filtered
 
     def build_context(self, period: str = 'today',
@@ -434,10 +443,12 @@ class TransitCalculator:
             planet = next((p for p in self.natal_planets if p['name'] == name), None)
             if planet:
                 sign = NatalContextBuilder.SIGN_MAP.get(planet['sign'], planet['sign'])
-                pos = planet['degree']  # Используем degree
+                pos = planet['degree']
                 house = planet['house']
                 retro = planet['retrograde']
-                line = f"{name}: {sign} {pos:.2f}°, {house} дом"
+                # Переводим дом
+                house_display = self.HOUSE_DISPLAY.get(house, f"{house} дом") if isinstance(house, int) else f"{house}"
+                line = f"{name}: {sign} {pos:.2f}°, {house_display}"
                 if retro:
                     line += ", ретроградный"
                 lines.append(line)
@@ -449,6 +460,7 @@ class TransitCalculator:
             lines.append("Нет значимых транзитов в указанный период.")
             lines.append("")
         else:
+            # Сортируем по приоритету
             filtered_events.sort(key=lambda x: (self.PLANET_PRIORITY.get(x['transit_planet'], 0),
                                                 x['exact_date']), reverse=True)
 
@@ -466,6 +478,10 @@ class TransitCalculator:
                 aspect_name = NatalContextBuilder.ASPECT_MAP.get(aspect, aspect)
                 phase_text = "сходящийся" if phase == 'applying' else "расходящийся" if phase == 'separating' else ""
 
+                # Перевод домов
+                transit_house_display = self.HOUSE_DISPLAY.get(transit_house, f"{transit_house} дом") if isinstance(transit_house, int) else f"{transit_house}"
+                natal_house_display = self.HOUSE_DISPLAY.get(natal_house, f"{natal_house} дом") if isinstance(natal_house, int) else f"{natal_house}"
+
                 line = f"{t_planet} транзитный — {aspect_name} — натальное {n_target}"
                 if phase_text:
                     line += f", орб {orb:.2f}°, {phase_text}"
@@ -473,9 +489,9 @@ class TransitCalculator:
                     line += f", орб {orb:.2f}°"
                 lines.append(line)
                 if transit_house:
-                    lines.append(f"Транзитная планета активирует {transit_house} дом")
+                    lines.append(f"Транзитная планета активирует {transit_house_display}")
                 if natal_house:
-                    lines.append(f"Натальный {n_target} находится в {natal_house} доме")
+                    lines.append(f"Натальный {n_target} находится в {natal_house_display}")
                 if ev['entry_date'] and ev['exit_date']:
                     lines.append(f"Период: {ev['entry_date'].strftime('%d.%m.%Y')} – {ev['exit_date'].strftime('%d.%m.%Y')}")
                 if ev['exact_date']:
