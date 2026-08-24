@@ -13,15 +13,23 @@ logger = logging.getLogger(__name__)
 
 class HoroscopeCalculator:
     """
-    Калькулятор гороскопа на день с корректным расчётом аспектов и exact_datetime.
+    Калькулятор гороскопа на день с корректной геометрией аспектов.
+    Поддерживает как полные, так и сокращённые названия знаков.
     """
 
+    # Маппинг знаков → начальная долгота (0-360)
     SIGN_OFFSET = {
+        # Полные названия
         'Aries': 0, 'Taurus': 30, 'Gemini': 60, 'Cancer': 90,
         'Leo': 120, 'Virgo': 150, 'Libra': 180, 'Scorpio': 210,
-        'Sagittarius': 240, 'Capricorn': 270, 'Aquarius': 300, 'Pisces': 330
+        'Sagittarius': 240, 'Capricorn': 270, 'Aquarius': 300, 'Pisces': 330,
+        # Сокращения (используются в Kerykeion)
+        'Ari': 0, 'Tau': 30, 'Gem': 60, 'Can': 90,
+        'Leo': 120, 'Vir': 150, 'Lib': 180, 'Sco': 210,
+        'Sag': 240, 'Cap': 270, 'Aqu': 300, 'Pis': 330
     }
 
+    # Максимальные орбы для поиска
     MAX_ORBS = {
         'conjunction': 6.0,
         'opposition': 6.0,
@@ -30,10 +38,12 @@ class HoroscopeCalculator:
         'sextile': 5.0,
     }
 
+    # Группы планет для скоринга
     GROUP_A = {'Saturn', 'Uranus', 'Neptune', 'Pluto', 'Jupiter'}
     GROUP_B = {'Mars', 'Venus', 'Mercury', 'Sun'}
     GROUP_C = {'Moon'}
 
+    # Веса для скоринга
     PLANET_WEIGHT = {
         'Pluto': 10, 'Neptune': 9, 'Uranus': 9, 'Saturn': 8,
         'Jupiter': 7, 'Mars': 6, 'Venus': 5, 'Mercury': 5,
@@ -55,6 +65,7 @@ class HoroscopeCalculator:
         'sextile': 0.75
     }
 
+    # Точные углы аспектов
     ASPECT_ANGLES = {
         'conjunction': 0,
         'sextile': 60,
@@ -73,6 +84,7 @@ class HoroscopeCalculator:
         self.coords = coords
         self.emulation_mode = emulation_mode
 
+        # Получаем натальную карту
         self.astro_calc = AstrologyCalculator(
             user_data, lang=lang, telegram_id=telegram_id, coords=coords,
             emulation_mode=False
@@ -84,13 +96,24 @@ class HoroscopeCalculator:
         self.natal_angles = self.natal_data['angles']
         self.natal_houses = self.natal_data['houses']
 
+        # Строим список натальных целей
         self.natal_targets = self._build_natal_targets()
+
+        # Кеш транзитных позиций
         self._transit_cache = {}
+
+        # Результаты расчёта (для отладки)
         self.all_transits = []
         self.filtered_transits = []
 
+        # Включаем подробное логирование для отладки
+        self.debug = True
+
     def _build_natal_targets(self) -> List[Dict]:
+        """Строит список натальных целей с абсолютными долготами."""
         targets = []
+
+        # Основные планеты
         main_names = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                       'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'}
         for p in self.natal_planets:
@@ -104,19 +127,27 @@ class HoroscopeCalculator:
                     'weight': self.TARGET_WEIGHT.get(p['name'], 5)
                 })
 
+        # Углы (поддерживаются сокращённые названия)
         angle_names = ['ASC', 'MC', 'DSC', 'IC']
         for angle in angle_names:
             if angle in self.natal_angles and self.natal_angles[angle] is not None:
                 a = self.natal_angles[angle]
-                targets.append({
-                    'name': angle,
-                    'longitude': self._sign_to_abs(a['sign'], a['position']),
-                    'house': None,
-                    'is_angle': True,
-                    'extra_type': 'angle',
-                    'weight': self.TARGET_WEIGHT.get(angle, 9)
-                })
+                sign = a.get('sign', '')
+                position = a.get('position', 0.0)
+                if sign:
+                    lon = self._sign_to_abs(sign, position)
+                    if self.debug:
+                        logger.info(f"🔍 Угол {angle}: {sign} {position:.2f}° → abs {lon:.4f}")
+                    targets.append({
+                        'name': angle,
+                        'longitude': lon,
+                        'house': None,
+                        'is_angle': True,
+                        'extra_type': 'angle',
+                        'weight': self.TARGET_WEIGHT.get(angle, 9)
+                    })
 
+        # Дополнительные точки
         extra_names = ['True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron', 'True_Lilith']
         for p in self.natal_planets:
             if p['name'] in extra_names:
@@ -129,21 +160,30 @@ class HoroscopeCalculator:
                     'extra_type': extra_type,
                     'weight': 3
                 })
+
         return targets
 
+    # ========== ГЕОМЕТРИЯ ==========
+
     def _sign_to_abs(self, sign: str, degree: float) -> float:
+        """Преобразует знак + градус в абсолютную долготу (0-360)."""
         start = self.SIGN_OFFSET.get(sign, 0)
         if degree >= 30:
             return degree % 360
         return start + degree
 
     def _angular_distance(self, lon1: float, lon2: float) -> float:
+        """Возвращает минимальное угловое расстояние (0-180)."""
         diff = abs(lon1 - lon2) % 360
         if diff > 180:
             diff = 360 - diff
         return diff
 
     def _aspect_info(self, angle: float) -> Tuple[Optional[str], float]:
+        """
+        Определяет ближайший аспект и орб.
+        Возвращает (aspect_type, orb) или (None, inf) если аспект не определён.
+        """
         best_aspect = None
         best_orb = 360.0
         for aspect, target_angle in self.ASPECT_ANGLES.items():
@@ -156,11 +196,13 @@ class HoroscopeCalculator:
         return best_aspect, best_orb
 
     def _aspect_error(self, lon1: float, lon2: float, aspect_angle: float) -> float:
+        """Возвращает ошибку аспекта (отклонение от точного угла)."""
         angle = self._angular_distance(lon1, lon2)
         return angle - aspect_angle
 
     def _find_exact_datetime(self, planet: str, target_lon: float, aspect_angle: float,
                              start_date: datetime, end_date: datetime) -> Optional[datetime]:
+        """Находит точное время аспекта бинарным поиском."""
         start_pos = self._get_transit_position(start_date, planet)
         end_pos = self._get_transit_position(end_date, planet)
         if start_pos is None or end_pos is None:
@@ -177,6 +219,7 @@ class HoroscopeCalculator:
         right_error = end_error
 
         if left_error * right_error > 0:
+            # Ищем минимум абсолютной ошибки
             for _ in range(max_iter):
                 mid = left + (right - left) / 2
                 mid_pos = self._get_transit_position(mid, planet)
@@ -199,6 +242,7 @@ class HoroscopeCalculator:
                     break
             return left if abs(left_error) < abs(right_error) else right
 
+        # Классический бинарный поиск (разные знаки)
         for _ in range(max_iter):
             mid = left + (right - left) / 2
             mid_pos = self._get_transit_position(mid, planet)
@@ -220,6 +264,8 @@ class HoroscopeCalculator:
     def _get_transit_position(self, date: datetime, planet: str) -> Optional[float]:
         positions = self._get_transit_positions(date)
         return positions.get(planet)
+
+    # ========== ТРАНЗИТНЫЕ ПОЗИЦИИ ==========
 
     def _get_transit_subject(self, date: datetime) -> AstrologicalSubject:
         lat = self.natal_data['location']['lat']
@@ -284,6 +330,8 @@ class HoroscopeCalculator:
                     return i + 1
         return 0
 
+    # ========== РАСЧЁТ ТРАНЗИТОВ ==========
+
     def _calculate_all_transits(self, forecast_date: datetime, days_range: int = 5) -> List[Dict]:
         start = forecast_date - timedelta(days=days_range)
         end = forecast_date + timedelta(days=days_range)
@@ -329,6 +377,14 @@ class HoroscopeCalculator:
                     max_orb = self.MAX_ORBS.get(aspect_type, 6.0)
                     if orb > max_orb:
                         continue
+
+                    # Логирование для отладки (особенно для углов)
+                    if target['is_angle']:
+                        logger.info(
+                            f"🔍 DEBUG: {planet} → {target['name']} | "
+                            f"transit_lon={forecast_pos:.4f}, target_lon={t_lon:.4f}, "
+                            f"angle={angle:.4f}, aspect={aspect_type}, orb={orb:.4f}"
+                        )
 
                     date_before = exact_dt - timedelta(days=1)
                     date_after = exact_dt + timedelta(days=1)
@@ -423,6 +479,8 @@ class HoroscopeCalculator:
 
         unique.sort(key=lambda x: x['score'], reverse=True)
         return unique[:top_n]
+
+    # ========== ПОСТРОЕНИЕ КОНТЕКСТА ==========
 
     def build_context(self, period: str = 'today',
                       target_date: Optional[datetime] = None,
