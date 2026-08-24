@@ -1,9 +1,9 @@
 import logging
 import zoneinfo
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional, List, Tuple, Set
+from typing import Dict, Any, Optional, List, Tuple
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 from kerykeion import AstrologicalSubject
@@ -86,7 +86,6 @@ class HoroscopeCalculator:
         'sextile': 5.0,
     }
 
-    # Активные орбы для разных планет (после пика)
     ACTIVE_ORB_THRESHOLDS = {
         'Sun': 2.0,
         'Moon': 2.0,
@@ -101,9 +100,8 @@ class HoroscopeCalculator:
     }
 
     DAYS_WINDOW_TODAY = 0.5
-    DAYS_WINDOW_ACTIVE = 2.0   # для классификации ACTIVE (если пик не сегодня, но близко)
+    DAYS_WINDOW_ACTIVE = 2.0
 
-    # Веса для ранжирования
     PLANET_WEIGHT = {
         'Pluto': 10, 'Neptune': 9, 'Uranus': 9, 'Saturn': 8,
         'Jupiter': 7, 'Mars': 6, 'Venus': 5, 'Mercury': 5,
@@ -413,11 +411,6 @@ class HoroscopeCalculator:
     # ==================== ЕДИНАЯ ФУНКЦИЯ ФАЗЫ И ПИКА ====================
 
     def _calculate_phase_and_peak(self, event: TransitEvent, forecast_date: datetime) -> Dict[str, Any]:
-        """
-        Определяет фазу (applying/exact/separating) и проверяет согласованность.
-        Возвращает словарь с phase, peak_date, days_to_peak.
-        """
-        # Проверяем, что exact_datetime не None
         if event.exact_datetime is None:
             return {'phase': 'unknown', 'peak_date': None, 'days_to_peak': None}
 
@@ -425,7 +418,6 @@ class HoroscopeCalculator:
         days_to_peak = event.days_to_peak
 
         # Определяем фазу по изменению орба до/после точной даты
-        # Для этого вычисляем ошибку аспекта за день до и после
         dt_before = peak_date - timedelta(days=1)
         dt_after = peak_date + timedelta(days=1)
 
@@ -444,13 +436,12 @@ class HoroscopeCalculator:
         else:
             phase = 'unknown'
 
-        # Проверка согласованности: если applying, то peak_date >= forecast_date
+        # Проверка согласованности
         if phase == 'applying' and peak_date < forecast_date:
             logger.error(
                 f"❌ Несогласованность: {event.transit_body} → {event.natal_target} "
                 f"applying, но peak_date ({peak_date}) < forecast_date ({forecast_date})"
             )
-            # Исправляем: если peak_date уже прошёл, но мы посчитали applying – значит, ошиблись, меняем на separating
             phase = 'separating'
         elif phase == 'separating' and peak_date > forecast_date:
             logger.error(
@@ -459,11 +450,7 @@ class HoroscopeCalculator:
             )
             phase = 'applying'
 
-        # Также проверяем, что days_to_peak соответствует
         if phase == 'applying' and days_to_peak < 0:
-            logger.warning(
-                f"⚠️ days_to_peak отрицательный для applying: {event.transit_body} → {event.natal_target}"
-            )
             days_to_peak = abs(days_to_peak)
         elif phase == 'separating' and days_to_peak > 0:
             days_to_peak = -abs(days_to_peak)
@@ -481,24 +468,18 @@ class HoroscopeCalculator:
     # ==================== КЛАССИФИКАЦИЯ АКТИВНОСТИ ====================
 
     def _classify_activity(self, event: TransitEvent) -> EventStatus:
-        """Определяет активность транзита на основе орба и фазы."""
-        # Если орб превышает максимальный, игнорируем
         max_orb = self.MAX_ORBS.get(event.aspect, 6.0)
         if event.orb > max_orb:
             return EventStatus.IGNORE
 
-        # Активный порог для планеты
         threshold = self.ACTIVE_ORB_THRESHOLDS.get(event.transit_body, 2.5)
 
-        # Если пик сегодня
         if abs(event.days_to_peak) <= self.DAYS_WINDOW_TODAY:
             return EventStatus.TODAY
 
-        # Если орб мал, считаем активным
         if event.orb <= threshold:
             return EventStatus.ACTIVE
 
-        # Если орб ещё не слишком большой, но больше порога – фоновый
         if event.orb <= max_orb:
             return EventStatus.BACKGROUND
 
@@ -507,8 +488,6 @@ class HoroscopeCalculator:
     # ==================== ПРИОРИТЕТ ====================
 
     def _assign_priority(self, event: TransitEvent, forecast_date: datetime) -> PriorityLabel:
-        """Определяет приоритет события."""
-        # PRIMARY: точный сегодня, очень малый орб, соединение/оппозиция к ASC/MC, сильный транзит к личной планете
         if event.activity_status == EventStatus.TODAY:
             return PriorityLabel.PRIMARY
         if event.orb < 0.5:
@@ -518,7 +497,6 @@ class HoroscopeCalculator:
         if event.transit_body in ('Sun', 'Moon', 'Mercury', 'Venus', 'Mars') and event.orb < 1.0 and event.natal_target in ('Sun', 'Moon', 'Mercury', 'Venus', 'Mars'):
             return PriorityLabel.PRIMARY
 
-        # STRONG: активные медленные планеты с малым орбом, активные транзиты к углам
         if event.activity_status in (EventStatus.TODAY, EventStatus.ACTIVE):
             if event.transit_body in ('Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'):
                 return PriorityLabel.STRONG
@@ -527,11 +505,9 @@ class HoroscopeCalculator:
             if event.orb < 1.5:
                 return PriorityLabel.STRONG
 
-        # SUPPORTING: остальные активные
         if event.activity_status in (EventStatus.TODAY, EventStatus.ACTIVE):
             return PriorityLabel.SUPPORTING
 
-        # BACKGROUND
         return PriorityLabel.BACKGROUND
 
     # ==================== PIPELINE STAGES ====================
@@ -593,7 +569,6 @@ class HoroscopeCalculator:
 
                     transit_house = self._get_transit_house(forecast_date, planet)
 
-                    # Временный event без фазы, активности, приоритета
                     event = TransitEvent(
                         transit_body=planet,
                         transit_longitude=forecast_pos,
@@ -630,6 +605,29 @@ class HoroscopeCalculator:
                     f"сохранён {ev.aspect}, вычислен {aspect_info['aspect']}"
                 )
                 continue
+            # Дополнительная проверка для ASC/DSC
+            if ev.natal_target in ['ASC', 'DSC']:
+                # Проверяем, что для ASC/ DSC аспект соответствует геометрии
+                # Если расстояние > 170°, то должен быть opposition
+                distance = aspect_info['distance']
+                if distance > 170 and aspect_info['aspect'] != 'opposition':
+                    logger.error(
+                        f"❌ Ошибка геометрии: {ev.transit_body} → {ev.natal_target} | "
+                        f"distance={distance:.2f}, но аспект={aspect_info['aspect']}, ожидается opposition"
+                    )
+                    # Принудительно исправляем, чтобы не потерять событие
+                    ev.aspect = 'opposition'
+                    ev.exact_angle = 180
+                    ev.orb = abs(distance - 180)
+                elif distance < 10 and aspect_info['aspect'] != 'conjunction':
+                    logger.error(
+                        f"❌ Ошибка геометрии: {ev.transit_body} → {ev.natal_target} | "
+                        f"distance={distance:.2f}, но аспект={aspect_info['aspect']}, ожидается conjunction"
+                    )
+                    ev.aspect = 'conjunction'
+                    ev.exact_angle = 0
+                    ev.orb = abs(distance - 0)
+
             if abs(aspect_info['orb'] - ev.orb) > 0.01:
                 logger.warning(
                     f"⚠️ Орб не совпадает: {ev.transit_body} → {ev.natal_target} | "
@@ -673,7 +671,11 @@ class HoroscopeCalculator:
                 asc_ev = pair.get('asc')
                 dsc_ev = pair.get('dsc')
                 if asc_ev and dsc_ev:
-                    ev = asc_ev if asc_ev.orb <= dsc_ev.orb else dsc_ev
+                    # Выбираем событие, у которого аспект соответствует геометрии
+                    # Для ASC/DSC: если расстояние > 170, то должно быть opposition
+                    # Выбираем то, которое имеет правильный аспект или меньший орб
+                    # Поскольку оба имеют одинаковый орб, выбираем ASC
+                    ev = asc_ev
                     ev.axis = 'ASC_DSC'
                     ev.natal_target = 'ASC'
                     axis_events.append(ev)
@@ -691,7 +693,7 @@ class HoroscopeCalculator:
                 mc_ev = pair.get('mc')
                 ic_ev = pair.get('ic')
                 if mc_ev and ic_ev:
-                    ev = mc_ev if mc_ev.orb <= ic_ev.orb else ic_ev
+                    ev = mc_ev
                     ev.axis = 'MC_IC'
                     ev.natal_target = 'MC'
                     axis_events.append(ev)
@@ -732,10 +734,7 @@ class HoroscopeCalculator:
         for ev in events:
             phase_info = self._calculate_phase_and_peak(ev, forecast_date)
             ev.phase = phase_info['phase']
-            ev.days_to_peak = phase_info['days_to_peak']  # обновляем, если нужно
-            # Также обновляем exact_datetime, если оно изменилось?
-            # В _calculate_phase_and_peak мы не меняем exact_datetime, только проверяем.
-            # Поэтому оставляем как есть.
+            ev.days_to_peak = phase_info['days_to_peak']
         return events
 
     def _classify_activity_and_priority(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
@@ -760,7 +759,6 @@ class HoroscopeCalculator:
 
     def _rank_events(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
         for ev in events:
-            # Пересчёт priority_score
             planet_weight = self.PLANET_WEIGHT.get(ev.transit_body, 5)
             aspect_weight = self.ASPECT_WEIGHT.get(ev.aspect, 0.7)
             target_weight = self.TARGET_WEIGHT.get(ev.natal_target, 5)
@@ -783,7 +781,6 @@ class HoroscopeCalculator:
         return events
 
     def _build_final(self, events: List[TransitEvent], max_events: int = 7) -> List[TransitEvent]:
-        # Отдаём предпочтение PRIMARY, затем STRONG, затем SUPPORTING
         sorted_by_priority = sorted(events, key=lambda x: (
             0 if x.priority_label == PriorityLabel.PRIMARY else
             1 if x.priority_label == PriorityLabel.STRONG else
@@ -841,7 +838,6 @@ class HoroscopeCalculator:
         self.final_events = final
         logger.info(f"[PIPELINE] FINAL: {len(final)}")
 
-        # Логируем диагностику
         if self.debug:
             self._log_pipeline()
 
@@ -862,7 +858,7 @@ class HoroscopeCalculator:
             f"IGNORE={counts.get(EventStatus.IGNORE, 0)}"
         )
         pri_counts = {p: 0 for p in PriorityLabel}
-        for ev in self.priority_events:
+        for ev in self.activity_events:
             pri_counts[ev.priority_label] += 1
         logger.info(
             f"[PRIORITY] PRIMARY={pri_counts.get(PriorityLabel.PRIMARY, 0)}, "
@@ -962,7 +958,6 @@ class HoroscopeCalculator:
     # ==================== QA ОТЧЁТ ====================
 
     def get_qa_report(self) -> str:
-        """Компактный QA-отчёт по 6 контрольным событиям."""
         target_events = [
             ('Sun', 'Mars'),
             ('Uranus', 'ASC'),
@@ -972,11 +967,9 @@ class HoroscopeCalculator:
             ('Neptune', 'IC'),
         ]
 
-        # Все события, прошедшие валидацию и дедупликацию
         all_events = self.ranked_events + self.background_events
         final_ids = {id(e) for e in self.final_events}
 
-        # Находим контрольные события
         found = {}
         for ev in all_events:
             key = (ev.transit_body, ev.natal_target)
@@ -1005,7 +998,6 @@ class HoroscopeCalculator:
 
         lines.append("")
 
-        # Статистика
         if self.activity_events:
             counts = {s: 0 for s in EventStatus}
             for ev in self.activity_events:
@@ -1036,7 +1028,6 @@ class HoroscopeCalculator:
         excluded = []
         for ev in self.background_events:
             excluded.append(f"- {ev.transit_body} → {ev.natal_target}: {ev.filter_reason}")
-        # Также события из foreground, но не попавшие в финал
         for ev in self.ranked_events:
             if id(ev) not in {id(e) for e in self.final_events}:
                 excluded.append(f"- {ev.transit_body} → {ev.natal_target}: Not in top 7 by priority (score={ev.priority_score:.2f})")
