@@ -133,36 +133,36 @@ def calculate_aspect(transit_lon: float, natal_lon: float) -> Optional[Dict]:
     }
 
 
-def resolve_axis(target_name: str, aspect: str, orb: float, natal_lon: float) -> Tuple[Optional[str], str, str, float, float]:
-    """
-    Для угловых целей возвращает (ось, primary_target, скорректированный_аспект, орб, скорректированная_натальная_долгота).
-    Для обычных целей возвращает (None, target_name, aspect, orb, natal_lon).
-    """
-    opposite = {
-        'conjunction': 'opposition',
-        'opposition': 'conjunction',
-        'square': 'square',
-        'trine': 'trine',
-        'sextile': 'sextile'
-    }
-    if target_name in ('ASC', 'DSC'):
-        axis = 'ASC_DSC'
-        primary = 'ASC'
-        new_lon = natal_lon
-        if target_name == 'DSC':
-            aspect = opposite.get(aspect, aspect)
-            # DSC = ASC + 180, значит ASC = DSC - 180
-            new_lon = (natal_lon - 180) % 360
-        return axis, primary, aspect, orb, new_lon
-    if target_name in ('MC', 'IC'):
-        axis = 'MC_IC'
-        primary = 'MC'
-        new_lon = natal_lon
-        if target_name == 'IC':
-            aspect = opposite.get(aspect, aspect)
-            new_lon = (natal_lon - 180) % 360
-        return axis, primary, aspect, orb, new_lon
-    return None, target_name, aspect, orb, natal_lon
+# def resolve_axis(target_name: str, aspect: str, orb: float, natal_lon: float) -> Tuple[Optional[str], str, str, float, float]:
+#     """
+#     Для угловых целей возвращает (ось, primary_target, скорректированный_аспект, орб, скорректированная_натальная_долгота).
+#     Для обычных целей возвращает (None, target_name, aspect, orb, natal_lon).
+#     """
+#     opposite = {
+#         'conjunction': 'opposition',
+#         'opposition': 'conjunction',
+#         'square': 'square',
+#         'trine': 'trine',
+#         'sextile': 'sextile'
+#     }
+#     if target_name in ('ASC', 'DSC'):
+#         axis = 'ASC_DSC'
+#         primary = 'ASC'
+#         new_lon = natal_lon
+#         if target_name == 'DSC':
+#             aspect = opposite.get(aspect, aspect)
+#             # DSC = ASC + 180, значит ASC = DSC - 180
+#             new_lon = (natal_lon - 180) % 360
+#         return axis, primary, aspect, orb, new_lon
+#     if target_name in ('MC', 'IC'):
+#         axis = 'MC_IC'
+#         primary = 'MC'
+#         new_lon = natal_lon
+#         if target_name == 'IC':
+#             aspect = opposite.get(aspect, aspect)
+#             new_lon = (natal_lon - 180) % 360
+#         return axis, primary, aspect, orb, new_lon
+#     return None, target_name, aspect, orb, natal_lon
 
 
 def get_house_for_longitude(lon: float, house_cusps: List[Dict]) -> int:
@@ -504,10 +504,6 @@ class HoroscopeCalculator:
     # ------------------- ОСНОВНЫЕ ЭТАПЫ PIPELINE -------------------
 
     def _calculate_raw_events(self, forecast_date: datetime, days_range: int = 5) -> List[TransitEvent]:
-        """
-        Этап 1: вычисление сырых транзитных аспектов.
-        Использует единую функцию calculate_aspect.
-        """
         raw_events = []
         transit_planets = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                            'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']
@@ -522,49 +518,31 @@ class HoroscopeCalculator:
 
             for target in self.natal_targets:
                 natal_lon = target['longitude']
-                # Единое вычисление аспекта
                 aspect_res = calculate_aspect(forecast_lon, natal_lon)
                 if aspect_res is None:
                     continue
 
-                # Обработка осей для угловых целей с передачей natal_lon
-                axis, primary_target, aspect_corrected, orb, new_natal_lon = resolve_axis(
-                    target['name'], aspect_res['aspect'], aspect_res['orb'], natal_lon
-                )
-                if axis is not None:
-                    target_name = primary_target
-                    aspect = aspect_corrected
-                    orb_value = orb
-                    aspect_angle = ASPECT_ANGLES[aspect]
-                    # Используем скорректированную натальную долготу
-                    natal_lon_used = new_natal_lon
-                    # Пересчитываем angular_distance и raw_delta для новой долготы
-                    new_dist = angular_distance(forecast_lon, natal_lon_used)
-                    new_raw = abs(forecast_lon - natal_lon_used) % 360.0
-                    # Проверка согласованности (можно оставить для отладки)
-                    # assert abs(new_dist - aspect_angle) - orb_value < 1e-6
+                # Определяем ось для углов (только для информации, но не меняем)
+                if target['name'] in ('ASC', 'DSC'):
+                    axis = 'ASC_DSC'
+                elif target['name'] in ('MC', 'IC'):
+                    axis = 'MC_IC'
                 else:
-                    target_name = target['name']
-                    aspect = aspect_res['aspect']
-                    orb_value = aspect_res['orb']
-                    aspect_angle = aspect_res['aspect_angle']
-                    natal_lon_used = natal_lon
-                    new_dist = aspect_res['angular_distance']
-                    new_raw = aspect_res['raw_delta']
+                    axis = None
 
                 event = TransitEvent(
                     transit_body=planet,
-                    natal_target=target_name,
+                    natal_target=target['name'],
                     transit_longitude=forecast_lon,
-                    natal_target_longitude=natal_lon_used,
-                    aspect=aspect,
-                    aspect_angle=aspect_angle,
-                    orb=orb_value,
-                    angular_distance=new_dist,
-                    raw_delta=new_raw,
+                    natal_target_longitude=natal_lon,
+                    aspect=aspect_res['aspect'],
+                    aspect_angle=aspect_res['aspect_angle'],
+                    orb=aspect_res['orb'],
+                    angular_distance=aspect_res['angular_distance'],
+                    raw_delta=aspect_res['raw_delta'],
                     transit_speed=speed,
                     is_retrograde=retro,
-                    axis=axis,
+                    axis=axis,  # сохраняем информацию об оси
                     transit_house=0,
                     natal_target_house=target.get('house', 0),
                     phase='unknown',
@@ -635,10 +613,46 @@ class HoroscopeCalculator:
 
     def _deduplicate_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
         """
-        Этап 4: дедупликация событий.
-        Использует ось (если есть) или пару (транзит, цель, аспект).
+        Дедупликация событий с учётом осей.
+        Для оси (ASC_DSC, MC_IC) оставляем событие с приоритетом ASC/MC и минимальным орбом.
+        Для обычных целей – (transit_planet, natal_target, aspect) с минимальным орбом.
         """
-        deduped = deduplicate_events(events)
+        # Сначала обычные события (не угловые)
+        non_angle = [e for e in events if e.axis is None]
+        angle_events = [e for e in events if e.axis is not None]
+
+        # Дедупликация обычных
+        groups = {}
+        for ev in non_angle:
+            key = (ev.transit_body, ev.natal_target, ev.aspect)
+            if key not in groups or ev.orb < groups[key].orb:
+                groups[key] = ev
+        deduped = list(groups.values())
+
+        # Дедупликация угловых по осям
+        axis_groups = {}
+        for ev in angle_events:
+            key = (ev.transit_body, ev.axis)
+            if key not in axis_groups:
+                axis_groups[key] = []
+            axis_groups[key].append(ev)
+
+        for key, evs in axis_groups.items():
+            # Приоритет: сначала выбираем события с target='ASC' или 'MC'
+            primary_targets = []
+            secondary_targets = []
+            for ev in evs:
+                if ev.natal_target in ('ASC', 'MC'):
+                    primary_targets.append(ev)
+                else:
+                    secondary_targets.append(ev)
+            # Если есть primary, выбираем среди них с минимальным орбом
+            if primary_targets:
+                best = min(primary_targets, key=lambda x: x.orb)
+            else:
+                best = min(evs, key=lambda x: x.orb)
+            deduped.append(best)
+
         logger.info(f"[PIPELINE] DEDUP: {len(deduped)} (из {len(events)})")
         self.dedup_events = deduped
         return deduped
