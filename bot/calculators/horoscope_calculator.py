@@ -88,7 +88,6 @@ ASPECT_WEIGHT = {
 # ============================================================================
 
 def normalize_longitude(sign: str, degree: float) -> float:
-    """Преобразует знак и градус в абсолютную долготу 0..360."""
     start = SIGN_OFFSET.get(sign)
     if start is None:
         raise ValueError(f"Unknown sign: {sign}")
@@ -97,32 +96,19 @@ def normalize_longitude(sign: str, degree: float) -> float:
 
 
 def calculate_aspect(transit_lon: float, natal_lon: float) -> Optional[Dict]:
-    """
-    Единая функция определения аспекта (winner-takes-all).
-    Возвращает словарь с ключами: aspect, aspect_angle, orb, angular_distance, raw_delta
-    или None, если аспект не найден.
-    """
     raw = abs(transit_lon - natal_lon) % 360.0
     angular_distance = min(raw, 360.0 - raw)
-
     best_aspect = None
     best_orb = float('inf')
     best_angle = None
-
     for aspect, angle in ASPECT_ANGLES.items():
         orb = abs(angular_distance - angle)
         if orb < best_orb:
             best_orb = orb
             best_aspect = aspect
             best_angle = angle
-
-    if best_aspect is None:
+    if best_aspect is None or best_orb > MAX_ORB.get(best_aspect, 6.0):
         return None
-
-    max_orb = MAX_ORB.get(best_aspect, 6.0)
-    if best_orb > max_orb:
-        return None
-
     return {
         'aspect': best_aspect,
         'aspect_angle': best_angle,
@@ -133,28 +119,15 @@ def calculate_aspect(transit_lon: float, natal_lon: float) -> Optional[Dict]:
 
 
 def resolve_axis(target_name: str, aspect: str, orb: float):
-    """
-    Для угловых целей (ASC/DSC, MC/IC) возвращает:
-    - ось (например, 'ASC_DSC')
-    - первичную цель ('ASC' или 'MC')
-    - скорректированный аспект (если цель была DSC/IC, меняем на противоположный)
-    - тот же орб
-    Для обычных целей возвращает (None, target_name, aspect, orb).
-    """
-    opposite = {
-        'conjunction': 'opposition',
-        'opposition': 'conjunction',
-        'square': 'square',
-        'trine': 'trine',
-        'sextile': 'sextile'
-    }
-    if target_name in ('ASC', 'DSC'):
+    opposite = {'conjunction':'opposition', 'opposition':'conjunction',
+                'square':'square', 'trine':'trine', 'sextile':'sextile'}
+    if target_name in ('ASC','DSC'):
         axis = 'ASC_DSC'
         primary = 'ASC'
         if target_name == 'DSC':
             aspect = opposite.get(aspect, aspect)
         return axis, primary, aspect, orb
-    if target_name in ('MC', 'IC'):
+    if target_name in ('MC','IC'):
         axis = 'MC_IC'
         primary = 'MC'
         if target_name == 'IC':
@@ -181,22 +154,10 @@ def get_house_for_longitude(lon: float, house_cusps: List[Dict]) -> int:
     return 0
 
 
-def find_nearest_peak(
-    transit_planet: str,
-    natal_lon: float,
-    aspect_angle: float,
-    forecast_dt: datetime,
-    get_position_func: Callable[[str, datetime], Optional[float]],
-    search_days: int = 30
-) -> Optional[datetime]:
-    """
-    Находит дату ближайшего к forecast_dt минимума орба (точного аспекта).
-    Сначала грубое сканирование с шагом 1 день, затем уточнение.
-    """
+def find_nearest_peak(transit_planet, natal_lon, aspect_angle, forecast_dt, get_position_func, search_days=30):
     start = forecast_dt - timedelta(days=search_days)
     end = forecast_dt + timedelta(days=search_days)
     step = timedelta(days=1)
-
     best_dt = forecast_dt
     best_orb = float('inf')
     current = start
@@ -210,14 +171,12 @@ def find_nearest_peak(
                 best_orb = orb
                 best_dt = current
         current += step
-
     if best_orb == float('inf'):
         return None
-
-    # Уточнение вокруг best_dt с шагом 1 час
-    left = best_dt - timedelta(days=1)
-    right = best_dt + timedelta(days=1)
-    step_hour = timedelta(hours=1)
+    # уточнение с шагом 1 час
+    left = best_dt - timedelta(hours=12)
+    right = best_dt + timedelta(hours=12)
+    step_h = timedelta(hours=1)
     current = left
     while current <= right:
         lon = get_position_func(transit_planet, current)
@@ -228,12 +187,11 @@ def find_nearest_peak(
             if orb < best_orb:
                 best_orb = orb
                 best_dt = current
-        current += step_hour
-
-    # Дополнительное уточнение с шагом 1 минута
+        current += step_h
+    # уточнение с шагом 1 минута
     left2 = best_dt - timedelta(minutes=30)
     right2 = best_dt + timedelta(minutes=30)
-    step_min = timedelta(minutes=1)
+    step_m = timedelta(minutes=1)
     current = left2
     while current <= right2:
         lon = get_position_func(transit_planet, current)
@@ -244,30 +202,20 @@ def find_nearest_peak(
             if orb < best_orb:
                 best_orb = orb
                 best_dt = current
-        current += step_min
-
+        current += step_m
     return best_dt
 
 
-def determine_phase_from_peak(
-    forecast_dt: datetime,
-    peak_dt: Optional[datetime]
-) -> Tuple[str, Optional[datetime], float]:
-    """
-    Определяет фазу по найденному пику.
-    """
+def determine_phase_from_peak(forecast_dt, peak_dt):
     if peak_dt is None:
         return 'unknown', None, 0.0
-
     days_to_peak = (peak_dt - forecast_dt).total_seconds() / 86400.0
-
     if abs(days_to_peak) < 0.01:
         phase = 'exact'
     elif days_to_peak > 0:
         phase = 'applying'
     else:
         phase = 'separating'
-
     return phase, peak_dt, days_to_peak
 
 
@@ -374,47 +322,30 @@ class HoroscopeCalculator:
     # ------------------- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ -------------------
 
     def _build_natal_targets(self) -> List[Dict]:
-        """Формирует список натальных целей (планеты + углы + узлы)."""
         targets = []
-        main_names = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
-                      'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'}
+        main_names = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'}
         for p in self.natal_planets:
             name = p['name']
             if name in main_names:
                 lon = normalize_longitude(p['sign'], p['degree'])
-                targets.append({
-                    'name': name,
-                    'longitude': lon,
-                    'house': p.get('house', 0),
-                    'is_angle': False,
-                    'weight': TARGET_WEIGHT.get(name, 5)
-                })
-
-        # Углы
+                targets.append({'name': name, 'longitude': lon, 'house': p.get('house', 0), 'is_angle': False,
+                                'weight': TARGET_WEIGHT.get(name, 5)})
+        # УГЛЫ — используем abs_pos
         for angle in ['ASC', 'MC', 'DSC', 'IC']:
             if angle in self.natal_angles and self.natal_angles[angle] is not None:
                 a = self.natal_angles[angle]
-                lon = normalize_longitude(a['sign'], a['position'])
-                targets.append({
-                    'name': angle,
-                    'longitude': lon,
-                    'house': None,
-                    'is_angle': True,
-                    'weight': TARGET_WEIGHT.get(angle, 9)
-                })
-
-        # Дополнительные точки (узлы, Хирон, Лилит)
+                if a.get('abs_pos') is not None:
+                    lon = a['abs_pos'] % 360.0
+                else:
+                    lon = normalize_longitude(a['sign'], a['position'])
+                targets.append({'name': angle, 'longitude': lon, 'house': None, 'is_angle': True,
+                                'weight': TARGET_WEIGHT.get(angle, 9)})
         extra_names = ['True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron', 'True_Lilith']
         for p in self.natal_planets:
             if p['name'] in extra_names:
                 lon = normalize_longitude(p['sign'], p['degree'])
-                targets.append({
-                    'name': p['name'],
-                    'longitude': lon,
-                    'house': p.get('house', 0),
-                    'is_angle': False,
-                    'weight': TARGET_WEIGHT.get(p['name'], 3)
-                })
+                targets.append({'name': p['name'], 'longitude': lon, 'house': p.get('house', 0), 'is_angle': False,
+                                'weight': TARGET_WEIGHT.get(p['name'], 3)})
         return targets
 
     def _get_transit_subject(self, date: datetime) -> AstrologicalSubject:
@@ -567,28 +498,15 @@ class HoroscopeCalculator:
 
     def _apply_phase_and_peak(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
         for ev in events:
-            # Определяем окно поиска в зависимости от планеты
-            if ev.transit_body in ('Moon', 'Mercury', 'Venus', 'Mars', 'Sun'):
-                search_days = 30
-            else:
-                search_days = 180
-
-            peak_dt = find_nearest_peak(
-                ev.transit_body,
-                ev.natal_target_longitude,
-                ev.aspect_angle,
-                forecast_date,
-                self._get_transit_position,
-                search_days=search_days
-            )
+            search_days = 30 if ev.transit_body in ('Moon', 'Mercury', 'Venus', 'Mars', 'Sun') else 180
+            peak_dt = find_nearest_peak(ev.transit_body, ev.natal_target_longitude, ev.aspect_angle, forecast_date,
+                                        self._get_transit_position, search_days)
             phase, exact_dt, days_to_peak = determine_phase_from_peak(forecast_date, peak_dt)
             ev.phase = phase
             ev.exact_datetime = exact_dt
             ev.days_to_peak = days_to_peak
-
             if phase == 'unknown':
                 logger.warning(f"Unknown phase for {ev.transit_body}->{ev.natal_target}")
-
         self.phase_events = events
         return events
 
