@@ -133,14 +133,10 @@ def calculate_aspect(transit_lon: float, natal_lon: float) -> Optional[Dict]:
     }
 
 
-def resolve_axis(target_name: str, aspect: str, orb: float) -> Tuple[Optional[str], str, str, float]:
+def resolve_axis(target_name: str, aspect: str, orb: float, natal_lon: float) -> Tuple[Optional[str], str, str, float, float]:
     """
-    Для угловых целей (ASC/DSC, MC/IC) возвращает:
-    - ось (например, 'ASC_DSC')
-    - первичную цель ('ASC' или 'MC')
-    - скорректированный аспект (если цель была DSC/IC, меняем на противоположный)
-    - тот же орб
-    Для обычных целей возвращает (None, target_name, aspect, orb).
+    Для угловых целей возвращает (ось, primary_target, скорректированный_аспект, орб, скорректированная_натальная_долгота).
+    Для обычных целей возвращает (None, target_name, aspect, orb, natal_lon).
     """
     opposite = {
         'conjunction': 'opposition',
@@ -152,16 +148,21 @@ def resolve_axis(target_name: str, aspect: str, orb: float) -> Tuple[Optional[st
     if target_name in ('ASC', 'DSC'):
         axis = 'ASC_DSC'
         primary = 'ASC'
+        new_lon = natal_lon
         if target_name == 'DSC':
             aspect = opposite.get(aspect, aspect)
-        return axis, primary, aspect, orb
+            # DSC = ASC + 180, значит ASC = DSC - 180
+            new_lon = (natal_lon - 180) % 360
+        return axis, primary, aspect, orb, new_lon
     if target_name in ('MC', 'IC'):
         axis = 'MC_IC'
         primary = 'MC'
+        new_lon = natal_lon
         if target_name == 'IC':
             aspect = opposite.get(aspect, aspect)
-        return axis, primary, aspect, orb
-    return None, target_name, aspect, orb
+            new_lon = (natal_lon - 180) % 360
+        return axis, primary, aspect, orb, new_lon
+    return None, target_name, aspect, orb, natal_lon
 
 
 def get_house_for_longitude(lon: float, house_cusps: List[Dict]) -> int:
@@ -526,31 +527,41 @@ class HoroscopeCalculator:
                 if aspect_res is None:
                     continue
 
-                # Обработка осей для угловых целей
-                axis, primary_target, aspect_corrected, orb = resolve_axis(
-                    target['name'], aspect_res['aspect'], aspect_res['orb']
+                # Обработка осей для угловых целей с передачей natal_lon
+                axis, primary_target, aspect_corrected, orb, new_natal_lon = resolve_axis(
+                    target['name'], aspect_res['aspect'], aspect_res['orb'], natal_lon
                 )
                 if axis is not None:
                     target_name = primary_target
                     aspect = aspect_corrected
                     orb_value = orb
                     aspect_angle = ASPECT_ANGLES[aspect]
+                    # Используем скорректированную натальную долготу
+                    natal_lon_used = new_natal_lon
+                    # Пересчитываем angular_distance и raw_delta для новой долготы
+                    new_dist = angular_distance(forecast_lon, natal_lon_used)
+                    new_raw = abs(forecast_lon - natal_lon_used) % 360.0
+                    # Проверка согласованности (можно оставить для отладки)
+                    # assert abs(new_dist - aspect_angle) - orb_value < 1e-6
                 else:
                     target_name = target['name']
                     aspect = aspect_res['aspect']
                     orb_value = aspect_res['orb']
                     aspect_angle = aspect_res['aspect_angle']
+                    natal_lon_used = natal_lon
+                    new_dist = aspect_res['angular_distance']
+                    new_raw = aspect_res['raw_delta']
 
                 event = TransitEvent(
                     transit_body=planet,
                     natal_target=target_name,
                     transit_longitude=forecast_lon,
-                    natal_target_longitude=natal_lon,
+                    natal_target_longitude=natal_lon_used,
                     aspect=aspect,
                     aspect_angle=aspect_angle,
                     orb=orb_value,
-                    angular_distance=aspect_res['angular_distance'],
-                    raw_delta=aspect_res['raw_delta'],
+                    angular_distance=new_dist,
+                    raw_delta=new_raw,
                     transit_speed=speed,
                     is_retrograde=retro,
                     axis=axis,
