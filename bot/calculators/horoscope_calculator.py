@@ -180,68 +180,27 @@ def get_house_for_longitude(lon: float, house_cusps: List[Dict]) -> int:
     return 0
 
 
-def find_all_passes(
+def find_nearest_peak(
     transit_planet: str,
     natal_lon: float,
     aspect_angle: float,
     forecast_dt: datetime,
     get_position_func: Callable[[str, datetime], Optional[float]],
-    search_days: int = 180,
-    step_hours: int = 6
-) -> List[datetime]:
+    search_days: int = 30
+) -> Optional[datetime]:
     """
-    Возвращает список дат всех локальных минимумов орба в окне поиска.
+    Находит дату ближайшего к forecast_dt минимума орба (точного аспекта).
+    Сначала грубое сканирование с шагом 1 день, затем уточнение.
     """
     start = forecast_dt - timedelta(days=search_days)
     end = forecast_dt + timedelta(days=search_days)
-    step = timedelta(hours=step_hours)
+    step = timedelta(days=1)
 
-    points = []
-    current = start
-    while current <= end:
-        lon = get_position_func(transit_planet, current)
-        if lon is not None:
-            raw = abs(lon - natal_lon) % 360.0
-            dist = min(raw, 360.0 - raw)
-            orb = abs(dist - aspect_angle)
-            points.append((current, orb))
-        current += step
-
-    if len(points) < 3:
-        return []
-
-    peaks = []
-    for i in range(1, len(points) - 1):
-        if points[i][1] < points[i-1][1] and points[i][1] < points[i+1][1]:
-            # Уточняем минимум
-            refined = _refine_minimum(
-                transit_planet, natal_lon, aspect_angle,
-                points[i][0] - timedelta(hours=6),
-                points[i][0] + timedelta(hours=6),
-                get_position_func
-            )
-            if refined:
-                peaks.append(refined)
-
-    peaks.sort()
-    return peaks
-
-
-def _refine_minimum(
-    planet: str,
-    natal_lon: float,
-    aspect_angle: float,
-    start: datetime,
-    end: datetime,
-    get_position_func: Callable[[str, datetime], Optional[float]]
-) -> Optional[datetime]:
-    """Уточняет локальный минимум с шагом 30 минут и 1 минута."""
-    step = timedelta(minutes=30)
-    best_dt = start
+    best_dt = forecast_dt
     best_orb = float('inf')
     current = start
     while current <= end:
-        lon = get_position_func(planet, current)
+        lon = get_position_func(transit_planet, current)
         if lon is not None:
             raw = abs(lon - natal_lon) % 360.0
             dist = min(raw, 360.0 - raw)
@@ -251,58 +210,64 @@ def _refine_minimum(
                 best_dt = current
         current += step
 
-    # Уточнение с шагом 1 минута
-    step2 = timedelta(minutes=1)
-    left = best_dt - step2 * 30
-    right = best_dt + step2 * 30
-    current2 = left
-    while current2 <= right:
-        lon = get_position_func(planet, current2)
+    if best_orb == float('inf'):
+        return None
+
+    # Уточнение вокруг best_dt с шагом 1 час
+    left = best_dt - timedelta(days=1)
+    right = best_dt + timedelta(days=1)
+    step_hour = timedelta(hours=1)
+    current = left
+    while current <= right:
+        lon = get_position_func(transit_planet, current)
         if lon is not None:
             raw = abs(lon - natal_lon) % 360.0
             dist = min(raw, 360.0 - raw)
             orb = abs(dist - aspect_angle)
             if orb < best_orb:
                 best_orb = orb
-                best_dt = current2
-        current2 += step2
+                best_dt = current
+        current += step_hour
+
+    # Дополнительное уточнение с шагом 1 минута
+    left2 = best_dt - timedelta(minutes=30)
+    right2 = best_dt + timedelta(minutes=30)
+    step_min = timedelta(minutes=1)
+    current = left2
+    while current <= right2:
+        lon = get_position_func(transit_planet, current)
+        if lon is not None:
+            raw = abs(lon - natal_lon) % 360.0
+            dist = min(raw, 360.0 - raw)
+            orb = abs(dist - aspect_angle)
+            if orb < best_orb:
+                best_orb = orb
+                best_dt = current
+        current += step_min
 
     return best_dt
 
 
-def determine_phase_from_passes(
+def determine_phase_from_peak(
     forecast_dt: datetime,
-    passes: List[datetime]
+    peak_dt: Optional[datetime]
 ) -> Tuple[str, Optional[datetime], float]:
     """
-    Возвращает (phase, ближайший_peak, days_to_peak).
-    phase: 'applying', 'exact', 'separating', или 'unknown'.
+    Определяет фазу по найденному пику.
     """
-    if not passes:
+    if peak_dt is None:
         return 'unknown', None, 0.0
 
-    # Находим ближайший peak к forecast_dt
-    nearest = None
-    min_dist = float('inf')
-    for p in passes:
-        dist = abs((p - forecast_dt).total_seconds())
-        if dist < min_dist:
-            min_dist = dist
-            nearest = p
+    days_to_peak = (peak_dt - forecast_dt).total_seconds() / 86400.0
 
-    if nearest is None:
-        return 'unknown', None, 0.0
-
-    days_to_peak = (nearest - forecast_dt).total_seconds() / 86400.0
-
-    if nearest > forecast_dt:
-        phase = 'applying'
-    elif nearest < forecast_dt:
-        phase = 'separating'
-    else:
+    if abs(days_to_peak) < 0.01:
         phase = 'exact'
+    elif days_to_peak > 0:
+        phase = 'applying'
+    else:
+        phase = 'separating'
 
-    return phase, nearest, days_to_peak
+    return phase, peak_dt, days_to_peak
 
 
 def deduplicate_events(events: List['TransitEvent']) -> List['TransitEvent']:
