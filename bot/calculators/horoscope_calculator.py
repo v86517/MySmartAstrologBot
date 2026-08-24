@@ -420,13 +420,23 @@ class HoroscopeCalculator:
 
     # ========== ПОСТРОЕНИЕ КОНТЕКСТА ==========
 
-    def build_context(self, target_date: Optional[datetime] = None) -> str:
+    def build_context(self, period: str = 'today',
+                      target_date: Optional[datetime] = None) -> str:
         if target_date is None:
             target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        start = target_date - timedelta(days=1)
-        end = target_date + timedelta(days=1)
+        if period == 'today':
+            start = target_date - timedelta(days=1)
+            end = target_date + timedelta(days=1)
+        elif period == 'month':
+            start = target_date.replace(day=1)
+            next_month = start + timedelta(days=32)
+            end = next_month.replace(day=1) - timedelta(seconds=1)
+        else:  # year
+            start = target_date.replace(month=1, day=1)
+            end = target_date.replace(month=12, day=31)
 
+        # Для месяца и года пока используем ту же фильтрацию, но позже можно расширить
         all_events = self._scan_period(start, end)
         filtered = self._filter_events(all_events, target_date)
 
