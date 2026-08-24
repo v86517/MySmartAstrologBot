@@ -187,26 +187,22 @@ def get_house_for_longitude(lon: float, house_cusps: List[Dict]) -> int:
     return 0
 
 
-def find_exact_pass(
-    transit_planet: str,
-    natal_lon: float,
-    aspect_angle: float,
-    forecast_dt: datetime,
-    get_position_func: Callable[[str, datetime], Optional[float]],
-    search_days: int = 180,
-    direction: int = 0  # -1 для прошлого, 1 для будущего, 0 для ближайшего
-) -> Optional[datetime]:
+def find_all_exacts(
+        transit_planet: str,
+        natal_lon: float,
+        aspect_angle: float,
+        forecast_dt: datetime,
+        get_position_func: Callable[[str, datetime], Optional[float]],
+        search_days: int = 365,
+        orb_threshold: float = 0.1
+) -> List[datetime]:
     """
-    Находит точный момент аспекта в заданном направлении.
-    direction = -1: ищем ближайший в прошлом
-    direction = 1: ищем ближайший в будущем
-    direction = 0: ищем ближайший в любую сторону (сначала прошлое, потом будущее)
+    Находит все точные моменты аспекта (орб <= orb_threshold) на интервале.
     """
     start = forecast_dt - timedelta(days=search_days)
     end = forecast_dt + timedelta(days=search_days)
-    step = timedelta(hours=6)
+    step = timedelta(days=1)
 
-    # Сначала грубое сканирование
     points = []
     current = start
     while current <= end:
@@ -217,56 +213,81 @@ def find_exact_pass(
             points.append((current, orb))
         current += step
 
-    if not points:
-        return None
+    if len(points) < 3:
+        return []
 
-    # Находим все локальные минимумы
     minima = []
-    for i in range(1, len(points)-1):
-        if points[i][1] < points[i-1][1] and points[i][1] < points[i+1][1]:
+    for i in range(1, len(points) - 1):
+        if points[i][1] < points[i - 1][1] and points[i][1] < points[i + 1][1]:
             minima.append(points[i][0])
 
     if not minima:
-        return None
+        return []
 
-    # Сортируем по дате
-    minima.sort()
+    exacts = []
+    for dt0 in minima:
+        # Уточнение с шагом 1 час
+        left = dt0 - timedelta(hours=12)
+        right = dt0 + timedelta(hours=12)
+        step_hour = timedelta(hours=1)
+        best_dt = dt0
+        best_orb = float('inf')
+        current = left
+        while current <= right:
+            lon = get_position_func(transit_planet, current)
+            if lon is not None:
+                dist = angular_distance(lon, natal_lon)
+                orb = abs(dist - aspect_angle)
+                if orb < best_orb:
+                    best_orb = orb
+                    best_dt = current
+            current += step_hour
 
-    # Выбираем в зависимости от direction
-    if direction == -1:
-        # ближайший в прошлом (<= forecast_dt)
-        past = [m for m in minima if m <= forecast_dt]
-        if past:
-            return max(past)
-        return None
-    elif direction == 1:
-        # ближайший в будущем (>= forecast_dt)
-        future = [m for m in minima if m >= forecast_dt]
-        if future:
-            return min(future)
-        return None
-    else:
-        # ближайший любой
-        nearest = min(minima, key=lambda m: abs((m - forecast_dt).total_seconds()))
-        return nearest
+        # Уточнение с шагом 1 минута
+        left2 = best_dt - timedelta(minutes=30)
+        right2 = best_dt + timedelta(minutes=30)
+        step_min = timedelta(minutes=1)
+        current = left2
+        while current <= right2:
+            lon = get_position_func(transit_planet, current)
+            if lon is not None:
+                dist = angular_distance(lon, natal_lon)
+                orb = abs(dist - aspect_angle)
+                if orb < best_orb:
+                    best_orb = orb
+                    best_dt = current
+            current += step_min
+
+        if best_orb <= orb_threshold:
+            exacts.append(best_dt)
+
+    exacts.sort()
+    return exacts
 
 
 def determine_phase_and_peak(
-    transit_planet: str,
-    natal_lon: float,
-    aspect_angle: float,
-    forecast_dt: datetime,
-    get_position_func: Callable[[str, datetime], Optional[float]]
+        transit_planet: str,
+        natal_lon: float,
+        aspect_angle: float,
+        forecast_dt: datetime,
+        get_position_func: Callable[[str, datetime], Optional[float]]
 ) -> Tuple[str, Optional[datetime], Optional[datetime], float]:
     """
     Возвращает (phase, previous_exact, next_exact, days_to_nearest).
-    phase: 'applying', 'exact', 'separating'.
     """
-    # Ищем ближайший прошлый и будущий exact
-    prev = find_exact_pass(transit_planet, natal_lon, aspect_angle, forecast_dt, get_position_func, direction=-1)
-    nxt = find_exact_pass(transit_planet, natal_lon, aspect_angle, forecast_dt, get_position_func, direction=1)
+    exacts = find_all_exacts(transit_planet, natal_lon, aspect_angle, forecast_dt, get_position_func)
+    if not exacts:
+        return 'unknown', None, None, 0.0
 
-    # Определяем ближайший
+    prev = None
+    nxt = None
+    for dt in exacts:
+        if dt <= forecast_dt:
+            prev = dt
+        else:
+            nxt = dt
+            break
+
     if prev is None and nxt is None:
         return 'unknown', None, None, 0.0
     elif prev is None:
@@ -289,7 +310,6 @@ def determine_phase_and_peak(
             days_to = dist_nxt / 86400.0
             phase = 'applying'
 
-    # Проверяем, не exact ли сейчас
     if abs(days_to) <= EXACT_TOLERANCE:
         phase = 'exact'
 
@@ -601,7 +621,8 @@ class HoroscopeCalculator:
 
     def _apply_phase_and_peak(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
         for ev in events:
-            phase, prev_exact, next_exact, days_to = determine_phase_and_peak(
+            # Используем 365 дней для всех планет, чтобы гарантировать нахождение exact
+            phase, prev, nxt, days_to = determine_phase_and_peak(
                 ev.transit_body,
                 ev.natal_target_longitude,
                 ev.aspect_angle,
@@ -609,21 +630,21 @@ class HoroscopeCalculator:
                 self._get_transit_position
             )
             ev.phase = phase
-            ev.previous_exact = prev_exact
-            ev.next_exact = next_exact
-            if prev_exact is not None and next_exact is not None:
-                # ближайший
-                if abs((prev_exact - forecast_date).total_seconds()) < abs((next_exact - forecast_date).total_seconds()):
-                    ev.nearest_exact = prev_exact
+            ev.previous_exact = prev
+            ev.next_exact = nxt
+            if prev is not None and nxt is not None:
+                if abs((prev - forecast_date).total_seconds()) < abs((nxt - forecast_date).total_seconds()):
+                    ev.nearest_exact = prev
                 else:
-                    ev.nearest_exact = next_exact
-            elif prev_exact is not None:
-                ev.nearest_exact = prev_exact
-            elif next_exact is not None:
-                ev.nearest_exact = next_exact
+                    ev.nearest_exact = nxt
+            elif prev is not None:
+                ev.nearest_exact = prev
+            elif nxt is not None:
+                ev.nearest_exact = nxt
             else:
                 ev.nearest_exact = None
             ev.days_to_nearest = days_to
+
             if phase == 'unknown':
                 logger.warning(f"Unknown phase for {ev.transit_body}->{ev.natal_target}")
         self.phase_events = events
