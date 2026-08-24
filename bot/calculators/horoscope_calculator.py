@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class HoroscopeCalculator:
     """
-    Калькулятор гороскопа на день с корректным расчётом exact_datetime.
+    Калькулятор гороскопа на день с корректным расчётом аспектов и exact_datetime.
     """
 
     # Маппинг знаков → начальная долгота (0-360)
@@ -33,7 +33,7 @@ class HoroscopeCalculator:
         'sextile': 5.0,
     }
 
-    # Группы планет
+    # Группы планет для скоринга
     GROUP_A = {'Saturn', 'Uranus', 'Neptune', 'Pluto', 'Jupiter'}
     GROUP_B = {'Mars', 'Venus', 'Mercury', 'Sun'}
     GROUP_C = {'Moon'}
@@ -165,11 +165,25 @@ class HoroscopeCalculator:
             diff = 360 - diff
         return diff
 
+    def _aspect_info(self, angle: float) -> Tuple[Optional[str], float]:
+        """
+        Определяет ближайший аспект и орб.
+        Возвращает (aspect_type, orb) или (None, inf) если аспект не определён.
+        """
+        best_aspect = None
+        best_orb = 360.0
+        for aspect, target_angle in self.ASPECT_ANGLES.items():
+            orb = abs(angle - target_angle)
+            if orb < best_orb:
+                best_orb = orb
+                best_aspect = aspect
+        # Если минимальный орб слишком большой (> 10°), считаем, что аспекта нет
+        if best_orb > 10.0:
+            return None, best_orb
+        return best_aspect, best_orb
+
     def _aspect_error(self, lon1: float, lon2: float, aspect_angle: float) -> float:
-        """
-        Возвращает ошибку аспекта (отклонение от точного угла).
-        Положительное значение означает, что планета ещё не достигла точного аспекта.
-        """
+        """Возвращает ошибку аспекта (отклонение от точного угла)."""
         angle = self._angular_distance(lon1, lon2)
         return angle - aspect_angle
 
@@ -195,7 +209,6 @@ class HoroscopeCalculator:
             # В этом случае ищем отдельно
             pass
 
-        # Бинарный поиск
         eps = 0.0001  # точность 0.0001 градуса (~0.36 секунды)
         max_iter = 100
 
@@ -384,8 +397,17 @@ class HoroscopeCalculator:
                     if forecast_pos is None:
                         continue
 
-                    orb = self._angular_distance(forecast_pos, t_lon)
-                    orb = abs(orb - aspect_angle)
+                    # Вычисляем угловое расстояние между транзитной и натальной точкой
+                    angle = self._angular_distance(forecast_pos, t_lon)
+                    aspect_type, orb = self._aspect_info(angle)
+
+                    # Проверяем, что аспект совпадает с тем, который мы искали
+                    if aspect_type != aspect:
+                        # Это может быть из-за того, что мы искали точный аспект другого типа.
+                        # Для найденного точного момента мы должны использовать фактический тип аспекта.
+                        # Поэтому переопределяем aspect и орб.
+                        aspect = aspect_type
+                        orb = abs(angle - self.ASPECT_ANGLES[aspect_type])
 
                     # Проверяем максимальный орб
                     max_orb = self.MAX_ORBS.get(aspect, 6.0)
