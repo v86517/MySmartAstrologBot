@@ -1,8 +1,7 @@
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List, Tuple, Callable
-import math
 
 from kerykeion import AstrologicalSubject
 
@@ -31,12 +30,35 @@ ASPECT_ANGLES = {
     'opposition': 180.0,
 }
 
-MAX_ORBS = {
-    'conjunction': 8.0,
-    'opposition': 8.0,
-    'trine': 6.0,
-    'square': 6.0,
-    'sextile': 5.0,
+# Максимальный орб для существования аспекта
+MAX_ORB = {
+    'conjunction': 5.0,
+    'opposition': 5.0,
+    'trine': 4.0,
+    'square': 4.0,
+    'sextile': 3.0,
+}
+
+# Орб для активного влияния (TODAY/ACTIVE)
+ACTIVE_ORB = {
+    'conjunction': 2.0,
+    'opposition': 2.0,
+    'trine': 1.5,
+    'square': 1.5,
+    'sextile': 1.0,
+}
+
+# Дополнительные пороги для конкретных планет/углов
+PLANET_ACTIVE_ORB = {
+    'Sun': 1.5,
+    'Moon': 1.5,
+    'Uranus': 2.0,
+    'Neptune': 2.0,
+    'Pluto': 2.0,
+}
+ANGLE_ACTIVE_ORB = {
+    'ASC': 1.5,
+    'MC': 1.5,
 }
 
 PLANET_WEIGHT = {
@@ -61,26 +83,8 @@ ASPECT_WEIGHT = {
     'sextile': 0.75
 }
 
-ACTIVE_ORB_THRESHOLDS = {
-    'Sun': 2.0,
-    'Moon': 2.0,
-    'Mercury': 2.0,
-    'Venus': 2.0,
-    'Mars': 2.0,
-    'Jupiter': 3.0,
-    'Saturn': 3.0,
-    'Uranus': 2.5,
-    'Neptune': 2.5,
-    'Pluto': 2.5,
-}
-
-DAYS_WINDOW_TODAY = 0.5
-DAYS_WINDOW_ACTIVE = 2.0
-EXACT_TOLERANCE = 0.01  # градусы, при которых считаем exact
-SEARCH_DAYS = 30        # диапазон поиска peak ±30 дней
-
 # ============================================================================
-# 2. БАЗОВЫЕ ВЫЧИСЛИТЕЛЬНЫЕ ФУНКЦИИ (без состояния)
+# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (чистые)
 # ============================================================================
 
 def normalize_longitude(sign: str, degree: float) -> float:
@@ -92,44 +96,42 @@ def normalize_longitude(sign: str, degree: float) -> float:
     return (start + degree) % 360.0
 
 
-def calculate_aspect(transit_lon: float, natal_lon: float, orb_limit: float = 8.0) -> Optional['AspectResult']:
+def calculate_aspect(transit_lon: float, natal_lon: float) -> Optional[Dict]:
     """
-    Единственная функция определения аспекта.
-    Возвращает один аспект с минимальным орбом (winner-takes-all).
+    Единая функция определения аспекта (winner-takes-all).
+    Возвращает словарь с ключами: aspect, aspect_angle, orb, angular_distance, raw_delta
+    или None, если аспект не найден.
     """
-    raw_delta = abs(transit_lon - natal_lon) % 360.0
-    angular_distance = min(raw_delta, 360.0 - raw_delta)
+    raw = abs(transit_lon - natal_lon) % 360.0
+    angular_distance = min(raw, 360.0 - raw)
 
-    candidates = []
+    best = None
+    best_orb = float('inf')
     for aspect, angle in ASPECT_ANGLES.items():
         orb = abs(angular_distance - angle)
-        if orb <= orb_limit:
-            candidates.append((aspect, angle, orb))
+        if orb < best_orb:
+            best_orb = orb
+            best = (aspect, angle, orb, angular_distance, raw)
 
-    if not candidates:
+    if best is None:
         return None
 
-    # Выбираем аспект с минимальным орбом
-    best = min(candidates, key=lambda x: x[2])
-    return AspectResult(
-        aspect=best[0],
-        aspect_angle=best[1],
-        orb=best[2],
-        angular_distance=angular_distance,
-        raw_delta=raw_delta
-    )
+    aspect_name = best[0]
+    # Проверяем максимальный орб
+    max_orb = MAX_ORB.get(aspect_name, 6.0)
+    if best_orb > max_orb:
+        return None
+
+    return {
+        'aspect': aspect_name,
+        'aspect_angle': best[1],
+        'orb': best_orb,
+        'angular_distance': best[3],
+        'raw_delta': best[4]
+    }
 
 
-@dataclass(frozen=True)
-class AspectResult:
-    aspect: str
-    aspect_angle: float
-    orb: float
-    angular_distance: float
-    raw_delta: float
-
-
-def resolve_axis_target(target_name: str, aspect: str, orb: float) -> Tuple[Optional[str], str, str, float]:
+def resolve_axis(target_name: str, aspect: str, orb: float) -> Tuple[Optional[str], str, str, float]:
     """
     Для угловых целей (ASC/DSC, MC/IC) возвращает:
     - ось (например, 'ASC_DSC')
@@ -138,7 +140,7 @@ def resolve_axis_target(target_name: str, aspect: str, orb: float) -> Tuple[Opti
     - тот же орб
     Для обычных целей возвращает (None, target_name, aspect, orb).
     """
-    opposite_map = {
+    opposite = {
         'conjunction': 'opposition',
         'opposition': 'conjunction',
         'square': 'square',
@@ -149,16 +151,15 @@ def resolve_axis_target(target_name: str, aspect: str, orb: float) -> Tuple[Opti
         axis = 'ASC_DSC'
         primary = 'ASC'
         if target_name == 'DSC':
-            aspect = opposite_map.get(aspect, aspect)
+            aspect = opposite.get(aspect, aspect)
         return axis, primary, aspect, orb
-    elif target_name in ('MC', 'IC'):
+    if target_name in ('MC', 'IC'):
         axis = 'MC_IC'
         primary = 'MC'
         if target_name == 'IC':
-            aspect = opposite_map.get(aspect, aspect)
+            aspect = opposite.get(aspect, aspect)
         return axis, primary, aspect, orb
-    else:
-        return None, target_name, aspect, orb
+    return None, target_name, aspect, orb
 
 
 def get_house_for_longitude(lon: float, house_cusps: List[Dict]) -> int:
@@ -179,29 +180,68 @@ def get_house_for_longitude(lon: float, house_cusps: List[Dict]) -> int:
     return 0
 
 
-def find_exact_datetime(
+def find_all_passes(
     transit_planet: str,
     natal_lon: float,
     aspect_angle: float,
-    start_dt: datetime,
-    end_dt: datetime,
+    forecast_dt: datetime,
+    get_position_func: Callable[[str, datetime], Optional[float]],
+    search_days: int = 180,
+    step_hours: int = 6
+) -> List[datetime]:
+    """
+    Возвращает список дат всех локальных минимумов орба в окне поиска.
+    """
+    start = forecast_dt - timedelta(days=search_days)
+    end = forecast_dt + timedelta(days=search_days)
+    step = timedelta(hours=step_hours)
+
+    points = []
+    current = start
+    while current <= end:
+        lon = get_position_func(transit_planet, current)
+        if lon is not None:
+            raw = abs(lon - natal_lon) % 360.0
+            dist = min(raw, 360.0 - raw)
+            orb = abs(dist - aspect_angle)
+            points.append((current, orb))
+        current += step
+
+    if len(points) < 3:
+        return []
+
+    peaks = []
+    for i in range(1, len(points) - 1):
+        if points[i][1] < points[i-1][1] and points[i][1] < points[i+1][1]:
+            # Уточняем минимум
+            refined = _refine_minimum(
+                transit_planet, natal_lon, aspect_angle,
+                points[i][0] - timedelta(hours=6),
+                points[i][0] + timedelta(hours=6),
+                get_position_func
+            )
+            if refined:
+                peaks.append(refined)
+
+    peaks.sort()
+    return peaks
+
+
+def _refine_minimum(
+    planet: str,
+    natal_lon: float,
+    aspect_angle: float,
+    start: datetime,
+    end: datetime,
     get_position_func: Callable[[str, datetime], Optional[float]]
 ) -> Optional[datetime]:
-    """
-    Численный поиск момента минимального орба (точный аспект).
-    Возвращает datetime точного аспекта или None.
-    """
-    if start_dt >= end_dt:
-        return None
-
-    # Грубый поиск с шагом 6 часов
-    step = timedelta(hours=6)
-    best_dt = start_dt
+    """Уточняет локальный минимум с шагом 30 минут и 1 минута."""
+    step = timedelta(minutes=30)
+    best_dt = start
     best_orb = float('inf')
-
-    current = start_dt
-    while current <= end_dt:
-        lon = get_position_func(transit_planet, current)
+    current = start
+    while current <= end:
+        lon = get_position_func(planet, current)
         if lon is not None:
             raw = abs(lon - natal_lon) % 360.0
             dist = min(raw, 360.0 - raw)
@@ -211,100 +251,58 @@ def find_exact_datetime(
                 best_dt = current
         current += step
 
-    # Уточнение: шаг 30 минут, затем 1 минута
-    for fine_step in [timedelta(minutes=30), timedelta(minutes=1)]:
-        left = best_dt - 3 * fine_step
-        right = best_dt + 3 * fine_step
-        current = left
-        while current <= right:
-            lon = get_position_func(transit_planet, current)
-            if lon is not None:
-                raw = abs(lon - natal_lon) % 360.0
-                dist = min(raw, 360.0 - raw)
-                orb = abs(dist - aspect_angle)
-                if orb < best_orb:
-                    best_orb = orb
-                    best_dt = current
-            current += fine_step
+    # Уточнение с шагом 1 минута
+    step2 = timedelta(minutes=1)
+    left = best_dt - step2 * 30
+    right = best_dt + step2 * 30
+    current2 = left
+    while current2 <= right:
+        lon = get_position_func(planet, current2)
+        if lon is not None:
+            raw = abs(lon - natal_lon) % 360.0
+            dist = min(raw, 360.0 - raw)
+            orb = abs(dist - aspect_angle)
+            if orb < best_orb:
+                best_orb = orb
+                best_dt = current2
+        current2 += step2
 
-    # Проверяем, что найденный орб меньше допустимого для этого аспекта
-    for asp, angle in ASPECT_ANGLES.items():
-        if abs(angle - aspect_angle) < 0.001:
-            max_orb = MAX_ORBS.get(asp, 6.0)
-            if best_orb <= max_orb:
-                return best_dt
-            else:
-                return None
-    return None
+    return best_dt
 
 
-def determine_phase_and_peak(
-    transit_planet: str,
-    natal_lon: float,
-    aspect_angle: float,
+def determine_phase_from_passes(
     forecast_dt: datetime,
-    get_position_func: Callable[[str, datetime], Optional[float]]
+    passes: List[datetime]
 ) -> Tuple[str, Optional[datetime], float]:
     """
-    Возвращает (phase, exact_datetime, days_to_peak).
-    phase: 'applying', 'exact', 'separating' или 'unknown'.
+    Возвращает (phase, ближайший_peak, days_to_peak).
+    phase: 'applying', 'exact', 'separating', или 'unknown'.
     """
-    # Ищем точное время в диапазоне ±SEARCH_DAYS от forecast
-    start = forecast_dt - timedelta(days=SEARCH_DAYS)
-    end = forecast_dt + timedelta(days=SEARCH_DAYS)
-    exact_dt = find_exact_datetime(transit_planet, natal_lon, aspect_angle, start, end, get_position_func)
+    if not passes:
+        return 'unknown', None, 0.0
 
-    if exact_dt is None:
-        # Если не нашли, пробуем более широкий диапазон (±60 дней)
-        start2 = forecast_dt - timedelta(days=60)
-        end2 = forecast_dt + timedelta(days=60)
-        exact_dt = find_exact_datetime(transit_planet, natal_lon, aspect_angle, start2, end2, get_position_func)
-        if exact_dt is None:
-            return 'unknown', None, 0.0
+    # Находим ближайший peak к forecast_dt
+    nearest = None
+    min_dist = float('inf')
+    for p in passes:
+        dist = abs((p - forecast_dt).total_seconds())
+        if dist < min_dist:
+            min_dist = dist
+            nearest = p
 
-    # Функция для вычисления орба в заданный момент
-    def orb_at(dt: datetime) -> Optional[float]:
-        lon = get_position_func(transit_planet, dt)
-        if lon is None:
-            return None
-        raw = abs(lon - natal_lon) % 360.0
-        dist = min(raw, 360.0 - raw)
-        return abs(dist - aspect_angle)
+    if nearest is None:
+        return 'unknown', None, 0.0
 
-    orb_now = orb_at(forecast_dt)
-    if orb_now is None:
-        return 'unknown', exact_dt, 0.0
+    days_to_peak = (nearest - forecast_dt).total_seconds() / 86400.0
 
-    # Сравниваем орб через 6 часов
-    future_dt = forecast_dt + timedelta(hours=6)
-    orb_future = orb_at(future_dt)
-
-    if orb_future is None:
-        # Если не можем определить будущее, используем точный момент
-        phase = 'exact' if orb_now <= EXACT_TOLERANCE else 'unknown'
+    if nearest > forecast_dt:
+        phase = 'applying'
+    elif nearest < forecast_dt:
+        phase = 'separating'
     else:
-        # Определяем фазу по динамике орба
-        if orb_future < orb_now - 0.0001:
-            phase = 'applying'
-        elif orb_future > orb_now + 0.0001:
-            phase = 'separating'
-        else:
-            phase = 'exact'
-
-    # Если фаза unknown, но орб очень мал — считаем exact
-    if phase == 'unknown' and orb_now <= EXACT_TOLERANCE:
         phase = 'exact'
 
-    days_to_peak = (exact_dt - forecast_dt).total_seconds() / 86400.0
-
-    # Проверка согласованности: если exact_dt < forecast_dt, то phase должна быть separating
-    # (если только не следующий проход, но в нашем случае мы ищем ближайший минимум)
-    if exact_dt < forecast_dt and phase != 'separating':
-        phase = 'separating'
-    elif exact_dt > forecast_dt and phase != 'applying':
-        phase = 'applying'
-
-    return phase, exact_dt, days_to_peak
+    return phase, nearest, days_to_peak
 
 
 def deduplicate_events(events: List['TransitEvent']) -> List['TransitEvent']:
@@ -402,6 +400,7 @@ class HoroscopeCalculator:
         self.ranked_events: List[TransitEvent] = []
         self.final_events: List[TransitEvent] = []
         self.background_events: List[TransitEvent] = []
+        self.all_relevant: List[TransitEvent] = []
 
         # Строим натальные цели
         self.natal_targets = self._build_natal_targets()
@@ -500,6 +499,7 @@ class HoroscopeCalculator:
         return positions
 
     def _get_transit_position(self, planet: str, date: datetime) -> Optional[float]:
+        """Возвращает долготу планеты на дату."""
         positions = self._get_transit_positions(date)
         return positions.get(planet)
 
@@ -537,9 +537,6 @@ class HoroscopeCalculator:
         Этап 1: вычисление сырых транзитных аспектов.
         Использует единую функцию calculate_aspect.
         """
-        start = forecast_date - timedelta(days=days_range)
-        end = forecast_date + timedelta(days=days_range)
-
         raw_events = []
         transit_planets = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                            'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']
@@ -555,13 +552,13 @@ class HoroscopeCalculator:
             for target in self.natal_targets:
                 natal_lon = target['longitude']
                 # Единое вычисление аспекта
-                aspect_res = calculate_aspect(forecast_lon, natal_lon, MAX_ORBS.get('conjunction', 8.0))
+                aspect_res = calculate_aspect(forecast_lon, natal_lon)
                 if aspect_res is None:
                     continue
 
                 # Обработка осей для угловых целей
-                axis, primary_target, aspect_corrected, orb = resolve_axis_target(
-                    target['name'], aspect_res.aspect, aspect_res.orb
+                axis, primary_target, aspect_corrected, orb = resolve_axis(
+                    target['name'], aspect_res['aspect'], aspect_res['orb']
                 )
                 if axis is not None:
                     target_name = primary_target
@@ -570,9 +567,9 @@ class HoroscopeCalculator:
                     aspect_angle = ASPECT_ANGLES[aspect]
                 else:
                     target_name = target['name']
-                    aspect = aspect_res.aspect
-                    orb_value = aspect_res.orb
-                    aspect_angle = aspect_res.aspect_angle
+                    aspect = aspect_res['aspect']
+                    orb_value = aspect_res['orb']
+                    aspect_angle = aspect_res['aspect_angle']
 
                 event = TransitEvent(
                     transit_body=planet,
@@ -582,8 +579,8 @@ class HoroscopeCalculator:
                     aspect=aspect,
                     aspect_angle=aspect_angle,
                     orb=orb_value,
-                    angular_distance=aspect_res.angular_distance,
-                    raw_delta=aspect_res.raw_delta,
+                    angular_distance=aspect_res['angular_distance'],
+                    raw_delta=aspect_res['raw_delta'],
                     transit_speed=speed,
                     is_retrograde=retro,
                     axis=axis,
@@ -605,25 +602,24 @@ class HoroscopeCalculator:
     def _apply_phase_and_peak(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
         """
         Этап 2: определение фазы и точного времени для каждого события.
+        Использует поиск всех проходов.
         """
         for ev in events:
-            phase, exact_dt, days_to_peak = determine_phase_and_peak(
+            passes = find_all_passes(
                 ev.transit_body,
                 ev.natal_target_longitude,
                 ev.aspect_angle,
                 forecast_date,
-                self._get_transit_position
+                self._get_transit_position,
+                search_days=180
             )
+            phase, exact_dt, days_to_peak = determine_phase_from_passes(forecast_date, passes)
             ev.phase = phase
             ev.exact_datetime = exact_dt
             ev.days_to_peak = days_to_peak
 
-            # Проверка инвариантов
-            if ev.phase not in ('applying', 'exact', 'separating', 'unknown'):
-                logger.error(f"Invalid phase {ev.phase} for {ev.transit_body}->{ev.natal_target}")
-            if ev.phase == 'unknown' and ev.activity_status != 'IGNORE':
-                # Это недопустимо для активного события — сигнализируем
-                logger.warning(f"Phase unknown for active event {ev.transit_body}->{ev.natal_target}")
+            if phase == 'unknown':
+                logger.warning(f"Unknown phase for {ev.transit_body}->{ev.natal_target}")
 
         logger.info("[PIPELINE] PHASE/PEAK applied")
         self.phase_events = events
@@ -660,35 +656,44 @@ class HoroscopeCalculator:
         self.dedup_events = deduped
         return deduped
 
-    def _classify_activity_and_priority(self, events: List[TransitEvent], forecast_date: datetime) -> List[
-        TransitEvent]:
+    def _classify_activity_and_priority(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
         """
         Этап 5: классификация активности (TODAY, ACTIVE, BACKGROUND, IGNORE)
         и вычисление приоритета (без изменения астрономических полей).
         """
         for ev in events:
-            # Если фаза не определена – сразу помечаем как IGNORE
+            # Если фаза unknown – сразу IGNORE
             if ev.phase == 'unknown':
                 ev.activity_status = 'IGNORE'
-                ev.filter_reason = "phase unknown"
+                ev.filter_reason = 'phase unknown'
                 ev.priority_score = 0.0
                 ev.priority_label = 'BACKGROUND'
                 continue
 
-            # Активность (только для событий с определённой фазой)
-            max_orb = MAX_ORBS.get(ev.aspect, 6.0)
+            # Проверяем максимальный орб
+            max_orb = MAX_ORB.get(ev.aspect, 6.0)
             if ev.orb > max_orb:
                 ev.activity_status = 'IGNORE'
-                ev.filter_reason = f"orb {ev.orb:.2f} > max {max_orb}"
+                ev.filter_reason = f'orb {ev.orb:.2f} > max {max_orb}'
+                ev.priority_score = 0.0
+                ev.priority_label = 'BACKGROUND'
+                continue
+
+            # Активный орб
+            active_orb = ACTIVE_ORB.get(ev.aspect, 2.0)
+            if ev.transit_body in PLANET_ACTIVE_ORB:
+                active_orb = min(active_orb, PLANET_ACTIVE_ORB[ev.transit_body])
+            if ev.natal_target in ANGLE_ACTIVE_ORB:
+                active_orb = min(active_orb, ANGLE_ACTIVE_ORB[ev.natal_target])
+
+            # Определяем активность
+            if abs(ev.days_to_peak) <= 1.0:  # пик сегодня или завтра
+                ev.activity_status = 'TODAY'
+            elif ev.orb <= active_orb:
+                ev.activity_status = 'ACTIVE'
             else:
-                threshold = ACTIVE_ORB_THRESHOLDS.get(ev.transit_body, 2.5)
-                if abs(ev.days_to_peak) <= DAYS_WINDOW_TODAY:
-                    ev.activity_status = 'TODAY'
-                elif ev.orb <= threshold:
-                    ev.activity_status = 'ACTIVE'
-                else:
-                    ev.activity_status = 'BACKGROUND'
-                    ev.filter_reason = f"orb {ev.orb:.2f} > threshold {threshold}"
+                ev.activity_status = 'BACKGROUND'
+                ev.filter_reason = f'orb {ev.orb:.2f} > active {active_orb}'
 
             # Приоритет (только для не-IGNORE)
             if ev.activity_status != 'IGNORE':
@@ -702,11 +707,10 @@ class HoroscopeCalculator:
                 distance_factor = max(0.5, 1 - abs(ev.days_to_peak) / 5.0)
 
                 ev.priority_score = (
-                        (planet_w * target_w * aspect_w / 100.0)
-                        * orb_factor * phase_factor * status_factor * angle_factor * distance_factor
+                    (planet_w * target_w * aspect_w / 100.0)
+                    * orb_factor * phase_factor * status_factor * angle_factor * distance_factor
                 )
 
-                # Label
                 if ev.activity_status == 'TODAY':
                     ev.priority_label = 'PRIMARY'
                 elif ev.activity_status == 'ACTIVE':
@@ -755,21 +759,25 @@ class HoroscopeCalculator:
         self.ranked_events = sorted_events
         return sorted_events
 
-    def _build_final(self, events: List[TransitEvent], forecast_date: datetime, max_events: int = 7) -> List[
-        TransitEvent]:
+    def _build_final(self, events: List[TransitEvent], forecast_date: datetime, max_display: int = 7) -> List[TransitEvent]:
         """
         Этап 8: выбор топ-N событий для финального вывода.
+        Сначала все релевантные (не IGNORE), затем топ по приоритету.
         """
-        final = events[:max_events]
-        logger.info(f"[PIPELINE] FINAL: {len(final)}")
+        relevant = [e for e in events if e.activity_status != 'IGNORE']
+        self.all_relevant = relevant
+        sorted_events = sorted(relevant, key=lambda x: x.priority_score, reverse=True)
+        final = sorted_events[:max_display]
+
+        logger.info(f"[PIPELINE] FINAL: {len(final)} (all relevant: {len(relevant)})")
         self.final_events = final
 
         # ---- Инварианты ----
         for ev in final:
-            assert ev.orb >= 0, f"Negative orb for {ev.transit_body}->{ev.natal_target}"
-            assert ev.aspect in ASPECT_ANGLES, f"Invalid aspect {ev.aspect}"
             assert ev.phase in ('applying', 'exact', 'separating'), f"Invalid phase {ev.phase}"
             assert ev.exact_datetime is not None, f"Missing exact_datetime for {ev.transit_body}->{ev.natal_target}"
+            assert ev.orb >= 0, f"Negative orb for {ev.transit_body}->{ev.natal_target}"
+            assert ev.aspect in ASPECT_ANGLES, f"Invalid aspect {ev.aspect}"
             assert ev.transit_longitude is not None, f"Missing transit_longitude"
             assert ev.natal_target_longitude is not None, f"Missing natal_longitude"
             assert ev.angular_distance is not None, f"Missing angular_distance"
@@ -783,15 +791,13 @@ class HoroscopeCalculator:
 
             # Согласованность фазы и peak
             if ev.phase == 'exact':
-                assert abs(ev.days_to_peak) <= EXACT_TOLERANCE, (
+                assert abs(ev.days_to_peak) <= 0.01, (
                     f"Exact phase but days_to_peak={ev.days_to_peak} for {ev.transit_body}->{ev.natal_target}"
                 )
             if ev.exact_datetime < forecast_date and ev.phase != 'separating':
-                logger.warning(
-                    f"Phase mismatch: {ev.transit_body}->{ev.natal_target} has peak in past but phase={ev.phase}")
+                logger.warning(f"Phase mismatch: {ev.transit_body}->{ev.natal_target} has peak in past but phase={ev.phase}")
             if ev.exact_datetime > forecast_date and ev.phase != 'applying':
-                logger.warning(
-                    f"Phase mismatch: {ev.transit_body}->{ev.natal_target} has peak in future but phase={ev.phase}")
+                logger.warning(f"Phase mismatch: {ev.transit_body}->{ev.natal_target} has peak in future but phase={ev.phase}")
 
         return final
 
@@ -828,7 +834,7 @@ class HoroscopeCalculator:
         ranked = self._rank_events(foreground)
 
         # 8. Финальный отбор
-        final = self._build_final(ranked, target_date, max_events=7)
+        final = self._build_final(ranked, target_date, max_display=7)
 
         # Сохраняем background отдельно для отчёта
         self.background_events = background + [ev for ev in ranked if ev not in final]
@@ -843,29 +849,14 @@ class HoroscopeCalculator:
     def _log_debug_events(self, events: List[TransitEvent]):
         """Выводит подробный debug для каждого финального события."""
         for ev in events:
-            logger.debug(f"""
-=== TRANSIT DEBUG ===
-Transit planet: {ev.transit_body}
-Natal target: {ev.natal_target}
-Forecast datetime: {ev.exact_datetime.strftime('%Y-%m-%d %H:%M') if ev.exact_datetime else 'N/A'}
-Transit longitude: {ev.transit_longitude:.4f}
-Natal longitude: {ev.natal_target_longitude:.4f}
-Angular distance: {ev.angular_distance:.4f}
-Aspect angle: {ev.aspect_angle:.1f}
-Aspect: {ev.aspect}
-Orb: {ev.orb:.4f}
-Transit speed: {ev.transit_speed:.4f}
-Phase: {ev.phase}
-Exact datetime: {ev.exact_datetime.strftime('%Y-%m-%d %H:%M') if ev.exact_datetime else 'N/A'}
-Peak date: {ev.exact_datetime.strftime('%Y-%m-%d') if ev.exact_datetime else 'N/A'}
-Days to peak: {ev.days_to_peak:.2f}
-Transit house: {ev.transit_house}
-Natal target house: {ev.natal_target_house}
-Retrograde: {ev.is_retrograde}
-Activity: {ev.activity_status}
-Priority: {ev.priority_label}
-Priority score: {ev.priority_score:.4f}
-""")
+            peak_str = ev.exact_datetime.strftime('%Y-%m-%d') if ev.exact_datetime else 'N/A'
+            logger.info(
+                f"[TRANSIT DEBUG] {ev.transit_body}→{ev.natal_target} | "
+                f"lon={ev.transit_longitude:.2f} target={ev.natal_target_longitude:.2f} "
+                f"dist={ev.angular_distance:.2f} aspect={ev.aspect} orb={ev.orb:.4f} "
+                f"phase={ev.phase} peak={peak_str} days={ev.days_to_peak:.2f} "
+                f"activity={ev.activity_status} priority={ev.priority_label}"
+            )
 
     # ------------------- ФОРМАТИРОВАНИЕ КОНТЕКСТА -------------------
 
@@ -918,7 +909,7 @@ Priority score: {ev.priority_score:.4f}
                 natal_house = ev.natal_target_house
                 days_to_peak = ev.days_to_peak
 
-                # Локализация (можно вынести в отдельный модуль)
+                # Локализация
                 aspect_names = {'conjunction': 'соединение', 'opposition': 'оппозиция',
                                 'trine': 'трин', 'square': 'квадрат', 'sextile': 'секстиль'}
                 aspect_ru = aspect_names.get(aspect, aspect)
@@ -1006,6 +997,7 @@ Priority score: {ev.priority_score:.4f}
         for e in self.activity_events:
             pri_counts[e.priority_label] += 1
         lines.append(f"PRIORITY: PRIMARY={pri_counts['PRIMARY']}, STRONG={pri_counts['STRONG']}, SUPPORTING={pri_counts['SUPPORTING']}, BACKGROUND={pri_counts['BACKGROUND']}")
+        lines.append(f"ALL_RELEVANT: {len(self.all_relevant)}")
         lines.append(f"FINAL: {len(self.final_events)}")
         lines.append("")
         lines.append("EXCLUDED:")
@@ -1041,5 +1033,6 @@ Priority score: {ev.priority_score:.4f}
             },
             'filtered': len(self.filtered_events),
             'background_events': len(self.background_events),
+            'all_relevant': len(self.all_relevant),
             'final': len(self.final_events),
         }
