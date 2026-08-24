@@ -210,7 +210,7 @@ def find_exact_datetime(
 
     current = start_dt
     while current <= end_dt:
-        lon = get_position_func(transit_planet, current)
+        lon = get_position_func(current, transit_planet)
         if lon is not None:
             raw = abs(lon - natal_lon) % 360.0
             dist = min(raw, 360.0 - raw)
