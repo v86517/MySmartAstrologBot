@@ -226,7 +226,7 @@ def find_exact_datetime(
         right = best_dt + 3 * fine_step
         current = left
         while current <= right:
-            lon = get_position_func(transit_planet, current)
+            lon = get_position_func(current, transit_planet)
             if lon is not None:
                 raw = abs(lon - natal_lon) % 360.0
                 dist = min(raw, 360.0 - raw)
@@ -275,7 +275,7 @@ def determine_phase_and_peak(
 
     # Вычисляем орб в момент forecast_dt и через 6 часов
     def orb_at(dt: datetime) -> Optional[float]:
-        lon = get_position_func(transit_planet, dt)
+        lon = get_position_func(dt, transit_planet)
         if lon is None:
             return None
         raw = abs(lon - natal_lon) % 360.0
