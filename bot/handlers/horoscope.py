@@ -1,14 +1,16 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pytz
+from pathlib import Path
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 
 from bot.utils.helpers import get_text
-from bot.utils.formatters import format_basic_astrology_parameters
 from bot.utils.messaging import send_long_message
+from bot.utils.zodiac import get_zodiac_emoji, get_zodiac_sign_localized
 from bot.keyboards.keyboards import (
     get_subscription_keyboard,
     get_horoscope_confirm_keyboard,
@@ -18,7 +20,6 @@ from bot.keyboards.keyboards import (
     get_horoscope_period_keyboard,
 )
 from bot.states.states import HoroscopeStates, UserDataStates
-from bot.utils.zodiac import get_zodiac_emoji, get_zodiac_sign_localized
 from bot.db import (
     get_user_data,
     check_subscription_db,
@@ -26,12 +27,10 @@ from bot.db import (
     mark_feature_used_db,
     save_message_to_archive,
     get_user_language,
-    is_user_admin,
-    save_user_coords,
+    get_emulation_mode,
 )
-from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
-from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-from bot.calculators.context_builder import AstrologyContextBuilder
+from bot.calculators.horoscope_calculator import TransitCalculator
+from bot.services.gemini import GeminiService
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -42,6 +41,17 @@ def set_gemini_service(service):
     global _gemini_service
     _gemini_service = service
 
+async def load_prompt_template(filename: str) -> str:
+    """Загружает шаблон промпта из папки prompts."""
+    base = Path(__file__).parent.parent.parent / 'prompts' / filename
+    try:
+        with open(base, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.error(f"Шаблон {filename} не найден")
+        return ""
+
+# ====================== СТАРТ ГОРОСКОПА ======================
 
 @router.message(F.text == "🔮 Гороскоп")
 async def start_horoscope(message: Message, state: FSMContext):
@@ -62,11 +72,12 @@ async def start_horoscope(message: Message, state: FSMContext):
             reply_markup=get_cancel_keyboard(lang)
         )
 
+# ====================== ВЫБОР ПЕРИОДА ======================
 
 @router.callback_query(F.data.startswith("horoscope_"), HoroscopeStates.SELECT_PERIOD)
 async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    period = callback.data.split("_")[1]  # today, month, year
+    period = callback.data.split("_")[1]
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
@@ -80,7 +91,7 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
         await callback.message.delete()
         return
 
-    # Заголовок в зависимости от периода
+    # Заголовок
     if period == 'today':
         header = await get_text(user_id, 'horoscope_period_today')
     elif period == 'month':
@@ -88,6 +99,7 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
     else:
         header = await get_text(user_id, 'horoscope_period_year')
 
+    # Показываем подтверждение
     zodiac_emoji = get_zodiac_emoji(user_data.get('zodiac', 'Неизвестно'))
     zodiac_name = get_zodiac_sign_localized(user_data.get('zodiac', 'Неизвестно'), lang)
     gender_display = await get_text(user_id, 'astro_gender_male') if user_data.get('gender') == 'M' else await get_text(user_id, 'astro_gender_female')
@@ -111,25 +123,14 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
     )
     await state.clear()
 
-
-from bot.calculators.horoscope_calculator import TransitCalculator
-from pathlib import Path
-
-async def load_prompt_template(filename: str) -> str:
-    base = Path(__file__).parent.parent.parent / 'prompts' / filename
-    try:
-        with open(base, 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        logger.error(f"Шаблон {filename} не найден")
-        return ""
+# ====================== ГЕНЕРАЦИЯ ГОРОСКОПА ======================
 
 @router.callback_query(F.data.startswith("confirm_horoscope_"))
 async def confirm_horoscope(callback: CallbackQuery):
     await callback.answer()
     await callback.message.delete()
 
-    period = callback.data.split("_")[2]
+    period = callback.data.split("_")[2]  # today, month, year
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
@@ -170,7 +171,6 @@ async def confirm_horoscope(callback: CallbackQuery):
         )
 
         # 2. Определяем даты для расчёта
-        # Для простоты используем текущую дату (UTC)
         target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
         # 3. Строим контекст
