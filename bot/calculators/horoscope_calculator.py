@@ -3,7 +3,7 @@ import zoneinfo
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List, Tuple, Set
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from kerykeion import AstrologicalSubject
@@ -14,12 +14,11 @@ from bot.calculators.natal_context_builder import NatalContextBuilder
 logger = logging.getLogger(__name__)
 
 
-class PeakStatus(Enum):
-    TODAY = "today"
-    TOMORROW = "tomorrow"
-    YESTERDAY = "yesterday"
-    FUTURE = "future"
-    PAST = "past"
+class EventStatus(Enum):
+    TODAY = "TODAY"
+    APPROACHING = "APPROACHING"
+    SEPARATING = "SEPARATING"
+    BACKGROUND = "BACKGROUND"
 
 
 @dataclass
@@ -31,18 +30,17 @@ class TransitEvent:
     natal_target: str
     natal_target_longitude: float
     natal_target_house: Optional[int]
-    aspect: str                # финальный, НЕ МЕНЯЕТСЯ
+    aspect: str
     orb: float
     distance: float
     exact_angle: float
     applying: bool
-    exact_datetime: Optional[datetime]
-    days_to_exact: Optional[float]
-    peak_status: PeakStatus
-    active_today: bool
-    axis: Optional[str]
-    category: str
-    score: float
+    exact_datetime: datetime
+    days_to_peak: float
+    status: EventStatus
+    axis: Optional[str]           # "ASC_DSC" или "MC_IC"
+    priority_score: float
+    raw_data: Optional[Dict] = None   # для отладки
 
     def unique_key(self) -> str:
         if self.axis:
@@ -52,7 +50,7 @@ class TransitEvent:
 
 class HoroscopeCalculator:
     """
-    Калькулятор гороскопа на день с корректной математикой аспектов.
+    Калькулятор гороскопа на день с корректной математикой аспектов и строгим pipeline.
     """
 
     SIGN_OFFSET = {
@@ -72,6 +70,7 @@ class HoroscopeCalculator:
         'opposition': 180,
     }
 
+    # Максимальные орбы для поиска
     MAX_ORBS = {
         'conjunction': 6.0,
         'opposition': 6.0,
@@ -80,7 +79,8 @@ class HoroscopeCalculator:
         'sextile': 5.0,
     }
 
-    ACTIVE_ORBS = {
+    # Дневные орбы для статуса TODAY
+    DAY_ORBS = {
         'Sun': 2.0,
         'Moon': 2.0,
         'Mercury': 2.0,
@@ -93,6 +93,12 @@ class HoroscopeCalculator:
         'Pluto': 2.5,
     }
 
+    # Конфигурация окон для статусов
+    DAYS_WINDOW_TODAY = 0.5     # ±0.5 дня от точности
+    DAYS_WINDOW_APPROACHING = 2.0  # до 2 дней в будущем
+    DAYS_WINDOW_SEPARATING = 2.0   # до 2 дней в прошлом
+
+    # Веса для ранжирования
     PLANET_WEIGHT = {
         'Pluto': 10, 'Neptune': 9, 'Uranus': 9, 'Saturn': 8,
         'Jupiter': 7, 'Mars': 6, 'Venus': 5, 'Mercury': 5,
@@ -140,9 +146,15 @@ class HoroscopeCalculator:
         self.natal_targets = self._build_natal_targets()
         self._transit_cache = {}
 
-        self.all_raw_events: List[TransitEvent] = []
-        self.deduplicated_events: List[TransitEvent] = []
+        # Pipeline stages
+        self.raw_events: List[TransitEvent] = []
+        self.validated_events: List[TransitEvent] = []
+        self.dedup_events: List[TransitEvent] = []
+        self.classified_events: List[TransitEvent] = []
         self.filtered_events: List[TransitEvent] = []
+        self.ranked_events: List[TransitEvent] = []
+        self.final_events: List[TransitEvent] = []
+        self.background_events: List[TransitEvent] = []
 
     def _build_natal_targets(self) -> List[Dict]:
         targets = []
@@ -219,22 +231,16 @@ class HoroscopeCalculator:
     # ==================== КАНОНИЧЕСКАЯ ФУНКЦИЯ АСПЕКТА ====================
 
     def detect_aspect(self, transit_lon: float, natal_lon: float) -> Dict[str, Any]:
-        """
-        Единая каноническая функция определения аспекта.
-        Возвращает immutable результат.
-        """
-        # Нормализуем в диапазон [0, 360)
+        """Единая каноническая функция определения аспекта."""
         t_lon = transit_lon % 360
         n_lon = natal_lon % 360
 
-        # Минимальное угловое расстояние
         diff = abs(t_lon - n_lon) % 360
         if diff > 180:
             distance = 360 - diff
         else:
             distance = diff
 
-        # Находим ближайший аспект
         best_aspect = None
         best_orb = 360.0
         best_angle = None
@@ -329,37 +335,6 @@ class HoroscopeCalculator:
                     return i + 1
         return 0
 
-    # ==================== ОПРЕДЕЛЕНИЕ APPLYING ====================
-
-    def _determine_applying(self, planet: str, natal_lon: float, aspect_angle: float,
-                            forecast_date: datetime, exact_dt: datetime) -> bool:
-        """
-        Определяет applying/separating по изменению орба во времени.
-        """
-        dt_before = exact_dt - timedelta(days=1)
-        dt_after = exact_dt + timedelta(days=1)
-
-        pos_before = self._get_transit_position(dt_before, planet)
-        pos_after = self._get_transit_position(dt_after, planet)
-
-        if pos_before is None or pos_after is None:
-            return False
-
-        def aspect_error(pos, lon, angle):
-            dist = self._angular_distance(pos, lon)
-            return dist - angle
-
-        error_before = aspect_error(pos_before, natal_lon, aspect_angle)
-        error_after = aspect_error(pos_after, natal_lon, aspect_angle)
-
-        return abs(error_before) > abs(error_after)
-
-    def _angular_distance(self, lon1: float, lon2: float) -> float:
-        diff = abs(lon1 - lon2) % 360
-        if diff > 180:
-            diff = 360 - diff
-        return diff
-
     # ==================== ПОИСК ТОЧНОГО ВРЕМЕНИ ====================
 
     def _find_exact_datetime(self, planet: str, natal_lon: float, aspect_angle: float,
@@ -423,9 +398,37 @@ class HoroscopeCalculator:
                 break
         return left if abs(left_err) < abs(right_err) else right
 
-    # ==================== ОСНОВНОЙ РАСЧЁТ ====================
+    def _angular_distance(self, lon1: float, lon2: float) -> float:
+        diff = abs(lon1 - lon2) % 360
+        if diff > 180:
+            diff = 360 - diff
+        return diff
 
-    def _calculate_all_events(self, forecast_date: datetime, days_range: int = 5) -> List[TransitEvent]:
+    # ==================== ОПРЕДЕЛЕНИЕ APPLYING ====================
+
+    def _determine_applying(self, planet: str, natal_lon: float, aspect_angle: float,
+                            exact_dt: datetime) -> bool:
+        dt_before = exact_dt - timedelta(days=1)
+        dt_after = exact_dt + timedelta(days=1)
+
+        pos_before = self._get_transit_position(dt_before, planet)
+        pos_after = self._get_transit_position(dt_after, planet)
+
+        if pos_before is None or pos_after is None:
+            return False
+
+        def aspect_error(pos, lon, angle):
+            dist = self._angular_distance(pos, lon)
+            return dist - angle
+
+        error_before = aspect_error(pos_before, natal_lon, aspect_angle)
+        error_after = aspect_error(pos_after, natal_lon, aspect_angle)
+
+        return abs(error_before) > abs(error_after)
+
+    # ==================== PIPELINE ====================
+
+    def _calculate_raw_events(self, forecast_date: datetime, days_range: int = 5) -> List[TransitEvent]:
         start = forecast_date - timedelta(days=days_range)
         end = forecast_date + timedelta(days=days_range)
 
@@ -439,7 +442,7 @@ class HoroscopeCalculator:
         if len(days) < 2:
             return []
 
-        events: List[TransitEvent] = []
+        events = []
 
         for target in self.natal_targets:
             t_lon = target['longitude']
@@ -461,7 +464,6 @@ class HoroscopeCalculator:
                     if forecast_pos is None:
                         continue
 
-                    # Используем каноническую функцию
                     aspect_info = self.detect_aspect(forecast_pos, t_lon)
                     if aspect_info['aspect'] is None:
                         continue
@@ -472,45 +474,20 @@ class HoroscopeCalculator:
 
                     if self.debug:
                         logger.info(
-                            f"[ASPECT_RAW] {planet} → {target['name']} | "
+                            f"[RAW] {planet} → {target['name']} | "
                             f"transit_lon={forecast_pos:.4f}, target_lon={t_lon:.4f}, "
                             f"distance={aspect_info['distance']:.4f}, "
                             f"aspect={aspect_info['aspect']}, orb={aspect_info['orb']:.4f}"
                         )
 
                     applying = self._determine_applying(
-                        planet, t_lon, aspect_angle,
-                        forecast_date, exact_dt
+                        planet, t_lon, aspect_angle, exact_dt
                     )
 
                     delta = exact_dt - forecast_date
-                    days_to_exact = delta.total_seconds() / 3600 / 24
-
-                    if abs(days_to_exact) < 0.5:
-                        peak_status = PeakStatus.TODAY
-                    elif days_to_exact > 0 and days_to_exact < 2:
-                        peak_status = PeakStatus.TOMORROW
-                    elif days_to_exact < 0 and days_to_exact > -2:
-                        peak_status = PeakStatus.YESTERDAY
-                    elif days_to_exact > 0:
-                        peak_status = PeakStatus.FUTURE
-                    else:
-                        peak_status = PeakStatus.PAST
-
-                    active_orb = self.ACTIVE_ORBS.get(planet, 2.5)
-                    active_today = aspect_info['orb'] <= active_orb
+                    days_to_peak = delta.total_seconds() / 3600 / 24
 
                     transit_house = self._get_transit_house(forecast_date, planet)
-
-                    score = self._calculate_score(
-                        planet,
-                        target,
-                        aspect_info['aspect'],
-                        aspect_info['orb'],
-                        applying,
-                        peak_status,
-                        active_today
-                    )
 
                     event = TransitEvent(
                         transit_body=planet,
@@ -525,42 +502,45 @@ class HoroscopeCalculator:
                         exact_angle=aspect_info['exact_angle'],
                         applying=applying,
                         exact_datetime=exact_dt,
-                        days_to_exact=days_to_exact,
-                        peak_status=peak_status,
-                        active_today=active_today,
+                        days_to_peak=days_to_peak,
+                        status=EventStatus.BACKGROUND,  # временно
                         axis=None,
-                        category='BACKGROUND',
-                        score=score
+                        priority_score=0.0,
+                        raw_data=aspect_info
                     )
                     events.append(event)
 
         return events
 
-    def _calculate_score(self, planet: str, target: Dict, aspect: str,
-                         orb: float, applying: bool, peak_status: PeakStatus,
-                         active_today: bool) -> float:
-        base = (self.PLANET_WEIGHT.get(planet, 5) *
-                self.ASPECT_WEIGHT.get(aspect, 0.7) *
-                target.get('weight', 5)) / 100
+    def _validate_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
+        validated = []
+        for ev in events:
+            # Пересчитываем аспект для проверки
+            aspect_info = self.detect_aspect(ev.transit_longitude, ev.natal_target_longitude)
+            if aspect_info['aspect'] is None:
+                continue
+            # Проверяем, что сохранённый аспект совпадает с вычисленным
+            if aspect_info['aspect'] != ev.aspect:
+                logger.error(
+                    f"❌ Валидация не пройдена: {ev.transit_body} → {ev.natal_target} | "
+                    f"сохранён {ev.aspect}, вычислен {aspect_info['aspect']}"
+                )
+                continue
+            # Проверяем орб (погрешность 0.01)
+            if abs(aspect_info['orb'] - ev.orb) > 0.01:
+                logger.warning(
+                    f"⚠️ Орб не совпадает: {ev.transit_body} → {ev.natal_target} | "
+                    f"сохранён {ev.orb:.4f}, вычислен {aspect_info['orb']:.4f}"
+                )
+                # Исправляем орб на вычисленный
+                ev.orb = aspect_info['orb']
+                ev.distance = aspect_info['distance']
+                ev.exact_angle = aspect_info['exact_angle']
+            validated.append(ev)
+        return validated
 
-        orb_factor = max(0.2, 1 - orb / 6.0)
-        phase_factor = 1.2 if applying else 0.9
-        status_factor = {
-            PeakStatus.TODAY: 1.5,
-            PeakStatus.TOMORROW: 1.3,
-            PeakStatus.YESTERDAY: 1.1,
-            PeakStatus.FUTURE: 0.8,
-            PeakStatus.PAST: 0.6
-        }.get(peak_status, 0.8)
-        active_factor = 1.2 if active_today else 0.8
-        angle_factor = 1.3 if target.get('is_angle') else 1.0
-
-        return base * orb_factor * phase_factor * status_factor * active_factor * angle_factor
-
-    # ==================== ДЕДУПЛИКАЦИЯ И ОСИ ====================
-
-    def _deduplicate_and_axes(self, events: List[TransitEvent]) -> List[TransitEvent]:
-        # 1. Группируем оси ASC/DSC и MC/IC
+    def _deduplicate_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
+        # 1. Обработка осей ASC/DSC и MC/IC
         axis_groups = {}
         for ev in events:
             if ev.natal_target == 'ASC':
@@ -591,10 +571,13 @@ class HoroscopeCalculator:
                 asc_ev = pair.get('asc')
                 dsc_ev = pair.get('dsc')
                 if asc_ev and dsc_ev:
+                    # Выбираем тот, у которого меньше орб (или ASC)
                     ev = asc_ev if asc_ev.orb <= dsc_ev.orb else dsc_ev
                     ev.axis = 'ASC_DSC'
                     ev.natal_target = 'ASC'
                     axis_events.append(ev)
+                    if self.debug:
+                        logger.info(f"[DEDUP] Объединены ASC/DSC для {ev.transit_body} (аспект {ev.aspect})")
                 elif asc_ev:
                     asc_ev.axis = 'ASC_DSC'
                     asc_ev.natal_target = 'ASC'
@@ -611,6 +594,8 @@ class HoroscopeCalculator:
                     ev.axis = 'MC_IC'
                     ev.natal_target = 'MC'
                     axis_events.append(ev)
+                    if self.debug:
+                        logger.info(f"[DEDUP] Объединены MC/IC для {ev.transit_body} (аспект {ev.aspect})")
                 elif mc_ev:
                     mc_ev.axis = 'MC_IC'
                     mc_ev.natal_target = 'MC'
@@ -620,6 +605,7 @@ class HoroscopeCalculator:
                     ic_ev.natal_target = 'MC'
                     axis_events.append(ic_ev)
 
+        # Собираем остальные события (не углы)
         other_events = []
         for ev in events:
             if ev.natal_target in ['ASC', 'DSC', 'MC', 'IC']:
@@ -628,7 +614,7 @@ class HoroscopeCalculator:
 
         all_events = axis_events + other_events
 
-        # 2. Дедупликация по уникальному ключу
+        # Дедупликация по уникальному ключу
         seen = set()
         unique = []
         for ev in all_events:
@@ -636,73 +622,74 @@ class HoroscopeCalculator:
             if key not in seen:
                 seen.add(key)
                 unique.append(ev)
+            else:
+                if self.debug:
+                    logger.info(f"[DEDUP] Удалён дубликат: {key}")
 
         return unique
 
-    # ==================== ФИЛЬТРАЦИЯ И ПРОВЕРКА ====================
-
-    def _filter_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
-        # Пересчитываем score
+    def _classify_events(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
         for ev in events:
-            ev.score = self._calculate_score(
-                ev.transit_body,
-                {'name': ev.natal_target,
-                 'weight': self.TARGET_WEIGHT.get(ev.natal_target, 5),
-                 'is_angle': ev.natal_target in ['ASC', 'MC', 'DSC', 'IC']},
-                ev.aspect,
-                ev.orb,
-                ev.applying,
-                ev.peak_status,
-                ev.active_today
-            )
-
-        # Категоризация
-        for ev in events:
-            if ev.peak_status == PeakStatus.TODAY and ev.active_today:
-                ev.category = 'TODAY'
-            elif ev.active_today and ev.peak_status in [PeakStatus.TOMORROW, PeakStatus.YESTERDAY]:
-                ev.category = 'TRIGGER'
+            days = ev.days_to_peak
+            if abs(days) <= self.DAYS_WINDOW_TODAY:
+                ev.status = EventStatus.TODAY
+            elif days > 0 and days <= self.DAYS_WINDOW_APPROACHING:
+                ev.status = EventStatus.APPROACHING
+            elif days < 0 and abs(days) <= self.DAYS_WINDOW_SEPARATING:
+                ev.status = EventStatus.SEPARATING
             else:
-                ev.category = 'BACKGROUND'
-
-        events.sort(key=lambda x: x.score, reverse=True)
-
-        top_today = [e for e in events if e.category == 'TODAY'][:5]
-        top_trigger = [e for e in events if e.category == 'TRIGGER'][:3]
-
-        result = top_today + top_trigger
-        if len(result) < 3:
-            background = [e for e in events if e.category == 'BACKGROUND']
-            result.extend(background[:3 - len(result)])
-
-        # === ПРОВЕРКА НА МУТАЦИЮ АСПЕКТА ===
-        for ev in result:
-            # Пересчитываем аспект с помощью канонической функции
-            aspect_info = self.detect_aspect(ev.transit_longitude, ev.natal_target_longitude)
-            if aspect_info['aspect'] != ev.aspect:
-                logger.error(
-                    f"❌ ASPECT MUTATION DETECTED: {ev.transit_body} → {ev.natal_target} | "
-                    f"stored={ev.aspect}, recalculated={aspect_info['aspect']}"
-                )
-                raise RuntimeError(
-                    f"ASPECT MUTATION DETECTED: {ev.transit_body} → {ev.natal_target}. "
-                    f"stored={ev.aspect}, recalculated={aspect_info['aspect']}"
-                )
-            # Также проверяем орб (с небольшой погрешностью)
-            if abs(aspect_info['orb'] - ev.orb) > 0.01:
-                logger.warning(
-                    f"⚠️ Orb mismatch for {ev.transit_body} → {ev.natal_target}: "
-                    f"stored={ev.orb:.4f}, recalculated={aspect_info['orb']:.4f}"
-                )
+                ev.status = EventStatus.BACKGROUND
 
         if self.debug:
-            for ev in result:
-                logger.info(
-                    f"[ASPECT_FINAL] {ev.transit_body} → {ev.natal_target} | "
-                    f"aspect={ev.aspect}, orb={ev.orb:.4f}, score={ev.score:.2f}"
-                )
+            counts = {s: 0 for s in EventStatus}
+            for ev in events:
+                counts[ev.status] += 1
+            logger.info(
+                f"[CLASSIFY] TODAY={counts[EventStatus.TODAY]}, "
+                f"APPROACHING={counts[EventStatus.APPROACHING]}, "
+                f"SEPARATING={counts[EventStatus.SEPARATING]}, "
+                f"BACKGROUND={counts[EventStatus.BACKGROUND]}"
+            )
 
-        return result
+        return events
+
+    def _filter_events(self, events: List[TransitEvent]) -> Tuple[List[TransitEvent], List[TransitEvent]]:
+        foreground = []
+        background = []
+        for ev in events:
+            if ev.status == EventStatus.BACKGROUND:
+                background.append(ev)
+            else:
+                foreground.append(ev)
+        return foreground, background
+
+    def _rank_events(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
+        for ev in events:
+            # Базовая важность
+            planet_weight = self.PLANET_WEIGHT.get(ev.transit_body, 5)
+            aspect_weight = self.ASPECT_WEIGHT.get(ev.aspect, 0.7)
+            target_weight = self.TARGET_WEIGHT.get(ev.natal_target, 5)
+            base = (planet_weight * aspect_weight * target_weight) / 100
+
+            # Факторы
+            orb_factor = max(0.1, 1 - ev.orb / 6.0)
+            phase_factor = 1.3 if ev.applying else 0.9
+            status_factor = {
+                EventStatus.TODAY: 1.5,
+                EventStatus.APPROACHING: 1.2,
+                EventStatus.SEPARATING: 1.1,
+                EventStatus.BACKGROUND: 0.5
+            }.get(ev.status, 1.0)
+            angle_factor = 1.4 if ev.natal_target in ['ASC', 'MC', 'DSC', 'IC'] else 1.0
+            distance_factor = max(0.5, 1 - abs(ev.days_to_peak) / 5.0)
+
+            ev.priority_score = base * orb_factor * phase_factor * status_factor * angle_factor * distance_factor
+
+        events.sort(key=lambda x: x.priority_score, reverse=True)
+        return events
+
+    def _build_final(self, events: List[TransitEvent], max_events: int = 5) -> List[TransitEvent]:
+        return events[:max_events]
 
     # ==================== ОСНОВНОЙ МЕТОД ====================
 
@@ -712,14 +699,56 @@ class HoroscopeCalculator:
         if target_date is None:
             target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        raw_events = self._calculate_all_events(target_date, days_range)
-        self.all_raw_events = raw_events
+        # 1. RAW
+        raw = self._calculate_raw_events(target_date, days_range)
+        self.raw_events = raw
+        logger.info(f"[PIPELINE] RAW: {len(raw)}")
 
-        dedup_events = self._deduplicate_and_axes(raw_events)
-        self.deduplicated_events = dedup_events
+        # 2. VALIDATE
+        validated = self._validate_events(raw)
+        self.validated_events = validated
+        logger.info(f"[PIPELINE] VALIDATED: {len(validated)}")
 
-        final_events = self._filter_events(dedup_events)
-        self.filtered_events = final_events
+        # 3. DEDUP
+        dedup = self._deduplicate_events(validated)
+        self.dedup_events = dedup
+        logger.info(f"[PIPELINE] DEDUP: {len(dedup)}")
+
+        # 4. CLASSIFY
+        classified = self._classify_events(dedup, target_date)
+        self.classified_events = classified
+
+        # 5. FILTER
+        foreground, background = self._filter_events(classified)
+        self.filtered_events = foreground
+        self.background_events = background
+        logger.info(f"[PIPELINE] FILTER: foreground={len(foreground)}, background={len(background)}")
+
+        # 6. RANK
+        ranked = self._rank_events(foreground, target_date)
+        self.ranked_events = ranked
+
+        # 7. FINAL
+        final = self._build_final(ranked, max_events=5)
+        self.final_events = final
+        logger.info(f"[PIPELINE] FINAL: {len(final)}")
+
+        # Логируем финальные события
+        if self.debug:
+            logger.info("=== FINAL EVENTS ===")
+            for i, ev in enumerate(final, 1):
+                logger.info(
+                    f"{i}. {ev.transit_body} → {ev.natal_target} | "
+                    f"aspect={ev.aspect}, orb={ev.orb:.4f}, status={ev.status.value}, "
+                    f"days_to_peak={ev.days_to_peak:.2f}, score={ev.priority_score:.2f}"
+                )
+            if background:
+                logger.info("=== BACKGROUND EVENTS ===")
+                for i, ev in enumerate(background[:5], 1):
+                    logger.info(
+                        f"{i}. {ev.transit_body} → {ev.natal_target} | "
+                        f"aspect={ev.aspect}, orb={ev.orb:.4f}"
+                    )
 
         # Формирование текста
         lines = []
@@ -750,22 +779,23 @@ class HoroscopeCalculator:
                 lines.append(line)
         lines.append("")
 
-        if not final_events:
+        if not final:
             lines.append("### Основные транзиты")
             lines.append("")
             lines.append("Нет значимых транзитов в указанный период.")
         else:
             lines.append("### Основные транзиты")
             lines.append("")
-            for ev in final_events:
+            for ev in final:
                 planet = ev.transit_body
                 target = ev.natal_target
                 aspect = ev.aspect
                 orb = ev.orb
                 applying = ev.applying
-                status = ev.peak_status
+                status = ev.status
                 transit_house = ev.transit_house
                 natal_house = ev.natal_target_house
+                days_to_peak = ev.days_to_peak
 
                 aspect_name = NatalContextBuilder.ASPECT_MAP.get(aspect, aspect)
                 phase_text = "сходящийся" if applying else "расходящийся"
@@ -779,21 +809,14 @@ class HoroscopeCalculator:
                 if natal_house:
                     lines.append(f"Натальный {target} находится в {natal_house} доме")
 
-                if status == PeakStatus.TODAY:
+                if status == EventStatus.TODAY:
                     lines.append("Пик влияния: сегодня")
-                elif status == PeakStatus.TOMORROW:
-                    lines.append("Пик влияния: завтра")
-                elif status == PeakStatus.YESTERDAY:
-                    lines.append("Пик влияния: вчера")
-                elif status == PeakStatus.FUTURE:
-                    days = int(ev.days_to_exact) if ev.days_to_exact else 0
+                elif status == EventStatus.APPROACHING:
+                    days = int(abs(days_to_peak))
                     lines.append(f"Пик влияния: через {days} дн.")
-                elif status == PeakStatus.PAST:
-                    days = int(abs(ev.days_to_exact)) if ev.days_to_exact else 0
+                elif status == EventStatus.SEPARATING:
+                    days = int(abs(days_to_peak))
                     lines.append(f"Пик влияния: был {days} дн. назад")
-
-                if ev.active_today:
-                    lines.append("Активен сегодня")
 
                 lines.append("")
 
@@ -801,7 +824,16 @@ class HoroscopeCalculator:
 
     def get_stats(self) -> Dict:
         return {
-            'total_raw': len(self.all_raw_events),
-            'deduplicated': len(self.deduplicated_events),
-            'filtered': len(self.filtered_events)
+            'raw': len(self.raw_events),
+            'validated': len(self.validated_events),
+            'dedup': len(self.dedup_events),
+            'classified': {
+                'today': sum(1 for e in self.classified_events if e.status == EventStatus.TODAY),
+                'approaching': sum(1 for e in self.classified_events if e.status == EventStatus.APPROACHING),
+                'separating': sum(1 for e in self.classified_events if e.status == EventStatus.SEPARATING),
+                'background': sum(1 for e in self.classified_events if e.status == EventStatus.BACKGROUND),
+            },
+            'filtered': len(self.filtered_events),
+            'background_events': len(self.background_events),
+            'final': len(self.final_events),
         }
