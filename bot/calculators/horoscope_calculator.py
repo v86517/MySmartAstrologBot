@@ -660,13 +660,22 @@ class HoroscopeCalculator:
         self.dedup_events = deduped
         return deduped
 
-    def _classify_activity_and_priority(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
+    def _classify_activity_and_priority(self, events: List[TransitEvent], forecast_date: datetime) -> List[
+        TransitEvent]:
         """
         Этап 5: классификация активности (TODAY, ACTIVE, BACKGROUND, IGNORE)
         и вычисление приоритета (без изменения астрономических полей).
         """
         for ev in events:
-            # Активность
+            # Если фаза не определена – сразу помечаем как IGNORE
+            if ev.phase == 'unknown':
+                ev.activity_status = 'IGNORE'
+                ev.filter_reason = "phase unknown"
+                ev.priority_score = 0.0
+                ev.priority_label = 'BACKGROUND'
+                continue
+
+            # Активность (только для событий с определённой фазой)
             max_orb = MAX_ORBS.get(ev.aspect, 6.0)
             if ev.orb > max_orb:
                 ev.activity_status = 'IGNORE'
@@ -681,30 +690,34 @@ class HoroscopeCalculator:
                     ev.activity_status = 'BACKGROUND'
                     ev.filter_reason = f"orb {ev.orb:.2f} > threshold {threshold}"
 
-            # Приоритет
-            planet_w = PLANET_WEIGHT.get(ev.transit_body, 5)
-            target_w = TARGET_WEIGHT.get(ev.natal_target, 5)
-            aspect_w = ASPECT_WEIGHT.get(ev.aspect, 0.7)
-            orb_factor = max(0.1, 1 - ev.orb / 6.0)
-            phase_factor = 1.2 if ev.phase == 'applying' else 0.9 if ev.phase == 'separating' else 1.0
-            status_factor = {'TODAY': 1.5, 'ACTIVE': 1.2, 'BACKGROUND': 0.5, 'IGNORE': 0.0}.get(ev.activity_status, 1.0)
-            angle_factor = 1.4 if ev.axis is not None else 1.0
-            distance_factor = max(0.5, 1 - abs(ev.days_to_peak) / 5.0)
+            # Приоритет (только для не-IGNORE)
+            if ev.activity_status != 'IGNORE':
+                planet_w = PLANET_WEIGHT.get(ev.transit_body, 5)
+                target_w = TARGET_WEIGHT.get(ev.natal_target, 5)
+                aspect_w = ASPECT_WEIGHT.get(ev.aspect, 0.7)
+                orb_factor = max(0.1, 1 - ev.orb / 6.0)
+                phase_factor = 1.2 if ev.phase == 'applying' else 0.9 if ev.phase == 'separating' else 1.0
+                status_factor = {'TODAY': 1.5, 'ACTIVE': 1.2, 'BACKGROUND': 0.5}.get(ev.activity_status, 1.0)
+                angle_factor = 1.4 if ev.axis is not None else 1.0
+                distance_factor = max(0.5, 1 - abs(ev.days_to_peak) / 5.0)
 
-            ev.priority_score = (
-                (planet_w * target_w * aspect_w / 100.0)
-                * orb_factor * phase_factor * status_factor * angle_factor * distance_factor
-            )
+                ev.priority_score = (
+                        (planet_w * target_w * aspect_w / 100.0)
+                        * orb_factor * phase_factor * status_factor * angle_factor * distance_factor
+                )
 
-            # Label
-            if ev.activity_status == 'TODAY':
-                ev.priority_label = 'PRIMARY'
-            elif ev.activity_status == 'ACTIVE':
-                if ev.orb < 1.0 or ev.axis is not None:
-                    ev.priority_label = 'STRONG'
-                else:
-                    ev.priority_label = 'SUPPORTING'
+                # Label
+                if ev.activity_status == 'TODAY':
+                    ev.priority_label = 'PRIMARY'
+                elif ev.activity_status == 'ACTIVE':
+                    if ev.orb < 1.0 or ev.axis is not None:
+                        ev.priority_label = 'STRONG'
+                    else:
+                        ev.priority_label = 'SUPPORTING'
+                else:  # BACKGROUND
+                    ev.priority_label = 'BACKGROUND'
             else:
+                ev.priority_score = 0.0
                 ev.priority_label = 'BACKGROUND'
 
         counts = {'TODAY': 0, 'ACTIVE': 0, 'BACKGROUND': 0, 'IGNORE': 0}
@@ -742,7 +755,8 @@ class HoroscopeCalculator:
         self.ranked_events = sorted_events
         return sorted_events
 
-    def _build_final(self, events: List[TransitEvent], max_events: int = 7) -> List[TransitEvent]:
+    def _build_final(self, events: List[TransitEvent], forecast_date: datetime, max_events: int = 7) -> List[
+        TransitEvent]:
         """
         Этап 8: выбор топ-N событий для финального вывода.
         """
@@ -773,10 +787,11 @@ class HoroscopeCalculator:
                     f"Exact phase but days_to_peak={ev.days_to_peak} for {ev.transit_body}->{ev.natal_target}"
                 )
             if ev.exact_datetime < forecast_date and ev.phase != 'separating':
-                # Если точное время в прошлом, фаза должна быть separating
-                logger.warning(f"Phase mismatch: {ev.transit_body}->{ev.natal_target} has peak in past but phase={ev.phase}")
+                logger.warning(
+                    f"Phase mismatch: {ev.transit_body}->{ev.natal_target} has peak in past but phase={ev.phase}")
             if ev.exact_datetime > forecast_date and ev.phase != 'applying':
-                logger.warning(f"Phase mismatch: {ev.transit_body}->{ev.natal_target} has peak in future but phase={ev.phase}")
+                logger.warning(
+                    f"Phase mismatch: {ev.transit_body}->{ev.natal_target} has peak in future but phase={ev.phase}")
 
         return final
 
@@ -813,7 +828,7 @@ class HoroscopeCalculator:
         ranked = self._rank_events(foreground)
 
         # 8. Финальный отбор
-        final = self._build_final(ranked, max_events=7)
+        final = self._build_final(ranked, target_date, max_events=7)
 
         # Сохраняем background отдельно для отчёта
         self.background_events = background + [ev for ev in ranked if ev not in final]
