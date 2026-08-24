@@ -565,20 +565,22 @@ class HoroscopeCalculator:
         return raw_events
 
     def _apply_phase_and_peak(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
-        """
-        Этап 2: определение фазы и точного времени для каждого события.
-        Использует поиск всех проходов.
-        """
         for ev in events:
-            passes = find_all_passes(
+            # Определяем окно поиска в зависимости от планеты
+            if ev.transit_body in ('Moon', 'Mercury', 'Venus', 'Mars', 'Sun'):
+                search_days = 30
+            else:
+                search_days = 180
+
+            peak_dt = find_nearest_peak(
                 ev.transit_body,
                 ev.natal_target_longitude,
                 ev.aspect_angle,
                 forecast_date,
                 self._get_transit_position,
-                search_days=180
+                search_days=search_days
             )
-            phase, exact_dt, days_to_peak = determine_phase_from_passes(forecast_date, passes)
+            phase, exact_dt, days_to_peak = determine_phase_from_peak(forecast_date, peak_dt)
             ev.phase = phase
             ev.exact_datetime = exact_dt
             ev.days_to_peak = days_to_peak
@@ -586,7 +588,6 @@ class HoroscopeCalculator:
             if phase == 'unknown':
                 logger.warning(f"Unknown phase for {ev.transit_body}->{ev.natal_target}")
 
-        logger.info("[PIPELINE] PHASE/PEAK applied")
         self.phase_events = events
         return events
 
