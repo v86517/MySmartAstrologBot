@@ -3,7 +3,7 @@ import zoneinfo
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List, Tuple, Set
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 from kerykeion import AstrologicalSubject
@@ -31,7 +31,7 @@ class TransitEvent:
     natal_target: str
     natal_target_longitude: float
     natal_target_house: Optional[int]
-    aspect: str
+    aspect: str                # финальный, НЕ МЕНЯЕТСЯ
     orb: float
     distance: float
     exact_angle: float
@@ -336,7 +336,6 @@ class HoroscopeCalculator:
         """
         Определяет applying/separating по изменению орба во времени.
         """
-        # Используем шаг в 1 день для всех планет (для простоты)
         dt_before = exact_dt - timedelta(days=1)
         dt_after = exact_dt + timedelta(days=1)
 
@@ -346,7 +345,6 @@ class HoroscopeCalculator:
         if pos_before is None or pos_after is None:
             return False
 
-        # Вычисляем ошибку аспекта до и после
         def aspect_error(pos, lon, angle):
             dist = self._angular_distance(pos, lon)
             return dist - angle
@@ -354,7 +352,6 @@ class HoroscopeCalculator:
         error_before = aspect_error(pos_before, natal_lon, aspect_angle)
         error_after = aspect_error(pos_after, natal_lon, aspect_angle)
 
-        # Если ошибка уменьшается → applying
         return abs(error_before) > abs(error_after)
 
     def _angular_distance(self, lon1: float, lon2: float) -> float:
@@ -392,7 +389,6 @@ class HoroscopeCalculator:
         right_err = end_err
 
         if left_err * right_err > 0:
-            # Минимум абсолютной ошибки
             for _ in range(max_iter):
                 mid = left + (right - left) / 2
                 mid_err = error_at(mid)
@@ -410,7 +406,6 @@ class HoroscopeCalculator:
                     break
             return left if abs(left_err) < abs(right_err) else right
 
-        # Бинарный поиск (разные знаки)
         for _ in range(max_iter):
             mid = left + (right - left) / 2
             mid_err = error_at(mid)
@@ -466,7 +461,7 @@ class HoroscopeCalculator:
                     if forecast_pos is None:
                         continue
 
-                    # Используем каноническую функцию определения аспекта
+                    # Используем каноническую функцию
                     aspect_info = self.detect_aspect(forecast_pos, t_lon)
                     if aspect_info['aspect'] is None:
                         continue
@@ -475,7 +470,6 @@ class HoroscopeCalculator:
                     if aspect_info['orb'] > max_orb:
                         continue
 
-                    # Логируем RAW аспект
                     if self.debug:
                         logger.info(
                             f"[ASPECT_RAW] {planet} → {target['name']} | "
@@ -484,13 +478,11 @@ class HoroscopeCalculator:
                             f"aspect={aspect_info['aspect']}, orb={aspect_info['orb']:.4f}"
                         )
 
-                    # Определяем applying
                     applying = self._determine_applying(
                         planet, t_lon, aspect_angle,
                         forecast_date, exact_dt
                     )
 
-                    # Вычисляем разницу
                     delta = exact_dt - forecast_date
                     days_to_exact = delta.total_seconds() / 3600 / 24
 
@@ -647,7 +639,7 @@ class HoroscopeCalculator:
 
         return unique
 
-    # ==================== ФИЛЬТРАЦИЯ ====================
+    # ==================== ФИЛЬТРАЦИЯ И ПРОВЕРКА ====================
 
     def _filter_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
         # Пересчитываем score
@@ -664,7 +656,7 @@ class HoroscopeCalculator:
                 ev.active_today
             )
 
-        # Категоризация (НЕ меняет aspect)
+        # Категоризация
         for ev in events:
             if ev.peak_status == PeakStatus.TODAY and ev.active_today:
                 ev.category = 'TODAY'
@@ -673,10 +665,8 @@ class HoroscopeCalculator:
             else:
                 ev.category = 'BACKGROUND'
 
-        # Сортировка по score
         events.sort(key=lambda x: x.score, reverse=True)
 
-        # Берём топ-5 TODAY, топ-3 TRIGGER
         top_today = [e for e in events if e.category == 'TODAY'][:5]
         top_trigger = [e for e in events if e.category == 'TRIGGER'][:3]
 
@@ -685,7 +675,26 @@ class HoroscopeCalculator:
             background = [e for e in events if e.category == 'BACKGROUND']
             result.extend(background[:3 - len(result)])
 
-        # Логируем финальные аспекты
+        # === ПРОВЕРКА НА МУТАЦИЮ АСПЕКТА ===
+        for ev in result:
+            # Пересчитываем аспект с помощью канонической функции
+            aspect_info = self.detect_aspect(ev.transit_longitude, ev.natal_target_longitude)
+            if aspect_info['aspect'] != ev.aspect:
+                logger.error(
+                    f"❌ ASPECT MUTATION DETECTED: {ev.transit_body} → {ev.natal_target} | "
+                    f"stored={ev.aspect}, recalculated={aspect_info['aspect']}"
+                )
+                raise RuntimeError(
+                    f"ASPECT MUTATION DETECTED: {ev.transit_body} → {ev.natal_target}. "
+                    f"stored={ev.aspect}, recalculated={aspect_info['aspect']}"
+                )
+            # Также проверяем орб (с небольшой погрешностью)
+            if abs(aspect_info['orb'] - ev.orb) > 0.01:
+                logger.warning(
+                    f"⚠️ Orb mismatch for {ev.transit_body} → {ev.natal_target}: "
+                    f"stored={ev.orb:.4f}, recalculated={aspect_info['orb']:.4f}"
+                )
+
         if self.debug:
             for ev in result:
                 logger.info(
@@ -711,17 +720,6 @@ class HoroscopeCalculator:
 
         final_events = self._filter_events(dedup_events)
         self.filtered_events = final_events
-
-        # Проверка: aspect не должен меняться
-        for ev in final_events:
-            # Проверяем, что aspect соответствует расстоянию
-            aspect_info = self.detect_aspect(ev.transit_longitude, ev.natal_target_longitude)
-            if aspect_info['aspect'] != ev.aspect:
-                logger.error(
-                    f"❌ MISMATCH: {ev.transit_body} → {ev.natal_target} | "
-                    f"stored={ev.aspect}, recalculated={aspect_info['aspect']}"
-                )
-                raise ValueError(f"Aspect mismatch for {ev.transit_body} → {ev.natal_target}")
 
         # Формирование текста
         lines = []
