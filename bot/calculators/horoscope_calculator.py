@@ -3,7 +3,7 @@ import zoneinfo
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List, Tuple, Set
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from kerykeion import AstrologicalSubject
@@ -16,8 +16,15 @@ logger = logging.getLogger(__name__)
 
 class EventStatus(Enum):
     TODAY = "TODAY"
-    APPROACHING = "APPROACHING"
-    SEPARATING = "SEPARATING"
+    ACTIVE = "ACTIVE"
+    BACKGROUND = "BACKGROUND"
+    IGNORE = "IGNORE"
+
+
+class PriorityLabel(Enum):
+    PRIMARY = "PRIMARY"
+    STRONG = "STRONG"
+    SUPPORTING = "SUPPORTING"
     BACKGROUND = "BACKGROUND"
 
 
@@ -33,11 +40,12 @@ class TransitEvent:
     orb: float
     distance: float
     exact_angle: float
-    applying: bool
     exact_datetime: datetime
     days_to_peak: float
-    status: EventStatus
-    axis: Optional[str]
+    phase: str                     # "applying", "exact", "separating"
+    activity_status: EventStatus
+    priority_label: PriorityLabel
+    axis: Optional[str]            # "ASC_DSC" или "MC_IC"
     priority_score: float
     filter_reason: Optional[str] = None
     raw_data: Optional[Dict] = None
@@ -49,6 +57,10 @@ class TransitEvent:
 
 
 class HoroscopeCalculator:
+    """
+    Калькулятор гороскопа на день с корректной математикой аспектов.
+    """
+
     SIGN_OFFSET = {
         'Aries': 0, 'Taurus': 30, 'Gemini': 60, 'Cancer': 90,
         'Leo': 120, 'Virgo': 150, 'Libra': 180, 'Scorpio': 210,
@@ -74,7 +86,8 @@ class HoroscopeCalculator:
         'sextile': 5.0,
     }
 
-    DAY_ORBS = {
+    # Активные орбы для разных планет (после пика)
+    ACTIVE_ORB_THRESHOLDS = {
         'Sun': 2.0,
         'Moon': 2.0,
         'Mercury': 2.0,
@@ -88,9 +101,9 @@ class HoroscopeCalculator:
     }
 
     DAYS_WINDOW_TODAY = 0.5
-    DAYS_WINDOW_APPROACHING = 2.0
-    DAYS_WINDOW_SEPARATING = 2.0
+    DAYS_WINDOW_ACTIVE = 2.0   # для классификации ACTIVE (если пик не сегодня, но близко)
 
+    # Веса для ранжирования
     PLANET_WEIGHT = {
         'Pluto': 10, 'Neptune': 9, 'Uranus': 9, 'Saturn': 8,
         'Jupiter': 7, 'Mars': 6, 'Venus': 5, 'Mercury': 5,
@@ -138,10 +151,13 @@ class HoroscopeCalculator:
         self.natal_targets = self._build_natal_targets()
         self._transit_cache = {}
 
+        # Pipeline stages
         self.raw_events: List[TransitEvent] = []
         self.validated_events: List[TransitEvent] = []
         self.dedup_events: List[TransitEvent] = []
-        self.classified_events: List[TransitEvent] = []
+        self.phase_events: List[TransitEvent] = []
+        self.activity_events: List[TransitEvent] = []
+        self.priority_events: List[TransitEvent] = []
         self.filtered_events: List[TransitEvent] = []
         self.ranked_events: List[TransitEvent] = []
         self.final_events: List[TransitEvent] = []
@@ -219,6 +235,8 @@ class HoroscopeCalculator:
             return signs[next_idx]
         return None
 
+    # ==================== КАНОНИЧЕСКАЯ ФУНКЦИЯ АСПЕКТА ====================
+
     def detect_aspect(self, transit_lon: float, natal_lon: float) -> Dict[str, Any]:
         t_lon = transit_lon % 360
         n_lon = natal_lon % 360
@@ -253,6 +271,8 @@ class HoroscopeCalculator:
             'distance': distance,
             'orb': best_orb
         }
+
+    # ==================== ТРАНЗИТНЫЕ ПОЗИЦИИ ====================
 
     def _get_transit_subject(self, date: datetime) -> AstrologicalSubject:
         lat = self.natal_data['location']['lat']
@@ -321,6 +341,8 @@ class HoroscopeCalculator:
                     return i + 1
         return 0
 
+    # ==================== ПОИСК ТОЧНОГО ВРЕМЕНИ ====================
+
     def _find_exact_datetime(self, planet: str, natal_lon: float, aspect_angle: float,
                              start_date: datetime, end_date: datetime) -> Optional[datetime]:
         start_pos = self._get_transit_position(start_date, planet)
@@ -388,27 +410,131 @@ class HoroscopeCalculator:
             diff = 360 - diff
         return diff
 
-    def _determine_applying(self, planet: str, natal_lon: float, aspect_angle: float,
-                            exact_dt: datetime) -> bool:
-        dt_before = exact_dt - timedelta(days=1)
-        dt_after = exact_dt + timedelta(days=1)
+    # ==================== ЕДИНАЯ ФУНКЦИЯ ФАЗЫ И ПИКА ====================
 
-        pos_before = self._get_transit_position(dt_before, planet)
-        pos_after = self._get_transit_position(dt_after, planet)
+    def _calculate_phase_and_peak(self, event: TransitEvent, forecast_date: datetime) -> Dict[str, Any]:
+        """
+        Определяет фазу (applying/exact/separating) и проверяет согласованность.
+        Возвращает словарь с phase, peak_date, days_to_peak.
+        """
+        # Проверяем, что exact_datetime не None
+        if event.exact_datetime is None:
+            return {'phase': 'unknown', 'peak_date': None, 'days_to_peak': None}
 
-        if pos_before is None or pos_after is None:
-            return False
+        peak_date = event.exact_datetime
+        days_to_peak = event.days_to_peak
 
-        def aspect_error(pos, lon, angle):
-            dist = self._angular_distance(pos, lon)
-            return dist - angle
+        # Определяем фазу по изменению орба до/после точной даты
+        # Для этого вычисляем ошибку аспекта за день до и после
+        dt_before = peak_date - timedelta(days=1)
+        dt_after = peak_date + timedelta(days=1)
 
-        error_before = aspect_error(pos_before, natal_lon, aspect_angle)
-        error_after = aspect_error(pos_after, natal_lon, aspect_angle)
+        pos_before = self._get_transit_position(dt_before, event.transit_body)
+        pos_after = self._get_transit_position(dt_after, event.transit_body)
 
-        return abs(error_before) > abs(error_after)
+        if pos_before is not None and pos_after is not None:
+            error_before = self._aspect_error(pos_before, event.natal_target_longitude, event.exact_angle)
+            error_after = self._aspect_error(pos_after, event.natal_target_longitude, event.exact_angle)
+            if abs(error_before) > abs(error_after):
+                phase = 'applying'
+            elif abs(error_before) < abs(error_after):
+                phase = 'separating'
+            else:
+                phase = 'exact'
+        else:
+            phase = 'unknown'
 
-    # ---- PIPELINE STAGES ----
+        # Проверка согласованности: если applying, то peak_date >= forecast_date
+        if phase == 'applying' and peak_date < forecast_date:
+            logger.error(
+                f"❌ Несогласованность: {event.transit_body} → {event.natal_target} "
+                f"applying, но peak_date ({peak_date}) < forecast_date ({forecast_date})"
+            )
+            # Исправляем: если peak_date уже прошёл, но мы посчитали applying – значит, ошиблись, меняем на separating
+            phase = 'separating'
+        elif phase == 'separating' and peak_date > forecast_date:
+            logger.error(
+                f"❌ Несогласованность: {event.transit_body} → {event.natal_target} "
+                f"separating, но peak_date ({peak_date}) > forecast_date ({forecast_date})"
+            )
+            phase = 'applying'
+
+        # Также проверяем, что days_to_peak соответствует
+        if phase == 'applying' and days_to_peak < 0:
+            logger.warning(
+                f"⚠️ days_to_peak отрицательный для applying: {event.transit_body} → {event.natal_target}"
+            )
+            days_to_peak = abs(days_to_peak)
+        elif phase == 'separating' and days_to_peak > 0:
+            days_to_peak = -abs(days_to_peak)
+
+        return {
+            'phase': phase,
+            'peak_date': peak_date,
+            'days_to_peak': days_to_peak,
+        }
+
+    def _aspect_error(self, transit_lon: float, natal_lon: float, exact_angle: float) -> float:
+        distance = self._angular_distance(transit_lon, natal_lon)
+        return distance - exact_angle
+
+    # ==================== КЛАССИФИКАЦИЯ АКТИВНОСТИ ====================
+
+    def _classify_activity(self, event: TransitEvent) -> EventStatus:
+        """Определяет активность транзита на основе орба и фазы."""
+        # Если орб превышает максимальный, игнорируем
+        max_orb = self.MAX_ORBS.get(event.aspect, 6.0)
+        if event.orb > max_orb:
+            return EventStatus.IGNORE
+
+        # Активный порог для планеты
+        threshold = self.ACTIVE_ORB_THRESHOLDS.get(event.transit_body, 2.5)
+
+        # Если пик сегодня
+        if abs(event.days_to_peak) <= self.DAYS_WINDOW_TODAY:
+            return EventStatus.TODAY
+
+        # Если орб мал, считаем активным
+        if event.orb <= threshold:
+            return EventStatus.ACTIVE
+
+        # Если орб ещё не слишком большой, но больше порога – фоновый
+        if event.orb <= max_orb:
+            return EventStatus.BACKGROUND
+
+        return EventStatus.IGNORE
+
+    # ==================== ПРИОРИТЕТ ====================
+
+    def _assign_priority(self, event: TransitEvent, forecast_date: datetime) -> PriorityLabel:
+        """Определяет приоритет события."""
+        # PRIMARY: точный сегодня, очень малый орб, соединение/оппозиция к ASC/MC, сильный транзит к личной планете
+        if event.activity_status == EventStatus.TODAY:
+            return PriorityLabel.PRIMARY
+        if event.orb < 0.5:
+            return PriorityLabel.PRIMARY
+        if event.aspect in ('conjunction', 'opposition') and event.orb < 1.0 and event.natal_target in ('ASC', 'MC', 'DSC', 'IC'):
+            return PriorityLabel.PRIMARY
+        if event.transit_body in ('Sun', 'Moon', 'Mercury', 'Venus', 'Mars') and event.orb < 1.0 and event.natal_target in ('Sun', 'Moon', 'Mercury', 'Venus', 'Mars'):
+            return PriorityLabel.PRIMARY
+
+        # STRONG: активные медленные планеты с малым орбом, активные транзиты к углам
+        if event.activity_status in (EventStatus.TODAY, EventStatus.ACTIVE):
+            if event.transit_body in ('Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'):
+                return PriorityLabel.STRONG
+            if event.natal_target in ('ASC', 'MC', 'DSC', 'IC'):
+                return PriorityLabel.STRONG
+            if event.orb < 1.5:
+                return PriorityLabel.STRONG
+
+        # SUPPORTING: остальные активные
+        if event.activity_status in (EventStatus.TODAY, EventStatus.ACTIVE):
+            return PriorityLabel.SUPPORTING
+
+        # BACKGROUND
+        return PriorityLabel.BACKGROUND
+
+    # ==================== PIPELINE STAGES ====================
 
     def _calculate_raw_events(self, forecast_date: datetime, days_range: int = 5) -> List[TransitEvent]:
         start = forecast_date - timedelta(days=days_range)
@@ -462,15 +588,12 @@ class HoroscopeCalculator:
                             f"aspect={aspect_info['aspect']}, orb={aspect_info['orb']:.4f}"
                         )
 
-                    applying = self._determine_applying(
-                        planet, t_lon, aspect_angle, exact_dt
-                    )
-
                     delta = exact_dt - forecast_date
                     days_to_peak = delta.total_seconds() / 3600 / 24
 
                     transit_house = self._get_transit_house(forecast_date, planet)
 
+                    # Временный event без фазы, активности, приоритета
                     event = TransitEvent(
                         transit_body=planet,
                         transit_longitude=forecast_pos,
@@ -482,10 +605,11 @@ class HoroscopeCalculator:
                         orb=aspect_info['orb'],
                         distance=aspect_info['distance'],
                         exact_angle=aspect_info['exact_angle'],
-                        applying=applying,
                         exact_datetime=exact_dt,
                         days_to_peak=days_to_peak,
-                        status=EventStatus.BACKGROUND,
+                        phase='unknown',
+                        activity_status=EventStatus.IGNORE,
+                        priority_label=PriorityLabel.BACKGROUND,
                         axis=None,
                         priority_score=0.0,
                         raw_data=aspect_info
@@ -518,6 +642,7 @@ class HoroscopeCalculator:
         return validated
 
     def _deduplicate_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
+        # 1. Обработка осей ASC/DSC и MC/IC
         axis_groups = {}
         for ev in events:
             if ev.natal_target == 'ASC':
@@ -589,6 +714,7 @@ class HoroscopeCalculator:
 
         all_events = axis_events + other_events
 
+        # 2. Дедупликация по уникальному ключу (с учётом оси)
         seen = set()
         unique = []
         for ev in all_events:
@@ -602,37 +728,31 @@ class HoroscopeCalculator:
 
         return unique
 
-    def _classify_events(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
+    def _apply_phase_and_peak(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
         for ev in events:
-            days = ev.days_to_peak
-            if abs(days) <= self.DAYS_WINDOW_TODAY:
-                ev.status = EventStatus.TODAY
-            elif days > 0 and days <= self.DAYS_WINDOW_APPROACHING:
-                ev.status = EventStatus.APPROACHING
-            elif days < 0 and abs(days) <= self.DAYS_WINDOW_SEPARATING:
-                ev.status = EventStatus.SEPARATING
-            else:
-                ev.status = EventStatus.BACKGROUND
+            phase_info = self._calculate_phase_and_peak(ev, forecast_date)
+            ev.phase = phase_info['phase']
+            ev.days_to_peak = phase_info['days_to_peak']  # обновляем, если нужно
+            # Также обновляем exact_datetime, если оно изменилось?
+            # В _calculate_phase_and_peak мы не меняем exact_datetime, только проверяем.
+            # Поэтому оставляем как есть.
+        return events
 
-        if self.debug:
-            counts = {s: 0 for s in EventStatus}
-            for ev in events:
-                counts[ev.status] += 1
-            logger.info(
-                f"[CLASSIFY] TODAY={counts[EventStatus.TODAY]}, "
-                f"APPROACHING={counts[EventStatus.APPROACHING]}, "
-                f"SEPARATING={counts[EventStatus.SEPARATING]}, "
-                f"BACKGROUND={counts[EventStatus.BACKGROUND]}"
-            )
-
+    def _classify_activity_and_priority(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
+        for ev in events:
+            ev.activity_status = self._classify_activity(ev)
+            ev.priority_label = self._assign_priority(ev, forecast_date)
         return events
 
     def _filter_events(self, events: List[TransitEvent]) -> Tuple[List[TransitEvent], List[TransitEvent]]:
         foreground = []
         background = []
         for ev in events:
-            if ev.status == EventStatus.BACKGROUND:
-                ev.filter_reason = "BACKGROUND status"
+            if ev.activity_status == EventStatus.IGNORE:
+                ev.filter_reason = f"IGNORE: orb {ev.orb:.2f} > max_orb {self.MAX_ORBS.get(ev.aspect, 6.0)}"
+                background.append(ev)
+            elif ev.activity_status == EventStatus.BACKGROUND:
+                ev.filter_reason = f"BACKGROUND: orb {ev.orb:.2f} > active threshold {self.ACTIVE_ORB_THRESHOLDS.get(ev.transit_body, 2.5)}"
                 background.append(ev)
             else:
                 foreground.append(ev)
@@ -640,19 +760,20 @@ class HoroscopeCalculator:
 
     def _rank_events(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
         for ev in events:
+            # Пересчёт priority_score
             planet_weight = self.PLANET_WEIGHT.get(ev.transit_body, 5)
             aspect_weight = self.ASPECT_WEIGHT.get(ev.aspect, 0.7)
             target_weight = self.TARGET_WEIGHT.get(ev.natal_target, 5)
             base = (planet_weight * aspect_weight * target_weight) / 100
 
             orb_factor = max(0.1, 1 - ev.orb / 6.0)
-            phase_factor = 1.3 if ev.applying else 0.9
+            phase_factor = 1.2 if ev.phase == 'applying' else 0.9 if ev.phase == 'separating' else 1.0
             status_factor = {
                 EventStatus.TODAY: 1.5,
-                EventStatus.APPROACHING: 1.2,
-                EventStatus.SEPARATING: 1.1,
-                EventStatus.BACKGROUND: 0.5
-            }.get(ev.status, 1.0)
+                EventStatus.ACTIVE: 1.2,
+                EventStatus.BACKGROUND: 0.5,
+                EventStatus.IGNORE: 0.0
+            }.get(ev.activity_status, 1.0)
             angle_factor = 1.4 if ev.natal_target in ['ASC', 'MC', 'DSC', 'IC'] else 1.0
             distance_factor = max(0.5, 1 - abs(ev.days_to_peak) / 5.0)
 
@@ -661,10 +782,17 @@ class HoroscopeCalculator:
         events.sort(key=lambda x: x.priority_score, reverse=True)
         return events
 
-    def _build_final(self, events: List[TransitEvent], max_events: int = 5) -> List[TransitEvent]:
-        return events[:max_events]
+    def _build_final(self, events: List[TransitEvent], max_events: int = 7) -> List[TransitEvent]:
+        # Отдаём предпочтение PRIMARY, затем STRONG, затем SUPPORTING
+        sorted_by_priority = sorted(events, key=lambda x: (
+            0 if x.priority_label == PriorityLabel.PRIMARY else
+            1 if x.priority_label == PriorityLabel.STRONG else
+            2 if x.priority_label == PriorityLabel.SUPPORTING else 3,
+            -x.priority_score
+        ))
+        return sorted_by_priority[:max_events]
 
-    # ---- MAIN METHOD ----
+    # ==================== ОСНОВНОЙ МЕТОД ====================
 
     def build_context(self, period: str = 'today',
                       target_date: Optional[datetime] = None,
@@ -672,14 +800,48 @@ class HoroscopeCalculator:
         if target_date is None:
             target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        self.raw_events = self._calculate_raw_events(target_date, days_range)
-        self.validated_events = self._validate_events(self.raw_events)
-        self.dedup_events = self._deduplicate_events(self.validated_events)
-        self.classified_events = self._classify_events(self.dedup_events, target_date)
-        self.filtered_events, self.background_events = self._filter_events(self.classified_events)
-        self.ranked_events = self._rank_events(self.filtered_events, target_date)
-        self.final_events = self._build_final(self.ranked_events, max_events=5)
+        # 1. RAW
+        raw = self._calculate_raw_events(target_date, days_range)
+        self.raw_events = raw
+        logger.info(f"[PIPELINE] RAW: {len(raw)}")
 
+        # 2. VALIDATE
+        validated = self._validate_events(raw)
+        self.validated_events = validated
+        logger.info(f"[PIPELINE] VALIDATED: {len(validated)}")
+
+        # 3. DEDUP
+        dedup = self._deduplicate_events(validated)
+        self.dedup_events = dedup
+        logger.info(f"[PIPELINE] DEDUP: {len(dedup)}")
+
+        # 4. PHASE_AND_PEAK
+        phase_events = self._apply_phase_and_peak(dedup, target_date)
+        self.phase_events = phase_events
+        logger.info(f"[PIPELINE] PHASE applied")
+
+        # 5. ACTIVITY
+        activity_events = self._classify_activity_and_priority(phase_events, target_date)
+        self.activity_events = activity_events
+        logger.info(f"[PIPELINE] ACTIVITY classified")
+
+        # 6. FILTER
+        foreground, background = self._filter_events(activity_events)
+        self.filtered_events = foreground
+        self.background_events = background
+        logger.info(f"[PIPELINE] FILTER: foreground={len(foreground)}, background={len(background)}")
+
+        # 7. RANK
+        ranked = self._rank_events(foreground, target_date)
+        self.ranked_events = ranked
+        logger.info(f"[PIPELINE] RANK: {len(ranked)}")
+
+        # 8. FINAL
+        final = self._build_final(ranked, max_events=7)
+        self.final_events = final
+        logger.info(f"[PIPELINE] FINAL: {len(final)}")
+
+        # Логируем диагностику
         if self.debug:
             self._log_pipeline()
 
@@ -689,14 +851,24 @@ class HoroscopeCalculator:
         logger.info(f"[PIPELINE] RAW: {len(self.raw_events)}")
         logger.info(f"[PIPELINE] VALIDATED: {len(self.validated_events)}")
         logger.info(f"[PIPELINE] DEDUP: {len(self.dedup_events)}")
+        logger.info(f"[PIPELINE] PHASE applied")
         counts = {s: 0 for s in EventStatus}
-        for ev in self.classified_events:
-            counts[ev.status] += 1
+        for ev in self.activity_events:
+            counts[ev.activity_status] += 1
         logger.info(
-            f"[CLASSIFY] TODAY={counts[EventStatus.TODAY]}, "
-            f"APPROACHING={counts[EventStatus.APPROACHING]}, "
-            f"SEPARATING={counts[EventStatus.SEPARATING]}, "
-            f"BACKGROUND={counts[EventStatus.BACKGROUND]}"
+            f"[ACTIVITY] TODAY={counts.get(EventStatus.TODAY, 0)}, "
+            f"ACTIVE={counts.get(EventStatus.ACTIVE, 0)}, "
+            f"BACKGROUND={counts.get(EventStatus.BACKGROUND, 0)}, "
+            f"IGNORE={counts.get(EventStatus.IGNORE, 0)}"
+        )
+        pri_counts = {p: 0 for p in PriorityLabel}
+        for ev in self.priority_events:
+            pri_counts[ev.priority_label] += 1
+        logger.info(
+            f"[PRIORITY] PRIMARY={pri_counts.get(PriorityLabel.PRIMARY, 0)}, "
+            f"STRONG={pri_counts.get(PriorityLabel.STRONG, 0)}, "
+            f"SUPPORTING={pri_counts.get(PriorityLabel.SUPPORTING, 0)}, "
+            f"BACKGROUND={pri_counts.get(PriorityLabel.BACKGROUND, 0)}"
         )
         logger.info(f"[FILTER] foreground={len(self.filtered_events)}, background={len(self.background_events)}")
         logger.info(f"[RANK] {len(self.ranked_events)}")
@@ -743,17 +915,25 @@ class HoroscopeCalculator:
                 target = ev.natal_target
                 aspect = ev.aspect
                 orb = ev.orb
-                applying = ev.applying
-                status = ev.status
+                phase = ev.phase
+                status = ev.activity_status
+                priority = ev.priority_label.value
                 transit_house = ev.transit_house
                 natal_house = ev.natal_target_house
                 days_to_peak = ev.days_to_peak
 
                 aspect_name = NatalContextBuilder.ASPECT_MAP.get(aspect, aspect)
-                phase_text = "сходящийся" if applying else "расходящийся"
+                phase_text = {
+                    'applying': 'сходящийся',
+                    'exact': 'точный',
+                    'separating': 'расходящийся'
+                }.get(phase, '')
 
                 line = f"{planet} транзитный — {aspect_name} — натальное {target}"
-                line += f", орб {orb:.2f}°, {phase_text}"
+                if phase_text:
+                    line += f", орб {orb:.2f}°, {phase_text}"
+                else:
+                    line += f", орб {orb:.2f}°"
                 lines.append(line)
 
                 if transit_house:
@@ -763,74 +943,23 @@ class HoroscopeCalculator:
 
                 if status == EventStatus.TODAY:
                     lines.append("Пик влияния: сегодня")
-                elif status == EventStatus.APPROACHING:
-                    days = int(abs(days_to_peak))
-                    lines.append(f"Пик влияния: через {days} дн.")
-                elif status == EventStatus.SEPARATING:
-                    days = int(abs(days_to_peak))
-                    lines.append(f"Пик влияния: был {days} дн. назад")
+                elif status == EventStatus.ACTIVE:
+                    if abs(days_to_peak) < 1:
+                        lines.append("Активен сегодня")
+                    else:
+                        days = int(abs(days_to_peak))
+                        if days_to_peak > 0:
+                            lines.append(f"Пик влияния: через {days} дн.")
+                        else:
+                            lines.append(f"Пик влияния: был {days} дн. назад")
+                else:
+                    lines.append("Фоновое влияние")
 
                 lines.append("")
 
         return "\n".join(lines)
 
-    # ---- DIAGNOSTIC REPORT ----
-
-    def get_diagnostic_report(self) -> str:
-        lines = []
-        lines.append("=== ДИАГНОСТИЧЕСКИЙ ОТЧЁТ ===")
-        lines.append("")
-
-        lines.append(f"RAW: {len(self.raw_events)}")
-        for ev in self.raw_events:
-            lines.append(self._format_event(ev))
-        lines.append("")
-
-        lines.append(f"VALIDATED: {len(self.validated_events)}")
-        for ev in self.validated_events:
-            lines.append(self._format_event(ev))
-        lines.append("")
-
-        lines.append(f"DEDUP: {len(self.dedup_events)}")
-        for ev in self.dedup_events:
-            lines.append(self._format_event(ev))
-        lines.append("")
-
-        lines.append(f"CLASSIFY:")
-        for ev in self.classified_events:
-            lines.append(self._format_event(ev))
-        lines.append("")
-
-        lines.append(f"FILTER: foreground={len(self.filtered_events)}, background={len(self.background_events)}")
-        for ev in self.background_events:
-            lines.append(f"  [REMOVED] {self._format_event(ev)}")
-        lines.append("")
-
-        lines.append(f"RANK: {len(self.ranked_events)}")
-        for ev in self.ranked_events:
-            lines.append(self._format_event(ev))
-        lines.append("")
-
-        lines.append(f"FINAL: {len(self.final_events)}")
-        for ev in self.final_events:
-            lines.append(self._format_event(ev))
-        lines.append("")
-
-        lines.append(f"BACKGROUND: {len(self.background_events)}")
-        for ev in self.background_events:
-            lines.append(self._format_event(ev))
-
-        return "\n".join(lines)
-
-    def _format_event(self, ev: TransitEvent) -> str:
-        return (f"{ev.transit_body} → {ev.natal_target} | "
-                f"aspect={ev.aspect}, orb={ev.orb:.4f}, "
-                f"status={ev.status.value if ev.status else 'N/A'}, "
-                f"days_to_peak={ev.days_to_peak:.2f}, "
-                f"applying={ev.applying}, "
-                f"score={ev.priority_score:.2f}" +
-                (f", reason={ev.filter_reason}" if ev.filter_reason else ""))
-
+    # ==================== QA ОТЧЁТ ====================
 
     def get_qa_report(self) -> str:
         """Компактный QA-отчёт по 6 контрольным событиям."""
@@ -857,19 +986,19 @@ class HoroscopeCalculator:
         lines = []
         lines.append("=== QA ОТЧЁТ ===")
         lines.append("")
-        lines.append("| planet → target | aspect | orb | applying/sep | peak_date | days_to_peak | status | priority_score | FINAL/BACKGROUND | причина |")
-        lines.append("|-----------------|--------|-----|--------------|-----------|--------------|--------|---------------|------------------|---------|")
+        lines.append("| planet → target | aspect | orb | phase | peak_date | days_to_peak | activity | priority | FINAL/BACKGROUND | причина |")
+        lines.append("|-----------------|--------|-----|-------|-----------|--------------|----------|----------|------------------|---------|")
 
         for key in target_events:
             ev = found.get(key)
             if ev:
                 peak_date = ev.exact_datetime.strftime('%d.%m.%Y') if ev.exact_datetime else 'N/A'
-                status = ev.status.value if ev.status else 'N/A'
-                applying = 'сходящийся' if ev.applying else 'расходящийся'
+                activity = ev.activity_status.value if ev.activity_status else 'N/A'
+                priority = ev.priority_label.value if ev.priority_label else 'N/A'
                 is_final = "FINAL" if id(ev) in final_ids else "BACKGROUND"
-                reason = ev.filter_reason if ev.filter_reason else ("Not in top 5 by priority score" if not is_final else "")
+                reason = ev.filter_reason if ev.filter_reason else ("Not in top 7 by priority" if not is_final else "")
                 lines.append(
-                    f"| {ev.transit_body} → {ev.natal_target} | {ev.aspect} | {ev.orb:.4f} | {applying} | {peak_date} | {ev.days_to_peak:.2f} | {status} | {ev.priority_score:.2f} | {is_final} | {reason} |"
+                    f"| {ev.transit_body} → {ev.natal_target} | {ev.aspect} | {ev.orb:.4f} | {ev.phase} | {peak_date} | {ev.days_to_peak:.2f} | {activity} | {priority} | {is_final} | {reason} |"
                 )
             else:
                 lines.append(f"| {key[0]} → {key[1]} | НЕ НАЙДЕНО | - | - | - | - | - | - | - | - |")
@@ -877,29 +1006,40 @@ class HoroscopeCalculator:
         lines.append("")
 
         # Статистика
-        counts = {s: 0 for s in EventStatus}
-        for ev in self.classified_events:
-            counts[ev.status] += 1
-
-        lines.append(f"RAW total: {len(self.raw_events)}")
-        lines.append(f"VALIDATED total: {len(self.validated_events)}")
-        lines.append(f"DEDUP total: {len(self.dedup_events)}")
-        lines.append(f"TODAY: {counts.get(EventStatus.TODAY, 0)}")
-        lines.append(f"APPROACHING: {counts.get(EventStatus.APPROACHING, 0)}")
-        lines.append(f"SEPARATING: {counts.get(EventStatus.SEPARATING, 0)}")
-        lines.append(f"BACKGROUND: {counts.get(EventStatus.BACKGROUND, 0)}")
-        lines.append(f"FINAL: {len(self.final_events)}")
+        if self.activity_events:
+            counts = {s: 0 for s in EventStatus}
+            for ev in self.activity_events:
+                counts[ev.activity_status] += 1
+            lines.append(f"RAW total: {len(self.raw_events)}")
+            lines.append(f"VALIDATED total: {len(self.validated_events)}")
+            lines.append(f"DEDUP total: {len(self.dedup_events)}")
+            lines.append(f"PHASE: applying={sum(1 for e in self.phase_events if e.phase=='applying')}, "
+                         f"exact={sum(1 for e in self.phase_events if e.phase=='exact')}, "
+                         f"separating={sum(1 for e in self.phase_events if e.phase=='separating')}")
+            lines.append(f"ACTIVITY: TODAY={counts.get(EventStatus.TODAY, 0)}, "
+                         f"ACTIVE={counts.get(EventStatus.ACTIVE, 0)}, "
+                         f"BACKGROUND={counts.get(EventStatus.BACKGROUND, 0)}, "
+                         f"IGNORE={counts.get(EventStatus.IGNORE, 0)}")
+            pri_counts = {p: 0 for p in PriorityLabel}
+            for ev in self.activity_events:
+                pri_counts[ev.priority_label] += 1
+            lines.append(f"PRIORITY: PRIMARY={pri_counts.get(PriorityLabel.PRIMARY, 0)}, "
+                         f"STRONG={pri_counts.get(PriorityLabel.STRONG, 0)}, "
+                         f"SUPPORTING={pri_counts.get(PriorityLabel.SUPPORTING, 0)}, "
+                         f"BACKGROUND={pri_counts.get(PriorityLabel.BACKGROUND, 0)}")
+            lines.append(f"FINAL: {len(self.final_events)}")
+        else:
+            lines.append("Нет данных для статистики.")
 
         lines.append("")
         lines.append("EXCLUDED:")
         excluded = []
-        # События, попавшие в background (уже имеют filter_reason)
         for ev in self.background_events:
             excluded.append(f"- {ev.transit_body} → {ev.natal_target}: {ev.filter_reason}")
-        # События, которые не попали в финал, но не background
+        # Также события из foreground, но не попавшие в финал
         for ev in self.ranked_events:
-            if id(ev) not in final_ids:
-                excluded.append(f"- {ev.transit_body} → {ev.natal_target}: Not in top 5 by priority score (score={ev.priority_score:.2f})")
+            if id(ev) not in {id(e) for e in self.final_events}:
+                excluded.append(f"- {ev.transit_body} → {ev.natal_target}: Not in top 7 by priority (score={ev.priority_score:.2f})")
         if not excluded:
             excluded.append("Нет исключённых событий.")
         lines.extend(excluded)
@@ -912,10 +1052,16 @@ class HoroscopeCalculator:
             'validated': len(self.validated_events),
             'dedup': len(self.dedup_events),
             'classified': {
-                'today': sum(1 for e in self.classified_events if e.status == EventStatus.TODAY),
-                'approaching': sum(1 for e in self.classified_events if e.status == EventStatus.APPROACHING),
-                'separating': sum(1 for e in self.classified_events if e.status == EventStatus.SEPARATING),
-                'background': sum(1 for e in self.classified_events if e.status == EventStatus.BACKGROUND),
+                'today': sum(1 for e in self.activity_events if e.activity_status == EventStatus.TODAY),
+                'active': sum(1 for e in self.activity_events if e.activity_status == EventStatus.ACTIVE),
+                'background': sum(1 for e in self.activity_events if e.activity_status == EventStatus.BACKGROUND),
+                'ignore': sum(1 for e in self.activity_events if e.activity_status == EventStatus.IGNORE),
+            },
+            'priority': {
+                'primary': sum(1 for e in self.activity_events if e.priority_label == PriorityLabel.PRIMARY),
+                'strong': sum(1 for e in self.activity_events if e.priority_label == PriorityLabel.STRONG),
+                'supporting': sum(1 for e in self.activity_events if e.priority_label == PriorityLabel.SUPPORTING),
+                'background': sum(1 for e in self.activity_events if e.priority_label == PriorityLabel.BACKGROUND),
             },
             'filtered': len(self.filtered_events),
             'background_events': len(self.background_events),
