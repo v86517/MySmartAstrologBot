@@ -42,7 +42,7 @@ class AstrologyCalculator:
         self._calculated_coords = None      # (lat, lng) – для записи в БД
         self._calculated_utc_str = None     # строка UTC для записи в БД
         self._utc_dt = None                 # datetime (aware UTC) для расчётов
-        self._natal_data = None             # словарь с данными карты (планеты, дома, аспекты)
+        self._natal_data = None             # словарь с данными карты
         self._subject = None                # объект AstrologicalSubject для билдера
 
         self.resolver = PlaceResolver()
@@ -124,10 +124,6 @@ class AstrologyCalculator:
         return utc_dt
 
     def _build_natal_chart(self) -> Dict[str, Any]:
-        """
-        Строит натальную карту с помощью Kerykeion, сохраняет субъект и данные.
-        Возвращает словарь с планетами, домами, аспектами, углами и метаданными.
-        """
         if self._natal_data is not None:
             return self._natal_data
 
@@ -152,13 +148,6 @@ class AstrologyCalculator:
         # Извлекаем данные из модели
         model = subject.model() if callable(subject.model) else subject.model
         data = model.dict() if hasattr(model, 'dict') else model.__dict__
-        logger.info(f"=== SUBJECT DIR: {dir(subject)}")
-        logger.info(f"=== DATA KEYS: {data.keys()}")
-        logger.info(f"=== element_distribution: {data.get('element_distribution')}")
-        logger.info(f"=== quality_distribution: {data.get('quality_distribution')}")
-        logger.info(
-            f"=== lunar_phase: {data.get('lunar_phase') or (hasattr(subject, 'lunar_phase') and subject.lunar_phase)}")
-        logger.info(f"=== houses keys in data: {[k for k in data.keys() if 'house' in k]}")
 
         # --- Планеты ---
         planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',
@@ -256,7 +245,7 @@ class AstrologyCalculator:
             return None
 
         asc = _extract_angle(data.get('ascendant'))
-        mc = _extract_angle(data.get('midheaven'))
+        mc = _extract_angle(data.get('medium_coeli'))
         dsc = _extract_angle(data.get('descendant'))
         ic = _extract_angle(data.get('imum_coeli'))
 
@@ -304,30 +293,50 @@ class AstrologyCalculator:
         logger.info(f"✅ Натальная карта построена: {len(planets)} планет, {len(houses)} домов, {len(aspects)} аспектов")
         return self._natal_data
 
+    def _load_prompt_template(self) -> str:
+        """Загружает шаблон промпта из файла prompts/prompt_astrology.txt"""
+        base = Path(__file__).parent.parent.parent / 'prompts' / 'prompt_astrology.txt'
+        try:
+            with open(base, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            logger.error(f"Шаблон {base} не найден")
+            return ""
+
     def _build_prompt(self) -> str:
         """
-        Формирует промпт для LLM, используя NatalContextBuilder.
-        Возвращает строку с системной инструкцией и натальным контекстом.
+        Формирует промпт для LLM:
+        1. Загружает шаблон из prompts/prompt_astrology.txt
+        2. Вставляет языковую инструкцию
+        3. Вставляет имя пользователя
+        4. Вставляет натальный контекст через {natal_context}
         """
-        self._build_natal_chart()  # гарантирует наличие self._subject
+        self._build_natal_chart()
 
         if not self._subject:
             raise RuntimeError("Subject не создан, невозможно построить контекст")
 
+        # Строим натальный контекст
         builder = NatalContextBuilder(self._subject, lang=self.lang)
         natal_context = builder.build()
 
-        system_prompt = (
-            "Ты — профессиональный астролог. Проведи глубокий анализ натальной карты, используя предоставленные данные.\n\n"
-            "Интерпретируй личность, характер, эмоции, мышление, отношения, карьеру, таланты и зоны роста.\n"
-            "Дай практические советы. Ответ должен быть структурированным, с заголовками и абзацами.\n\n"
-        )
-        if self.lang == 'en':
-            system_prompt += "IMPORTANT: Respond in English only."
-        else:
-            system_prompt += "ВАЖНО: Отвечай только на русском языке."
+        # Загружаем шаблон
+        template = self._load_prompt_template()
+        if not template:
+            return "❌ Шаблон промпта не найден."
 
-        return system_prompt + "\n\n" + natal_context
+        # Языковая инструкция
+        if self.lang == 'en':
+            language_instruction = "IMPORTANT: Respond in English only."
+        else:
+            language_instruction = "ВАЖНО: Отвечай только на русском языке."
+
+        # Подставляем в шаблон
+        prompt = template.replace('{language_instruction}', language_instruction)
+        prompt = prompt.replace('{natal_context}', natal_context)
+        prompt = prompt.replace('{name}', self.name)
+
+        return prompt
 
     async def generate(self) -> str:
         """
@@ -372,10 +381,6 @@ class AstrologyCalculator:
             return f"❌ Ошибка получения ответа: {str(e)}"
 
     def get_basic_parameters(self) -> Dict[str, str]:
-        """
-        Возвращает базовые параметры для отображения в хендлере.
-        Использует данные из карты и user_data.
-        """
         data = self._build_natal_chart()
         loc = data.get('location', {})
         angles = data.get('angles', {})
