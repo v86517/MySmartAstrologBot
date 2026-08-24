@@ -1,8 +1,7 @@
 import logging
 import zoneinfo
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional, List, Tuple, Set
-from pathlib import Path
+from typing import Dict, Any, Optional, List, Tuple
 import math
 
 from kerykeion import AstrologicalSubject
@@ -15,19 +14,17 @@ logger = logging.getLogger(__name__)
 
 class HoroscopeCalculator:
     """
-    Калькулятор гороскопа (день/месяц/год) с корректной астрологической геометрией.
-    Все координаты хранятся в абсолютной долготе (0-360°).
-    Поддерживает скоринг и фильтрацию по значимости.
+    Калькулятор гороскопа с корректной астрологической геометрией.
     """
 
-    # Маппинг знаков → начальная долгота
-    SIGN_START = {
+    # Маппинг знаков → начальная долгота (0-360)
+    SIGN_OFFSET = {
         'Aries': 0, 'Taurus': 30, 'Gemini': 60, 'Cancer': 90,
         'Leo': 120, 'Virgo': 150, 'Libra': 180, 'Scorpio': 210,
         'Sagittarius': 240, 'Capricorn': 270, 'Aquarius': 300, 'Pisces': 330
     }
 
-    # Максимальные орбы для транзитов
+    # Орбы для транзитов
     ORBS = {
         'conjunction': 3.0,
         'opposition': 3.0,
@@ -40,19 +37,18 @@ class HoroscopeCalculator:
     NODE_ORB = 2.0
     CHIRON_ORB = 2.0
 
-    # Группы планет для фильтрации
+    # Группы планет
     GROUP_A = {'Saturn', 'Uranus', 'Neptune', 'Pluto', 'Jupiter'}
     GROUP_B = {'Mars', 'Venus', 'Mercury', 'Sun'}
     GROUP_C = {'Moon'}
 
-    # Веса планет для скоринга
+    # Веса для скоринга
     PLANET_WEIGHT = {
         'Pluto': 10, 'Neptune': 9, 'Uranus': 9, 'Saturn': 8,
         'Jupiter': 7, 'Mars': 6, 'Venus': 5, 'Mercury': 5,
         'Sun': 5, 'Moon': 4
     }
 
-    # Веса натальных объектов для скоринга
     TARGET_WEIGHT = {
         'Sun': 10, 'Moon': 10, 'ASC': 10, 'MC': 9,
         'Mercury': 8, 'Venus': 8, 'Mars': 8,
@@ -60,7 +56,6 @@ class HoroscopeCalculator:
         'Neptune': 5, 'Pluto': 5
     }
 
-    # Веса аспектов
     ASPECT_WEIGHT = {
         'conjunction': 1.0,
         'opposition': 0.95,
@@ -69,15 +64,7 @@ class HoroscopeCalculator:
         'sextile': 0.75
     }
 
-    # Порог для включения быстрых планет в разные прогнозы
     FAST_PLANET_DAY_ORB = 1.0
-    FAST_PLANET_MONTH_ORB = 1.5
-    FAST_PLANET_YEAR_ORB = 0.5
-
-    # Максимальное количество событий для вывода
-    MAX_EVENTS_DAY = 7
-    MAX_EVENTS_MONTH = 15
-    MAX_EVENTS_YEAR = 20
 
     def __init__(self, user_data: Dict[str, Any], lang: str = 'ru',
                  telegram_id: Optional[int] = None,
@@ -97,82 +84,82 @@ class HoroscopeCalculator:
         self.natal_data = self.astro_calc._build_natal_chart()
         self.subject = self.astro_calc._subject
 
-        # Сохраняем натальные данные
         self.natal_planets = self.natal_data['planets']
         self.natal_angles = self.natal_data['angles']
         self.natal_houses = self.natal_data['houses']
 
         # Строим список натальных целей с абсолютными долготами
-        self.natal_targets = []
+        self.natal_targets = self._build_natal_targets()
+
+        # Кеш транзитных позиций
+        self._transit_cache = {}
+
+    def _build_natal_targets(self) -> List[Dict]:
+        """Строит список натальных целей с абсолютными долготами."""
+        targets = []
+
         # Основные планеты
         main_names = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                       'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'}
         for p in self.natal_planets:
             if p['name'] in main_names:
-                lon_abs = self._sign_to_abs(p['sign'], p['degree'])
-                self.natal_targets.append({
+                targets.append({
                     'name': p['name'],
-                    'longitude': lon_abs,
+                    'longitude': self._sign_to_abs(p['sign'], p['degree']),
                     'house': p['house'],
                     'is_angle': False,
                     'extra_type': None,
                     'weight': self.TARGET_WEIGHT.get(p['name'], 5)
                 })
+
         # Углы
         angle_names = ['ASC', 'MC', 'DSC', 'IC']
         for angle in angle_names:
             if angle in self.natal_angles and self.natal_angles[angle] is not None:
                 a = self.natal_angles[angle]
-                lon_abs = self._sign_to_abs(a['sign'], a['position'])
-                self.natal_targets.append({
+                targets.append({
                     'name': angle,
-                    'longitude': lon_abs,
+                    'longitude': self._sign_to_abs(a['sign'], a['position']),
                     'house': None,
                     'is_angle': True,
                     'extra_type': 'angle',
                     'weight': self.TARGET_WEIGHT.get(angle, 9)
                 })
-        # Дополнительные точки (узлы, Хирон, Лилит)
+
+        # Дополнительные точки
         extra_names = ['True_North_Lunar_Node', 'True_South_Lunar_Node', 'Chiron', 'True_Lilith']
         for p in self.natal_planets:
             if p['name'] in extra_names:
-                lon_abs = self._sign_to_abs(p['sign'], p['degree'])
                 extra_type = 'node' if 'Node' in p['name'] else 'chiron' if p['name'] == 'Chiron' else 'lilith'
-                self.natal_targets.append({
+                targets.append({
                     'name': p['name'],
-                    'longitude': lon_abs,
+                    'longitude': self._sign_to_abs(p['sign'], p['degree']),
                     'house': p.get('house'),
                     'is_angle': False,
                     'extra_type': extra_type,
-                    'weight': 3  # меньший вес
+                    'weight': 3
                 })
 
-        # Кеш транзитных позиций
-        self._transit_cache = {}  # date_str -> dict planet -> abs_longitude
+        return targets
 
-    # ---------- УТИЛИТЫ ----------
+    # ========== ГЕОМЕТРИЯ ==========
 
     def _sign_to_abs(self, sign: str, degree: float) -> float:
-        """Преобразует знак и градус в абсолютную долготу (0-360)."""
-        start = self.SIGN_START.get(sign, 0)
-        # Если degree >= 30, значит это уже абсолютное значение (может быть при некорректных данных)
-        # Нормализуем
+        """Преобразует знак + градус в абсолютную долготу (0-360)."""
+        start = self.SIGN_OFFSET.get(sign, 0)
         if degree >= 30:
             return degree % 360
         return start + degree
 
-    def _angle_between(self, lon1: float, lon2: float) -> float:
-        """Возвращает минимальное угловое расстояние между двумя долготами."""
+    def _angular_distance(self, lon1: float, lon2: float) -> float:
+        """Возвращает минимальное угловое расстояние (0-180)."""
         diff = abs(lon1 - lon2) % 360
         if diff > 180:
             diff = 360 - diff
         return diff
 
-    def _aspect_info(self, angle: float) -> Tuple[str, float]:
-        """
-        Определяет тип аспекта и орб по угловому расстоянию.
-        Возвращает (aspect_type, orb).
-        """
+    def _aspect_info(self, angle: float) -> Tuple[Optional[str], float]:
+        """Определяет ближайший аспект и орб."""
         targets = {
             'conjunction': 0,
             'opposition': 180,
@@ -182,15 +169,15 @@ class HoroscopeCalculator:
         }
         best_aspect = None
         best_orb = 360.0
-        for aspect, target in targets.items():
-            orb = abs(angle - target)
+        for aspect, target_angle in targets.items():
+            orb = abs(angle - target_angle)
             if orb < best_orb:
                 best_orb = orb
                 best_aspect = aspect
         return best_aspect, best_orb
 
     def _max_orb(self, aspect: str, target: Dict, planet: str) -> float:
-        """Возвращает максимальный орб для данного аспекта, цели и планеты."""
+        """Возвращает максимальный орб для данного аспекта."""
         if target['is_angle']:
             return self.ANGLE_ORB
         if target['extra_type'] == 'node':
@@ -201,7 +188,7 @@ class HoroscopeCalculator:
             return self.MOON_ORB
         return self.ORBS.get(aspect, 3.0)
 
-    # ---------- ПОЛУЧЕНИЕ ТРАНЗИТНЫХ ПОЗИЦИЙ ----------
+    # ========== ТРАНЗИТНЫЕ ПОЗИЦИИ ==========
 
     def _get_transit_subject(self, date: datetime) -> AstrologicalSubject:
         lat = self.natal_data['location']['lat']
@@ -219,7 +206,6 @@ class HoroscopeCalculator:
         )
 
     def _get_transit_positions(self, date: datetime) -> Dict[str, float]:
-        """Возвращает абсолютные долготы транзитных планет на указанную дату."""
         key = date.strftime('%Y-%m-%d')
         if key in self._transit_cache:
             return self._transit_cache[key]
@@ -250,7 +236,6 @@ class HoroscopeCalculator:
         return positions
 
     def _get_transit_house(self, date: datetime, planet: str) -> int:
-        """Определяет натальный дом транзитной планеты."""
         positions = self._get_transit_positions(date)
         if planet not in positions or not self.natal_houses:
             return 0
@@ -268,59 +253,43 @@ class HoroscopeCalculator:
                     return i + 1
         return 0
 
-    def _is_retrograde(self, date: datetime, planet: str) -> bool:
-        """Определяет ретроградность транзитной планеты (упрощённо)."""
-        # В реальности нужно проверять скорость, но для простоты можно получить из данных
-        # Для точности можно вычислять по изменению позиции на соседних днях.
-        # Пока оставим заглушку.
-        return False
-
-    # ---------- СКАНИРОВАНИЕ ПЕРИОДА ----------
+    # ========== СКАНИРОВАНИЕ ПЕРИОДА ==========
 
     def _scan_period(self, start: datetime, end: datetime) -> List[Dict]:
-        """
-        Сканирует период с шагом 1 день и собирает все транзитные аспекты.
-        Возвращает список событий с полной информацией.
-        """
         events = []
-        # Соберём позиции для всех дней
         days = []
         current = start
         while current <= end:
             positions = self._get_transit_positions(current)
-            days.append({
-                'date': current,
-                'positions': positions
-            })
+            days.append({'date': current, 'positions': positions})
             current += timedelta(days=1)
 
         if len(days) < 2:
             return events
 
-        # Для каждой пары транзитная планета × натальная цель
         for target in self.natal_targets:
             t_lon = target['longitude']
             for planet in ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
                            'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']:
-                # Соберём временной ряд орбов для этого аспекта
                 orb_series = []
                 for day in days:
                     if planet in day['positions']:
                         p_lon = day['positions'][planet]
-                        angle = self._angle_between(p_lon, t_lon)
+                        angle = self._angular_distance(p_lon, t_lon)
                         aspect, orb = self._aspect_info(angle)
-                        orb_series.append({
-                            'date': day['date'],
-                            'angle': angle,
-                            'aspect': aspect,
-                            'orb': orb,
-                            'transit_lon': p_lon
-                        })
+                        if aspect is not None:
+                            orb_series.append({
+                                'date': day['date'],
+                                'angle': angle,
+                                'aspect': aspect,
+                                'orb': orb,
+                                'transit_lon': p_lon
+                            })
 
                 if not orb_series:
                     continue
 
-                # Разобьём на сегменты по типу аспекта
+                # Разбиваем на сегменты по типу аспекта
                 segments = []
                 current_seg = []
                 last_aspect = None
@@ -344,7 +313,7 @@ class HoroscopeCalculator:
                     aspect_type = seg[0]['aspect']
                     max_orb = self._max_orb(aspect_type, target, planet)
 
-                    # Находим подпоследовательности, где орб <= max_orb
+                    # Находим активные участки (орб <= max_orb)
                     active_segments = []
                     current_active = []
                     for item in seg:
@@ -369,13 +338,12 @@ class HoroscopeCalculator:
                     for act in active_segments:
                         if len(act) < 2:
                             continue
-                        # Находим точку с минимальным орбом
                         min_item = min(act, key=lambda x: x['orb'])
                         exact_date = min_item['date']
                         entry_date = act[0]['date']
                         exit_date = act[-1]['date']
 
-                        # Определяем фазу
+                        # Определяем фазу по изменению орба
                         phase = 'applying'
                         if len(act) >= 3:
                             idx = act.index(min_item)
@@ -409,7 +377,6 @@ class HoroscopeCalculator:
                             'natal_house': target['house'],
                             'is_angle': target['is_angle'],
                             'extra_type': target['extra_type'],
-                            'retrograde': self._is_retrograde(exact_date, planet),
                             'target_weight': target['weight'],
                             'planet_weight': self.PLANET_WEIGHT.get(planet, 5),
                             'aspect_weight': self.ASPECT_WEIGHT.get(aspect_type, 0.7),
@@ -417,145 +384,55 @@ class HoroscopeCalculator:
 
         return events
 
-    # ---------- СКОРИНГ И ФИЛЬТРАЦИЯ ----------
+    # ========== СКОРИНГ И ФИЛЬТРАЦИЯ ==========
 
     def _score_event(self, ev: Dict, target_date: datetime) -> float:
-        """Вычисляет score для события."""
-        # Базовая значимость аспекта
         base_score = ev['planet_weight'] * ev['aspect_weight'] * ev['target_weight'] / 100
-
-        # Учитываем орб: чем меньше орб, тем выше коэффициент
         orb_factor = max(0.2, 1 - ev['orb_min'] / 5.0)
-
-        # Учитываем фазу: сходящийся важнее расходящегося
         phase_factor = 1.2 if ev['phase'] == 'applying' else 0.9
-
-        # Учитываем, активен ли сегодня (для дневного прогноза)
-        is_active_today = ev['entry_date'] <= target_date <= ev['exit_date']
+        is_active = ev['entry_date'] <= target_date <= ev['exit_date']
         active_factor = 1.0
-        if is_active_today:
-            # Если точная дата сегодня, бонус
-            if ev['exact_date'] == target_date:
-                active_factor = 1.5
-            else:
-                active_factor = 1.2
-
-        # Если аспект к углу – бонус
+        if is_active:
+            active_factor = 1.5 if ev['exact_date'] == target_date else 1.2
         angle_factor = 1.2 if ev['is_angle'] else 1.0
+        return base_score * orb_factor * phase_factor * active_factor * angle_factor
 
-        score = base_score * orb_factor * phase_factor * active_factor * angle_factor
-        return score
+    def _filter_events(self, events: List[Dict], target_date: datetime) -> List[Dict]:
+        filtered = []
+        for ev in events:
+            if not (ev['entry_date'] <= target_date <= ev['exit_date']):
+                continue
+            planet = ev['transit_planet']
+            if planet in self.GROUP_A:
+                filtered.append(ev)
+            elif planet in self.GROUP_B:
+                if ev['orb_min'] <= self.FAST_PLANET_DAY_ORB or ev['natal_target'] in ['Sun', 'Moon', 'ASC', 'MC']:
+                    filtered.append(ev)
+            elif planet in self.GROUP_C:
+                if ev['orb_min'] <= 0.5 and ev['natal_target'] in ['Sun', 'Moon', 'ASC', 'MC']:
+                    filtered.append(ev)
 
-    def _filter_events(self, events: List[Dict], period_type: str, target_date: datetime) -> List[Dict]:
-        """
-        Фильтрует события по группам и скорингу.
-        Возвращает отсортированный список с оценкой значимости.
-        """
-        # Сначала оставляем только те, которые попадают в нужный период
-        if period_type == 'today':
-            filtered = []
-            for ev in events:
-                # Событие должно быть активным сегодня
-                if not (ev['entry_date'] <= target_date <= ev['exit_date']):
-                    continue
-                # Проверяем группу
-                planet = ev['transit_planet']
-                if planet in self.GROUP_A:
-                    filtered.append(ev)
-                elif planet in self.GROUP_B:
-                    if ev['orb_min'] <= self.FAST_PLANET_DAY_ORB or ev['natal_target'] in ['Sun', 'Moon', 'ASC', 'MC']:
-                        filtered.append(ev)
-                elif planet in self.GROUP_C:
-                    if ev['orb_min'] <= 0.5 and ev['natal_target'] in ['Sun', 'Moon', 'ASC', 'MC']:
-                        filtered.append(ev)
-        elif period_type == 'month':
-            filtered = []
-            for ev in events:
-                planet = ev['transit_planet']
-                if planet in self.GROUP_A:
-                    filtered.append(ev)
-                elif planet in self.GROUP_B:
-                    if ev['orb_min'] <= self.FAST_PLANET_MONTH_ORB:
-                        filtered.append(ev)
-                # Луну не включаем
-        else:  # year
-            filtered = []
-            for ev in events:
-                planet = ev['transit_planet']
-                if planet in self.GROUP_A:
-                    filtered.append(ev)
-                elif planet in self.GROUP_B:
-                    if ev['orb_min'] <= self.FAST_PLANET_YEAR_ORB and ev['natal_target'] in ['Sun', 'Moon', 'ASC', 'MC']:
-                        filtered.append(ev)
-
-        # Вычисляем score для каждого события
         for ev in filtered:
             ev['score'] = self._score_event(ev, target_date)
 
-        # Сортируем по убыванию score
         filtered.sort(key=lambda x: x['score'], reverse=True)
+        return filtered[:7]
 
-        # Ограничиваем количество
-        if period_type == 'today':
-            max_events = self.MAX_EVENTS_DAY
-        elif period_type == 'month':
-            max_events = self.MAX_EVENTS_MONTH
-        else:
-            max_events = self.MAX_EVENTS_YEAR
+    # ========== ПОСТРОЕНИЕ КОНТЕКСТА ==========
 
-        return filtered[:max_events]
-
-    # ---------- ГРУППИРОВКА ОСЕЙ ----------
-
-    def _group_axis_events(self, events: List[Dict]) -> List[Dict]:
-        """
-        Группирует события для осей ASC/DSC и MC/IC.
-        Возвращает список событий, где для осей создаётся одно событие с пометкой 'axis'.
-        """
-        # Реализуем позже, если потребуется
-        # Пока просто возвращаем как есть, но в выводе можно будет объединить
-        return events
-
-    # ---------- ПОСТРОЕНИЕ КОНТЕКСТА ----------
-
-    def build_context(self, period: str = 'today',
-                      target_date: Optional[datetime] = None) -> str:
+    def build_context(self, target_date: Optional[datetime] = None) -> str:
         if target_date is None:
             target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        if period == 'today':
-            start = target_date - timedelta(days=1)
-            end = target_date + timedelta(days=1)
-        elif period == 'month':
-            start = target_date.replace(day=1)
-            next_month = start + timedelta(days=32)
-            end = next_month.replace(day=1) - timedelta(seconds=1)
-        else:  # year
-            start = target_date.replace(month=1, day=1)
-            end = target_date.replace(month=12, day=31)
+        start = target_date - timedelta(days=1)
+        end = target_date + timedelta(days=1)
 
-        # Сканируем
         all_events = self._scan_period(start, end)
+        filtered = self._filter_events(all_events, target_date)
 
-        # Фильтруем и сортируем
-        filtered = self._filter_events(all_events, period, target_date)
-
-        # Группируем оси
-        filtered = self._group_axis_events(filtered)
-
-        # Формируем текст
         lines = []
-
-        # Заголовок
-        if period == 'today':
-            lines.append(f"### Прогноз на день")
-            lines.append(f"Дата: {target_date.strftime('%d.%m.%Y')}")
-        elif period == 'month':
-            lines.append(f"### Прогноз на месяц")
-            lines.append(f"Период: {target_date.strftime('%B %Y')}")
-        else:
-            lines.append(f"### Прогноз на год")
-            lines.append(f"Год: {target_date.year}")
+        lines.append(f"### Прогноз на день")
+        lines.append(f"Дата: {target_date.strftime('%d.%m.%Y')}")
         lines.append("")
 
         # Натальные данные
@@ -582,11 +459,10 @@ class HoroscopeCalculator:
                 lines.append(line)
         lines.append("")
 
-        # Транзиты
         if not filtered:
             lines.append("### Основные транзиты")
             lines.append("")
-            lines.append("Нет значимых транзитов в указанный период.")
+            lines.append("Нет значимых транзитов.")
         else:
             lines.append("### Основные транзиты")
             lines.append("")
@@ -599,9 +475,13 @@ class HoroscopeCalculator:
                 transit_house = ev['transit_house']
                 natal_house = ev['natal_house']
 
-                # Переводим названия
                 aspect_name = NatalContextBuilder.ASPECT_MAP.get(aspect, aspect)
                 phase_text = "сходящийся" if phase == 'applying' else "расходящийся" if phase == 'separating' else ""
+
+                # Проверка на дублирование ASC/DSC
+                if ev['is_angle'] and target in ['ASC', 'DSC']:
+                    # Мы не должны дублировать ось
+                    pass
 
                 line = f"{planet} транзитный — {aspect_name} — натальное {target}"
                 if phase_text:
@@ -615,22 +495,17 @@ class HoroscopeCalculator:
                 if natal_house:
                     lines.append(f"Натальный {target} находится в {natal_house} доме")
 
-                # Проверяем, активен ли сегодня (для дневного прогноза)
-                if period == 'today':
-                    is_active_today = ev['entry_date'] <= target_date <= ev['exit_date']
-                    if is_active_today and ev['exact_date'] == target_date:
-                        lines.append(f"Пик влияния: сегодня")
-                    elif is_active_today:
-                        days_to_exact = (ev['exact_date'] - target_date).days
-                        if days_to_exact >= 0:
-                            lines.append(f"Пик влияния: через {days_to_exact} дн.")
-                        else:
-                            lines.append(f"Пик влияния: был {abs(days_to_exact)} дн. назад")
-                else:
-                    if ev['entry_date'] and ev['exit_date']:
-                        lines.append(f"Период: {ev['entry_date'].strftime('%d.%m.%Y')} – {ev['exit_date'].strftime('%d.%m.%Y')}")
-                    if ev['exact_date']:
-                        lines.append(f"Точная дата: {ev['exact_date'].strftime('%d.%m.%Y')}")
+                is_active = ev['entry_date'] <= target_date <= ev['exit_date']
+                if is_active and ev['exact_date'] == target_date:
+                    lines.append("Пик влияния: сегодня")
+                elif is_active:
+                    days_to_exact = (ev['exact_date'] - target_date).days
+                    if days_to_exact > 0:
+                        lines.append(f"Пик влияния: через {days_to_exact} дн.")
+                    elif days_to_exact < 0:
+                        lines.append(f"Пик влияния: был {abs(days_to_exact)} дн. назад")
+                    else:
+                        lines.append("Пик влияния: сегодня")
                 lines.append("")
 
         return "\n".join(lines)
