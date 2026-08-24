@@ -96,18 +96,18 @@ class HoroscopeCalculator:
         self.natal_angles = self.natal_data['angles']
         self.natal_houses = self.natal_data['houses']
 
+        # Включаем отладку (можно отключить, установив False)
+        self.debug = True
+
         # Строим список натальных целей
         self.natal_targets = self._build_natal_targets()
 
         # Кеш транзитных позиций
         self._transit_cache = {}
 
-        # Результаты расчёта (для отладки)
+        # Результаты расчёта
         self.all_transits = []
         self.filtered_transits = []
-
-        # Включаем подробное логирование для отладки
-        self.debug = True
 
     def _build_natal_targets(self) -> List[Dict]:
         """Строит список натальных целей с абсолютными долготами."""
@@ -127,7 +127,7 @@ class HoroscopeCalculator:
                     'weight': self.TARGET_WEIGHT.get(p['name'], 5)
                 })
 
-        # Углы (поддерживаются сокращённые названия)
+        # Углы
         angle_names = ['ASC', 'MC', 'DSC', 'IC']
         for angle in angle_names:
             if angle in self.natal_angles and self.natal_angles[angle] is not None:
@@ -379,7 +379,7 @@ class HoroscopeCalculator:
                         continue
 
                     # Логирование для отладки (особенно для углов)
-                    if target['is_angle']:
+                    if target['is_angle'] and self.debug:
                         logger.info(
                             f"🔍 DEBUG: {planet} → {target['name']} | "
                             f"transit_lon={forecast_pos:.4f}, target_lon={t_lon:.4f}, "
