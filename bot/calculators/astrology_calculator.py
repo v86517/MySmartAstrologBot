@@ -5,8 +5,10 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
 
-from kerykeion import AstrologicalSubject
-
+from kerykeion import (
+    AstrologicalSubject,
+    AspectsFactory,
+)
 from bot.utils.place_resolver import PlaceResolver
 from bot.db import save_user_coords
 from bot.services.gemini import GeminiService
@@ -207,10 +209,21 @@ class AstrologyCalculator:
         # --- Аспекты ---
         aspects = []
         try:
-            from kerykeion import AspectsFactory
-            aspects_data = AspectsFactory.single_chart_aspects(subject)
-            if aspects_data and hasattr(aspects_data, 'aspects') and aspects_data.aspects:
-                for a in aspects_data.aspects:
+            # Получаем модель субъекта
+            subject_model = (
+                subject.model()
+                if callable(subject.model)
+                else subject.model
+            )
+
+            # Вызываем фабрику с моделью
+            aspects_result = AspectsFactory.single_chart_aspects(
+                subject_model
+            )
+
+            # Извлекаем список аспектов
+            if hasattr(aspects_result, 'aspects'):
+                for a in aspects_result.aspects:
                     aspects.append({
                         'p1': getattr(a, 'p1_name', 'unknown'),
                         'p2': getattr(a, 'p2_name', 'unknown'),
@@ -218,22 +231,12 @@ class AstrologyCalculator:
                         'orb': getattr(a, 'orbit', getattr(a, 'orb', 0.0)),
                         'movement': getattr(a, 'aspect_movement', None),
                     })
+
+            logger.info("✅ AspectsFactory: получено %d натальных аспектов", len(aspects))
+
         except Exception as e:
-            logger.warning(f"⚠️ AspectsFactory не сработал: {e}, пробуем NatalAspects")
-            try:
-                from kerykeion import NatalAspects
-                na = NatalAspects(subject)
-                if hasattr(na, 'relevant_aspects'):
-                    for a in na.relevant_aspects:
-                        aspects.append({
-                            'p1': getattr(a, 'p1_name', 'unknown'),
-                            'p2': getattr(a, 'p2_name', 'unknown'),
-                            'aspect': getattr(a, 'aspect', 'unknown'),
-                            'orb': getattr(a, 'orbit', getattr(a, 'orb', 0.0)),
-                            'movement': getattr(a, 'aspect_movement', None),
-                        })
-            except Exception as e2:
-                logger.warning(f"⚠️ NatalAspects тоже не сработал: {e2}")
+            logger.exception("❌ Ошибка AspectsFactory.single_chart_aspects()")
+            raise  # падаем, чтобы не использовать устаревший NatalAspects
 
         # --- Углы ---
         def _extract_angle(obj):

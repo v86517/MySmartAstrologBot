@@ -181,7 +181,6 @@ def get_transit_aspects(
     """
     Получение аспектов между натальной и транзитной картой через Kerykeion 5.12.9.
     """
-    # Извлекаем модели (AstrologicalSubjectModel)
     natal_model = (
         natal_subject.model()
         if callable(natal_subject.model)
@@ -198,10 +197,9 @@ def get_transit_aspects(
         transit_model,
         first_subject_is_fixed=True,
         second_subject_is_fixed=False,
-        active_aspects=ACTIVE_ASPECTS,   # если вы используете настройки
+        active_aspects=ACTIVE_ASPECTS,   # если используете
     )
 
-    # Логируем количество и первые 5 аспектов для проверки
     logger.info("Kerykeion transit aspects: %d", len(result.aspects))
     for aspect in result.aspects[:5]:
         logger.info(
