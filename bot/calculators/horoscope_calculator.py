@@ -407,6 +407,25 @@ class HoroscopeCalculator:
             if not natal_data or not transit_data:
                 continue
 
+            # ---- НОВАЯ ЛОГИКА: вычисляем phase, activity, priority ----
+            phase = self._map_aspect_phase(asp)
+
+            activity = self._calculate_activity(
+                transit_body=transit_point,
+                natal_target=natal_point,
+                aspect_name=aspect_type,
+                orb=orb,
+                phase=phase,
+            )
+
+            priority_score = self._calculate_priority(
+                transit_body=transit_point,
+                natal_target=natal_point,
+                aspect_name=aspect_type,
+                orb=orb,
+                phase=phase,
+            )
+
             # Создаём событие
             event = TransitEvent(
                 transit_body=transit_point,
@@ -415,17 +434,19 @@ class HoroscopeCalculator:
                 natal_target_longitude=natal_data.get('abs_pos', 0.0) % 360.0,
                 angular_distance=aspect_degrees if aspect_degrees is not None else 0.0,
                 aspect=aspect_type,
-                aspect_angle=0.0,  # можно вычислить из ASPECT_ANGLES, но не критично
+                aspect_angle=0.0,
                 orb=orb,
                 transit_speed=transit_data.get('speed', 0.0),
                 is_retrograde=transit_data.get('retrograde', False),
                 transit_house=transit_data.get('house', 0),
                 natal_target_house=natal_data.get('house', 0),
-                phase='unknown'
+                phase=phase,                     # теперь не unknown
+                activity=activity,               # FOREGROUND/BACKGROUND
+                priority_score=priority_score,   # ненулевое значение
             )
             events.append(event)
 
-        # Диагностика первых 10 событий перед фильтрацией
+        # Диагностика первых 10 событий
         for i, event in enumerate(events[:10]):
             logger.info(
                 "[EVENT %d] transit=%s natal=%s aspect=%s orb=%.3f phase=%s activity=%s priority=%.3f transit_house=%s natal_house=%s",
@@ -709,3 +730,114 @@ class HoroscopeCalculator:
             'all_relevant': len(self.all_relevant),
             'final': len(self.final_events),
         }
+
+    @staticmethod
+    def _map_aspect_phase(aspect) -> str:
+        """
+        Преобразует Kerykeion aspect_movement
+        в внутреннее значение phase.
+        """
+        movement = getattr(aspect, "aspect_movement", None)
+        if not movement:
+            return "unknown"
+        movement = str(movement).strip().lower()
+        if movement == "applying":
+            return "applying"
+        if movement == "separating":
+            return "separating"
+        if movement in {"static", "stationary"}:
+            return "static"
+        return "unknown"
+
+    @staticmethod
+    def _calculate_activity(
+        transit_body: str,
+        natal_target: str,
+        aspect_name: str,
+        orb: float,
+        phase: str,
+    ) -> str:
+        """
+        Определяет, является ли транзит значимым для дневного прогноза.
+        """
+        transit_body = str(transit_body).lower()
+        natal_target = str(natal_target).lower()
+        aspect_name = str(aspect_name).lower()
+
+        MAJOR_ASPECTS = {"conjunction", "opposition", "square", "trine", "sextile"}
+        SLOW_PLANETS = {"jupiter", "saturn", "uranus", "neptune", "pluto"}
+        IMPORTANT_POINTS = {"ascendant", "medium_coeli", "descendant", "imum_coeli"}
+
+        if aspect_name not in MAJOR_ASPECTS:
+            return "BACKGROUND"
+        if orb > 3.0:
+            return "BACKGROUND"
+        if transit_body in SLOW_PLANETS:
+            return "FOREGROUND"
+        if natal_target in IMPORTANT_POINTS:
+            return "FOREGROUND"
+        if orb <= 1.0:
+            return "FOREGROUND"
+        if phase == "applying" and orb <= 2.0:
+            return "FOREGROUND"
+        return "BACKGROUND"
+
+    @staticmethod
+    def _calculate_priority(
+        transit_body: str,
+        natal_target: str,
+        aspect_name: str,
+        orb: float,
+        phase: str,
+    ) -> float:
+        """
+        Вычисляет приоритет события.
+        """
+        transit_body = str(transit_body).lower()
+        natal_target = str(natal_target).lower()
+        aspect_name = str(aspect_name).lower()
+
+        score = 0.0
+
+        aspect_scores = {
+            "conjunction": 4.0,
+            "opposition": 4.0,
+            "square": 3.5,
+            "trine": 3.0,
+            "sextile": 2.0,
+        }
+        score += aspect_scores.get(aspect_name, 0.0)
+
+        if orb <= 0.1:
+            score += 5.0
+        elif orb <= 0.5:
+            score += 4.0
+        elif orb <= 1.0:
+            score += 3.0
+        elif orb <= 2.0:
+            score += 2.0
+        elif orb <= 3.0:
+            score += 1.0
+
+        slow_scores = {
+            "pluto": 4.0,
+            "neptune": 3.5,
+            "uranus": 3.5,
+            "saturn": 3.0,
+            "jupiter": 2.5,
+        }
+        score += slow_scores.get(transit_body, 0.0)
+
+        IMPORTANT_POINTS = {"ascendant", "medium_coeli", "descendant", "imum_coeli"}
+        if natal_target in IMPORTANT_POINTS:
+            score += 4.0
+
+        if natal_target in {"sun", "moon", "mercury", "venus", "mars"}:
+            score += 2.0
+
+        if phase == "applying":
+            score += 1.5
+        elif phase == "separating":
+            score += 0.5
+
+        return round(score, 3)
