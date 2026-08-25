@@ -181,6 +181,8 @@ async def confirm_horoscope(callback: CallbackQuery):
 
         # 3. Строим контекст
         context = calc.build_context(period=period, target_date=target_date)
+        qa_report = calc.get_qa_report()
+        logger.info("=== QA REPORT ===\n%s", qa_report)
 
         # 4. Загружаем шаблон промпта
         template = await load_prompt_template('prompt_horoscope.txt')
