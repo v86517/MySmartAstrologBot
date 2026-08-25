@@ -355,6 +355,7 @@ class HoroscopeCalculator:
     def _calculate_raw_events(self, forecast_date: datetime) -> List[TransitEvent]:
         """
         Этап 1: получение транзитных аспектов через AspectsFactory.
+        Теперь с нормализацией углов и фазы.
         """
         transit_subject = self._get_transit_subject(forecast_date)
         raw_aspects = get_transit_aspects(self.natal_subject, transit_subject)
@@ -372,25 +373,25 @@ class HoroscopeCalculator:
 
             # Идентифицируем натальную и транзитную планеты
             if p1_owner == natal_name and p2_owner == transit_name:
-                natal_point, transit_point = p1, p2
+                natal_point_raw, transit_point = p1, p2
             elif p2_owner == natal_name and p1_owner == transit_name:
-                natal_point, transit_point = p2, p1
+                natal_point_raw, transit_point = p2, p1
             else:
                 # Fallback: если owner не задан, определяем по словарю
                 if p1 in NATAL_TARGETS and p2 in TRANSIT_PLANETS:
-                    natal_point, transit_point = p1, p2
+                    natal_point_raw, transit_point = p1, p2
                 elif p2 in NATAL_TARGETS and p1 in TRANSIT_PLANETS:
-                    natal_point, transit_point = p2, p1
+                    natal_point_raw, transit_point = p2, p1
                 else:
                     continue
 
             # Проверяем, что цель допустима
-            if natal_point not in NATAL_TARGETS or transit_point not in TRANSIT_PLANETS:
+            if natal_point_raw not in NATAL_TARGETS or transit_point not in TRANSIT_PLANETS:
                 continue
 
             # Извлекаем аспект
-            aspect_type = normalize_name(get_attr_safe(asp, 'aspect'))
-            if aspect_type not in ASPECT_WEIGHT:
+            aspect_type_raw = normalize_name(get_attr_safe(asp, 'aspect'))
+            if aspect_type_raw not in ASPECT_WEIGHT:
                 continue
 
             orb = to_float(get_attr_safe(asp, 'orbit'))
@@ -400,6 +401,11 @@ class HoroscopeCalculator:
             aspect_degrees = to_float(get_attr_safe(asp, 'aspect_degrees'))
             movement = str(get_attr_safe(asp, 'aspect_movement', ''))
 
+            # ---- НОРМАЛИЗАЦИЯ УГЛОВ ----
+            natal_point, aspect_type = self.normalize_angle_target(
+                natal_point_raw, aspect_type_raw
+            )
+
             # Получаем данные планет
             natal_data = self.natal_planets.get(natal_point) or self.natal_angles.get(natal_point)
             transit_data = extract_point_dict(transit_subject, transit_point)
@@ -407,9 +413,10 @@ class HoroscopeCalculator:
             if not natal_data or not transit_data:
                 continue
 
-            # ---- НОВАЯ ЛОГИКА: вычисляем phase, activity, priority ----
-            phase = self._map_aspect_phase(asp)
+            # ---- НОРМАЛИЗАЦИЯ ФАЗЫ ----
+            phase = self.normalize_phase(movement)
 
+            # Вычисляем activity и priority (на основе нормализованных данных)
             activity = self._calculate_activity(
                 transit_body=transit_point,
                 natal_target=natal_point,
@@ -440,9 +447,9 @@ class HoroscopeCalculator:
                 is_retrograde=transit_data.get('retrograde', False),
                 transit_house=transit_data.get('house', 0),
                 natal_target_house=natal_data.get('house', 0),
-                phase=phase,                     # теперь не unknown
-                activity=activity,               # FOREGROUND/BACKGROUND
-                priority_score=priority_score,   # ненулевое значение
+                phase=phase,
+                activity=activity,
+                priority_score=priority_score,
             )
             events.append(event)
 
@@ -469,15 +476,12 @@ class HoroscopeCalculator:
     def _apply_phase_and_peak(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
         """
         Этап 2: определение фазы и точных дат (заглушка).
-        Пока оставляем как есть — ничего не перезаписывает, кроме phase.
+        НЕ перезаписываем phase, оставляем из Kerykeion.
         """
         for ev in events:
-            # Пока оставляем заглушку, но НЕ трогаем activity и priority_score
-            ev.phase = 'unknown'
-            ev.previous_exact = None
-            ev.next_exact = None
-            ev.nearest_exact = None
-            ev.days_to_nearest = 0.0
+            # Только если phase ещё unknown (не из Kerykeion) – но сейчас он уже заполнен
+            # Оставляем как есть, ничего не делаем.
+            pass
 
         self.phase_events = events
         return events
@@ -490,13 +494,12 @@ class HoroscopeCalculator:
     def _deduplicate_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
         """
         Дедупликация без создания новых объектов.
-        Сохраняет все поля исходного события.
+        Ключ: transit_body + natal_target + aspect (уже нормализованные).
         """
         seen = set()
         result = []
 
         for event in events:
-            # Ключ дедупликации (можно расширить, если нужно)
             key = (
                 str(getattr(event, "transit_body", "")).lower(),
                 str(getattr(event, "natal_target", "")).lower(),
@@ -507,7 +510,7 @@ class HoroscopeCalculator:
                 continue
 
             seen.add(key)
-            result.append(event)  # ← важно: добавляем сам event, а не новый объект
+            result.append(event)
 
         logger.info("[DEDUP] %d from %d", len(result), len(events))
         self.dedup_events = result
@@ -579,16 +582,11 @@ class HoroscopeCalculator:
         return sorted_events
 
     def _build_final(self, events: List[TransitEvent], max_display: int = 12) -> List[TransitEvent]:
-        """
-        Этап 8: выбор топ-N событий для финального вывода.
-        Сначала сортируем по priority_score, затем берём первые max_display.
-        """
         sorted_events = sorted(events, key=lambda x: x.priority_score, reverse=True)
         final = sorted_events[:max_display]
-
         logger.info(f"[FINAL] {len(final)} events (max_display={max_display})")
         self.final_events = final
-        self.all_relevant = events  # сохраняем все релевантные для отладки
+        self.all_relevant = events
         return final
 
     # ------------------- ПУБЛИЧНЫЙ МЕТОД -------------------
@@ -599,27 +597,12 @@ class HoroscopeCalculator:
         if target_date is None:
             target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # 1. Создаём события с корректными activity и priority_score
         raw = self._calculate_raw_events(target_date)
-
-        # 2. Фаза (заглушка — не трогает activity/priority)
-        phase_events = self._apply_phase_and_peak(raw, target_date)
-
-        # 3. Дома (не трогает activity/priority)
+        phase_events = self._apply_phase_and_peak(raw, target_date)  # теперь не перезаписывает phase
         house_events = self._calculate_houses(phase_events)
-
-        # 4. Дедупликация (сохраняет исходные объекты)
         dedup = self._deduplicate_events(house_events)
-
-        # 5. УБРАНО: self._classify_activity_and_priority — он перезаписывает данные
-
-        # 6. Фильтрация по activity (теперь работает с правильными значениями)
         foreground, background = self._filter_events(dedup)
-
-        # 7. Ранжирование по priority_score
         ranked = self._rank_events(foreground)
-
-        # 8. Финальный отбор топ-12
         final = self._build_final(ranked, max_display=12)
 
         self.background_events = background + [e for e in ranked if e not in final]
@@ -855,3 +838,37 @@ class HoroscopeCalculator:
             score += 0.5
 
         return round(score, 3)
+
+    @staticmethod
+    def normalize_angle_target(target: str, aspect: str) -> tuple[str, str]:
+        """
+        Нормализует углы: DSC → ASC с противоположным аспектом, IC → MC с противоположным.
+        """
+        target = target.lower().strip()
+        aspect = aspect.lower().strip()
+
+        opposite_aspect = {
+            "conjunction": "opposition",
+            "opposition": "conjunction",
+            "trine": "sextile",
+            "sextile": "trine",
+            "square": "square",
+        }
+
+        if target == "descendant":
+            return "ascendant", opposite_aspect.get(aspect, aspect)
+        if target == "imum_coeli":
+            return "medium_coeli", opposite_aspect.get(aspect, aspect)
+        return target, aspect
+
+    @staticmethod
+    def normalize_phase(value: str) -> str:
+        """Приводит aspect_movement к внутреннему формату."""
+        if not value:
+            return "unknown"
+        value = str(value).strip().lower()
+        if value in ("applying", "separating"):
+            return value
+        if value in ("static", "stationary"):
+            return "static"
+        return "unknown"
