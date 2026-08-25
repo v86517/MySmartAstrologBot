@@ -537,23 +537,53 @@ class HoroscopeCalculator:
         self.activity_events = events
         return events
 
-    def _filter_events(self, events: List[TransitEvent]) -> Tuple[List[TransitEvent], List[TransitEvent]]:
+    def _filter_events(
+            self,
+            events: List[TransitEvent],
+    ) -> Tuple[List[TransitEvent], List[TransitEvent]]:
         """
-        Этап 6: фильтрация — отделяем foreground (значимые) и background.
-        activity должно быть 'FOREGROUND' (без учёта регистра).
+        Этап 6: фильтрация foreground/background.
+        Диагностическая версия.
         """
+
         foreground = []
         background = []
-        for event in events:
-            activity = str(getattr(event, "activity", "")).strip().upper()
+
+        logger.info(
+            "[FILTER INPUT] received=%d",
+            len(events),
+        )
+
+        for i, event in enumerate(events):
+            raw_activity = getattr(event, "activity", None)
+            activity = str(raw_activity).strip().upper()
+
+            logger.info(
+                "[FILTER EVENT %d] id=%s transit=%s natal=%s "
+                "raw_activity=%r normalized=%r priority=%s",
+                i,
+                id(event),
+                getattr(event, "transit_body", None),
+                getattr(event, "natal_target", None),
+                raw_activity,
+                activity,
+                getattr(event, "priority_score", None),
+            )
+
             if activity == "FOREGROUND":
                 foreground.append(event)
             else:
                 background.append(event)
 
-        logger.info("[FILTER] foreground=%d, background=%d", len(foreground), len(background))
+        logger.info(
+            "[FILTER RESULT] foreground=%d, background=%d",
+            len(foreground),
+            len(background),
+        )
+
         self.filtered_events = foreground
         self.background_events = background
+
         return foreground, background
 
     def _rank_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
