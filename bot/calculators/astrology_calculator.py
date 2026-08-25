@@ -146,9 +146,9 @@ class AstrologyCalculator:
         self._subject = subject
         logger.info(f"👤 Субъект создан: {subject.name}")
 
-        # Извлекаем данные из модели
+        # Извлекаем данные из модели (Kerykeion v5 использует Pydantic)
         model = subject.model() if callable(subject.model) else subject.model
-        data = model.dict() if hasattr(model, 'dict') else model.__dict__
+        data = model.model_dump()
 
         # --- Планеты ---
         planet_keys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn',

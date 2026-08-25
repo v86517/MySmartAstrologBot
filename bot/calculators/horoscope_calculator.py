@@ -103,10 +103,12 @@ def get_model_dict(subject: AstrologicalSubject) -> Dict:
         model = model()
     if model is None:
         model = subject
-    if hasattr(model, "dict"):
-        return model.dict()
+
+    # В Kerykeion 5 модели — Pydantic, поэтому сначала model_dump()
     if hasattr(model, "model_dump"):
         return model.model_dump()
+    if hasattr(model, "dict"):
+        return model.dict()
     return model.__dict__
 
 
@@ -172,23 +174,46 @@ def get_natal_aspects(subject: AstrologicalSubject) -> List[Dict]:
         return []
 
 
-def get_transit_aspects(natal_subject: AstrologicalSubject, transit_subject: AstrologicalSubject) -> List[Dict]:
+def get_transit_aspects(
+    natal_subject: AstrologicalSubject,
+    transit_subject: AstrologicalSubject,
+) -> List[Dict]:
     """
-    Возвращает транзитные аспекты через AspectsFactory.dual_chart_aspects.
-    first_subject_is_fixed=True означает, что натальная карта фиксирована.
+    Получение аспектов между натальной и транзитной картой через Kerykeion 5.12.9.
     """
-    try:
-        aspects_obj = AspectsFactory.dual_chart_aspects(
-            natal_subject,
-            transit_subject,
-            first_subject_is_fixed=True,
-            second_subject_is_fixed=False,
-            active_aspects=ACTIVE_ASPECTS
+    # Извлекаем модели (AstrologicalSubjectModel)
+    natal_model = (
+        natal_subject.model()
+        if callable(natal_subject.model)
+        else natal_subject.model
+    )
+    transit_model = (
+        transit_subject.model()
+        if callable(transit_subject.model)
+        else transit_subject.model
+    )
+
+    result = AspectsFactory.dual_chart_aspects(
+        natal_model,
+        transit_model,
+        first_subject_is_fixed=True,
+        second_subject_is_fixed=False,
+        active_aspects=ACTIVE_ASPECTS,   # если вы используете настройки
+    )
+
+    # Логируем количество и первые 5 аспектов для проверки
+    logger.info("Kerykeion transit aspects: %d", len(result.aspects))
+    for aspect in result.aspects[:5]:
+        logger.info(
+            "TRANSIT ASPECT: %s %s %s | orb=%.3f | movement=%s",
+            aspect.p1_name,
+            aspect.aspect,
+            aspect.p2_name,
+            aspect.orbit,
+            aspect.aspect_movement,
         )
-        return list(aspects_obj.aspects) if hasattr(aspects_obj, 'aspects') else []
-    except Exception as e:
-        logger.warning(f"Ошибка получения транзитных аспектов: {e}")
-        return []
+
+    return list(result.aspects)
 
 
 # ============================================================================
