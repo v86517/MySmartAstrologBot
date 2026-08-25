@@ -468,13 +468,11 @@ class HoroscopeCalculator:
 
     def _apply_phase_and_peak(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
         """
-        Этап 2: определение фазы и точных дат (упрощённо).
-        Здесь можно оставить численный поиск, но теперь мы используем Kerykeion для получения позиций.
-        Для краткости оставляем базовую логику.
+        Этап 2: определение фазы и точных дат (заглушка).
+        Пока оставляем как есть — ничего не перезаписывает, кроме phase.
         """
         for ev in events:
-            # Для определения фазы используем Kerykeion на соседних датах
-            # (здесь можно реализовать find_exact_pass, но мы оставляем заглушку)
+            # Пока оставляем заглушку, но НЕ трогаем activity и priority_score
             ev.phase = 'unknown'
             ev.previous_exact = None
             ev.next_exact = None
@@ -491,84 +489,70 @@ class HoroscopeCalculator:
 
     def _deduplicate_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
         """
-        Этап 4: дедупликация по уникальному ключу.
-        Оставляем событие с минимальным орбом.
+        Дедупликация без создания новых объектов.
+        Сохраняет все поля исходного события.
         """
-        groups = {}
-        for ev in events:
-            key = ev.unique_key
-            if key not in groups or ev.orb < groups[key].orb:
-                groups[key] = ev
-        deduped = list(groups.values())
-        logger.info(f"[DEDUP] {len(deduped)} from {len(events)}")
-        self.dedup_events = deduped
-        return deduped
+        seen = set()
+        result = []
 
-    def _classify_activity_and_priority(self, events: List[TransitEvent], forecast_date: datetime) -> List[TransitEvent]:
-        """
-        Этап 5: классификация активности и приоритет.
-        Используем те же веса и логику, что и раньше.
-        """
-        for ev in events:
-            # Активность (упрощённо)
-            if ev.phase == 'unknown':
-                ev.activity = 'BACKGROUND'
-                ev.filter_reason = 'phase unknown'
-                ev.orb_strength = 0.0
-                ev.timing_strength = 0.0
-                ev.priority_score = 0.0
+        for event in events:
+            # Ключ дедупликации (можно расширить, если нужно)
+            key = (
+                str(getattr(event, "transit_body", "")).lower(),
+                str(getattr(event, "natal_target", "")).lower(),
+                str(getattr(event, "aspect", "")).lower(),
+            )
+
+            if key in seen:
                 continue
 
-            # Определяем активность по дням до exact (если есть)
-            # Здесь можно использовать ev.days_to_nearest
-            ev.activity = 'BACKGROUND'  # заглушка
+            seen.add(key)
+            result.append(event)  # ← важно: добавляем сам event, а не новый объект
 
-            # Приоритет
-            planet_w = PLANET_WEIGHT.get(ev.transit_body, 5)
-            target_w = TARGET_WEIGHT.get(ev.natal_target, 5)
-            aspect_w = ASPECT_WEIGHT.get(ev.aspect, 0.7)
-            orb_factor = max(0.0, 1.0 - ev.orb / 5.0)  # упрощённо
-            timing = 0.5  # заглушка
+        logger.info("[DEDUP] %d from %d", len(result), len(events))
+        self.dedup_events = result
+        return result
 
-            ev.orb_strength = orb_factor
-            ev.timing_strength = timing
-            ev.priority_score = planet_w * target_w * aspect_w * orb_factor * timing
+    def _classify_activity_and_priority(self, events: List[TransitEvent], forecast_date: datetime) -> List[
+        TransitEvent]:
+        """
+        Этап 5: классификация активности и приоритет.
+
+        ВНИМАНИЕ: activity и priority_score уже вычислены в _calculate_raw_events.
+        Здесь мы только дополняем их, если нужно, но НЕ перезаписываем.
+        """
+        for ev in events:
+            # Если phase ещё не определён, оставляем как есть
+            if ev.phase == 'unknown':
+                # activity и priority_score уже установлены в _calculate_raw_events
+                # Ничего не меняем
+                continue
+
+            # Если activity уже установлен, не перезаписываем его
+            # Только добавляем дополнительные вычисления, если нужно
+            # Например, можно добавить timing_strength на основе days_to_nearest
+
+            # НЕ делаем: ev.activity = 'BACKGROUND'
+            # НЕ делаем: ev.priority_score = 0.0
+
+            # Если нужна дополнительная корректировка приоритета:
+            # ev.priority_score = ev.priority_score * 1.1  # например
 
         self.activity_events = events
         return events
 
     def _filter_events(
             self,
-            events: List[TransitEvent],
+            events: List[TransitEvent]
     ) -> Tuple[List[TransitEvent], List[TransitEvent]]:
-        """
-        Этап 6: фильтрация foreground/background.
-        Диагностическая версия.
-        """
 
         foreground = []
         background = []
 
-        logger.info(
-            "[FILTER INPUT] received=%d",
-            len(events),
-        )
-
-        for i, event in enumerate(events):
-            raw_activity = getattr(event, "activity", None)
-            activity = str(raw_activity).strip().upper()
-
-            logger.info(
-                "[FILTER EVENT %d] id=%s transit=%s natal=%s "
-                "raw_activity=%r normalized=%r priority=%s",
-                i,
-                id(event),
-                getattr(event, "transit_body", None),
-                getattr(event, "natal_target", None),
-                raw_activity,
-                activity,
-                getattr(event, "priority_score", None),
-            )
+        for event in events:
+            activity = str(
+                getattr(event, "activity", "")
+            ).strip().upper()
 
             if activity == "FOREGROUND":
                 foreground.append(event)
@@ -576,7 +560,7 @@ class HoroscopeCalculator:
                 background.append(event)
 
         logger.info(
-            "[FILTER RESULT] foreground=%d, background=%d",
+            "[FILTER] foreground=%d, background=%d",
             len(foreground),
             len(background),
         )
@@ -615,14 +599,28 @@ class HoroscopeCalculator:
         if target_date is None:
             target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        raw = self._calculate_raw_events(target_date)  # теперь phase, activity, priority заполнены
-        phase_events = self._apply_phase_and_peak(raw, target_date)  # (пока заглушка)
+        # 1. Создаём события с корректными activity и priority_score
+        raw = self._calculate_raw_events(target_date)
+
+        # 2. Фаза (заглушка — не трогает activity/priority)
+        phase_events = self._apply_phase_and_peak(raw, target_date)
+
+        # 3. Дома (не трогает activity/priority)
         house_events = self._calculate_houses(phase_events)
-        dedup = self._deduplicate_events(house_events)  # дедупликация
-        activity = self._classify_activity_and_priority(dedup, target_date)  # (может быть избыточно)
-        foreground, background = self._filter_events(activity)  # теперь правильно фильтрует
-        ranked = self._rank_events(foreground)  # сортировка
-        final = self._build_final(ranked, max_display=12)  # выбор топ-12
+
+        # 4. Дедупликация (сохраняет исходные объекты)
+        dedup = self._deduplicate_events(house_events)
+
+        # 5. УБРАНО: self._classify_activity_and_priority — он перезаписывает данные
+
+        # 6. Фильтрация по activity (теперь работает с правильными значениями)
+        foreground, background = self._filter_events(dedup)
+
+        # 7. Ранжирование по priority_score
+        ranked = self._rank_events(foreground)
+
+        # 8. Финальный отбор топ-12
+        final = self._build_final(ranked, max_display=12)
 
         self.background_events = background + [e for e in ranked if e not in final]
         self._log_debug_events(final)
