@@ -538,58 +538,44 @@ class HoroscopeCalculator:
         return events
 
     def _filter_events(self, events: List[TransitEvent]) -> Tuple[List[TransitEvent], List[TransitEvent]]:
+        """
+        Этап 6: фильтрация — отделяем foreground (значимые) и background.
+        activity должно быть 'FOREGROUND' (без учёта регистра).
+        """
         foreground = []
         background = []
         for ev in events:
-            if ev.activity in ('BACKGROUND', 'IGNORE') or ev.phase == 'unknown' or ev.orb_strength == 0:
-                background.append(ev)
-            else:
+            activity = str(ev.activity).strip().upper()
+            if activity == "FOREGROUND":
                 foreground.append(ev)
+            else:
+                background.append(ev)
+
         logger.info(f"[FILTER] foreground={len(foreground)}, background={len(background)}")
         self.filtered_events = foreground
         self.background_events = background
         return foreground, background
 
     def _rank_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
+        """
+        Этап 7: ранжирование по priority_score (убывание).
+        """
         sorted_events = sorted(events, key=lambda x: x.priority_score, reverse=True)
         self.ranked_events = sorted_events
         return sorted_events
 
-    def _build_final(self, events: List[TransitEvent], max_display: int = 7) -> List[TransitEvent]:
-        today = [e for e in events if e.activity == 'TODAY']
-        approaching = [e for e in events if e.activity == 'APPROACHING']
-        recent = [e for e in events if e.activity == 'RECENT']
-        background = [e for e in events if e.activity == 'BACKGROUND']
+    def _build_final(self, events: List[TransitEvent], max_display: int = 12) -> List[TransitEvent]:
+        """
+        Этап 8: выбор топ-N событий для финального вывода.
+        Сначала сортируем по priority_score, затем берём первые max_display.
+        """
+        sorted_events = sorted(events, key=lambda x: x.priority_score, reverse=True)
+        final = sorted_events[:max_display]
 
-        today.sort(key=lambda x: x.priority_score, reverse=True)
-        approaching.sort(key=lambda x: x.priority_score, reverse=True)
-        recent.sort(key=lambda x: x.priority_score, reverse=True)
-        background.sort(key=lambda x: x.priority_score, reverse=True)
-
-        final = []
-        final.extend(today[:3])
-        if len(final) < max_display:
-            needed = max_display - len(final)
-            final.extend(approaching[:needed])
-        if len(final) < max_display:
-            needed = max_display - len(final)
-            final.extend(recent[:needed])
-        if len(final) < 3:
-            needed = 3 - len(final)
-            final.extend(background[:needed])
-
-        seen = set()
-        unique_final = []
-        for ev in final:
-            key = ev.unique_key
-            if key not in seen:
-                seen.add(key)
-                unique_final.append(ev)
-
-        self.final_events = unique_final[:max_display]
-        self.all_relevant = events
-        logger.info(f"[FINAL] {len(self.final_events)} events")
-        return self.final_events
+        logger.info(f"[FINAL] {len(final)} events (max_display={max_display})")
+        self.final_events = final
+        self.all_relevant = events  # сохраняем все релевантные для отладки
+        return final
 
     # ------------------- ПУБЛИЧНЫЙ МЕТОД -------------------
 
@@ -599,14 +585,14 @@ class HoroscopeCalculator:
         if target_date is None:
             target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        raw = self._calculate_raw_events(target_date)
-        phase_events = self._apply_phase_and_peak(raw, target_date)
+        raw = self._calculate_raw_events(target_date)  # теперь phase, activity, priority заполнены
+        phase_events = self._apply_phase_and_peak(raw, target_date)  # (пока заглушка)
         house_events = self._calculate_houses(phase_events)
-        dedup = self._deduplicate_events(house_events)
-        activity = self._classify_activity_and_priority(dedup, target_date)
-        foreground, background = self._filter_events(activity)
-        ranked = self._rank_events(foreground)
-        final = self._build_final(ranked, max_display=7)
+        dedup = self._deduplicate_events(house_events)  # дедупликация
+        activity = self._classify_activity_and_priority(dedup, target_date)  # (может быть избыточно)
+        foreground, background = self._filter_events(activity)  # теперь правильно фильтрует
+        ranked = self._rank_events(foreground)  # сортировка
+        final = self._build_final(ranked, max_display=12)  # выбор топ-12
 
         self.background_events = background + [e for e in ranked if e not in final]
         self._log_debug_events(final)
