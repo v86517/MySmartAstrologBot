@@ -425,6 +425,22 @@ class HoroscopeCalculator:
             )
             events.append(event)
 
+        # Диагностика первых 10 событий перед фильтрацией
+        for i, event in enumerate(events[:10]):
+            logger.info(
+                "[EVENT %d] transit=%s natal=%s aspect=%s orb=%.3f phase=%s activity=%s priority=%.3f transit_house=%s natal_house=%s",
+                i,
+                event.transit_body,
+                event.natal_target,
+                event.aspect,
+                event.orb,
+                event.phase,
+                event.activity,
+                event.priority_score,
+                event.transit_house,
+                event.natal_target_house,
+            )
+
         logger.info(f"[RAW] {len(events)} events")
         self.raw_events = events
         return events
