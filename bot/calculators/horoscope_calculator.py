@@ -826,59 +826,84 @@ class HoroscopeCalculator:
         List[TransitEvent],
     ]:
 
-        foreground = []
-        background = []
+        """
+            Единственная точка классификации событий.
 
-        logger.info(
-            "[FILTER] input=%d",
-            len(events),
-        )
+            Каждый event должен попасть ровно в одну категорию:
+            FOREGROUND или BACKGROUND.
+            """
+
+        foreground: List[TransitEvent] = []
+        background: List[TransitEvent] = []
 
         for i, event in enumerate(events):
 
-            is_foreground, reason = self._is_foreground(
-                transit_body=event.transit_body,
-                natal_target=event.natal_target,
-                aspect=event.aspect,
-                orb=event.orb,
-                phase=event.phase,
+            activity = str(
+                getattr(event, "activity", "")
+            ).strip().upper()
+
+            transit = str(
+                getattr(event, "transit_planet", "")
+            ).strip().lower()
+
+            natal = str(
+                getattr(event, "natal_planet", "")
+            ).strip().lower()
+
+            aspect = str(
+                getattr(event, "aspect", "")
+            ).strip().lower()
+
+            orb = float(
+                getattr(event, "orb", 999.0) or 999.0
             )
 
-            event.filter_reason = reason
-
-            # ВАЖНО:
-            #
-            # activity здесь вычисляется ЗАНОВО.
-            # Мы НЕ доверяем старому значению event.activity.
-            #
-            event.activity = (
-                "FOREGROUND"
-                if is_foreground
-                else "BACKGROUND"
+            score = float(
+                getattr(event, "priority", 0.0) or 0.0
             )
 
-            if is_foreground:
+            logger.info(
+                "[FILTER INPUT %02d] "
+                "%s -> %s %s | "
+                "orb=%.3f | activity=%r | priority=%.3f",
+                i,
+                transit,
+                natal,
+                aspect,
+                orb,
+                activity,
+                score,
+            )
+
+            if activity == "FOREGROUND":
                 foreground.append(event)
+
+                logger.info(
+                    "[FILTER DECISION %02d] FOREGROUND",
+                    i,
+                )
+
             else:
                 background.append(event)
 
-            logger.debug(
-                "[FILTER EVENT %d] "
-                "%s -> %s | %s | orb=%.3f | phase=%s | "
-                "activity=%s | reason=%s | score=%.3f",
-                i,
-                event.transit_body,
-                event.natal_target,
-                event.aspect,
-                event.orb,
-                event.phase,
-                event.activity,
-                event.filter_reason,
-                event.score,
-            )
+                logger.info(
+                    "[FILTER DECISION %02d] BACKGROUND",
+                    i,
+                )
+
+        # ЖЁСТКАЯ проверка:
+        # каждый event должен находиться только в одном списке.
+        assert len(foreground) + len(background) == len(events), (
+            f"FILTER BUG: "
+            f"foreground={len(foreground)}, "
+            f"background={len(background)}, "
+            f"events={len(events)}"
+        )
 
         logger.info(
-            "[FILTER RESULT] foreground=%d background=%d",
+            "[FILTER RESULT] "
+            "input=%d foreground=%d background=%d",
+            len(events),
             len(foreground),
             len(background),
         )
