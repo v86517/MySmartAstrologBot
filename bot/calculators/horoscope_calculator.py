@@ -544,14 +544,14 @@ class HoroscopeCalculator:
         """
         foreground = []
         background = []
-        for ev in events:
-            activity = str(ev.activity).strip().upper()
+        for event in events:
+            activity = str(getattr(event, "activity", "")).strip().upper()
             if activity == "FOREGROUND":
-                foreground.append(ev)
+                foreground.append(event)
             else:
-                background.append(ev)
+                background.append(event)
 
-        logger.info(f"[FILTER] foreground={len(foreground)}, background={len(background)}")
+        logger.info("[FILTER] foreground=%d, background=%d", len(foreground), len(background))
         self.filtered_events = foreground
         self.background_events = background
         return foreground, background
