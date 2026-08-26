@@ -272,7 +272,7 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("⏳ Строим натальную карту...", reply_markup=ReplyKeyboardRemove())
 
     try:
-        result = await calc.generate()
+        result = await calc.generate(save_to_db=False)
         basic = calc.get_basic_parameters()
 
         if emulation:
@@ -417,7 +417,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
 
     try:
         # 5. Генерируем результат
-        result = await calc.generate()
+        result = await calc.generate(save_to_db=False)
         basic = calc.get_basic_parameters()
 
         # 6. Формируем вывод
