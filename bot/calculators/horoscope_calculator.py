@@ -613,96 +613,42 @@ class HoroscopeCalculator:
 
         return transit_body, natal_target
 
-    def _build_raw_events(
-        self,
-        forecast_date: datetime,
-    ) -> List[TransitEvent]:
+    def _build_raw_events(self, forecast_date: datetime) -> List[TransitEvent]:
         transit_subject = self._get_transit_subject(forecast_date)
-
-        aspects = get_transit_aspects(
-            self.natal_subject,
-            transit_subject,
-        )
+        aspects = get_transit_aspects(self.natal_subject, transit_subject)
 
         events: List[TransitEvent] = []
+        logger.info("=== KERYKEION RAW ASPECTS ===")
+        logger.info("Всего получено: %d", len(aspects))
 
-        for index, aspect in enumerate(aspects):
-            pair = self._identify_transit_and_natal(
-                aspect,
-                transit_subject,
-            )
-
+        for idx, aspect in enumerate(aspects):
+            pair = self._identify_transit_and_natal(aspect, transit_subject)
             if not pair:
                 continue
 
             transit_body, natal_target_raw = pair
-
-            source_aspect = normalize_name(
-                get_attr_safe(aspect, "aspect")
-            )
-
+            source_aspect = normalize_name(get_attr_safe(aspect, "aspect"))
             if source_aspect not in MAJOR_ASPECTS:
                 continue
 
-            orb = to_float(
-                get_attr_safe(aspect, "orbit"),
-                None,
-            )
-
+            orb = to_float(get_attr_safe(aspect, "orbit"))
             if orb is None:
                 continue
 
-            movement = str(
-                get_attr_safe(
-                    aspect,
-                    "aspect_movement",
-                    default="",
-                )
-            )
-
+            movement = str(get_attr_safe(aspect, "aspect_movement", default=""))
             phase = normalize_phase(movement)
 
-            # Критически важно:
-            # нормализуем цель ДО score/classification/dedup.
-            natal_target, aspect_type = self._normalize_angle_target(
-                natal_target_raw,
-                source_aspect,
-            )
+            natal_target, aspect_type = self._normalize_angle_target(natal_target_raw, source_aspect)
 
-            natal_data = (
-                self.natal_planets.get(natal_target)
-                or self.natal_angles.get(natal_target)
-            )
-
-            transit_data = extract_point_dict(
-                transit_subject,
-                transit_body,
-            )
+            natal_data = self.natal_planets.get(natal_target) or self.natal_angles.get(natal_target)
+            transit_data = extract_point_dict(transit_subject, transit_body)
 
             if not natal_data or not transit_data:
-                logger.warning(
-                    "Пропуск аспекта: нет данных "
-                    "transit=%s natal=%s",
-                    transit_body,
-                    natal_target,
-                )
                 continue
 
-            transit_lon = (
-                to_float(transit_data.get("abs_pos"), 0.0) or 0.0
-            ) % 360.0
-
-            natal_lon = (
-                to_float(natal_data.get("abs_pos"), 0.0) or 0.0
-            ) % 360.0
-
-            aspect_degrees = to_float(
-                get_attr_safe(
-                    aspect,
-                    "aspect_degrees",
-                ),
-                0.0,
-            ) or 0.0
+            transit_lon = (to_float(transit_data.get("abs_pos"), 0.0) or 0.0) % 360.0
+            natal_lon = (to_float(natal_data.get("abs_pos"), 0.0) or 0.0) % 360.0
+            aspect_degrees = to_float(get_attr_safe(aspect, "aspect_degrees"), 0.0) or 0.0
 
             event = TransitEvent(
                 transit_body=transit_body,
@@ -716,34 +662,26 @@ class HoroscopeCalculator:
                 phase=phase,
                 transit_house=transit_data.get("house", 0),
                 natal_target_house=natal_data.get("house", 0),
-                is_retrograde=bool(
-                    transit_data.get("retrograde", False)
-                ),
-                transit_speed=to_float(
-                    transit_data.get("speed"),
-                    0.0,
-                ) or 0.0,
+                is_retrograde=bool(transit_data.get("retrograde", False)),
+                transit_speed=to_float(transit_data.get("speed"), 0.0) or 0.0,
                 source_aspect=source_aspect,
                 source_movement=movement,
             )
-
             events.append(event)
 
-            if index < 10:
-                logger.info(
-                    "[RAW EVENT %02d] %s -> %s | "
-                    "aspect=%s source=%s orb=%.3f phase=%s",
-                    index,
-                    event.transit_body,
-                    event.natal_target,
-                    event.aspect,
-                    event.source_aspect,
-                    event.orb,
-                    event.phase,
-                )
+            logger.info(
+                "[RAW %02d] %s -> %s | aspect=%s (orig=%s) orb=%.3f phase=%s movement=%s",
+                idx,
+                event.transit_body,
+                event.natal_target,
+                event.aspect,
+                event.source_aspect,
+                event.orb,
+                event.phase,
+                event.source_movement,
+            )
 
-        logger.info("[RAW] %d events", len(events))
-
+        logger.info("[RAW] Итого: %d событий", len(events))
         self.raw_events = events
         return events
 
@@ -890,16 +828,13 @@ class HoroscopeCalculator:
 
         return event
 
-    def _score_and_classify(
-        self,
-        events: List[TransitEvent],
-    ) -> List[TransitEvent]:
-        for event in events:
+    def _score_and_classify(self, events: List[TransitEvent]) -> List[TransitEvent]:
+        logger.info("=== КЛАССИФИКАЦИЯ СОБЫТИЙ ===")
+        for idx, event in enumerate(events):
             self._classify_event(event)
-
             logger.info(
-                "[CLASSIFY] %s -> %s | aspect=%s orb=%.3f "
-                "phase=%s score=%.3f activity=%s reason=%s",
+                "[CLASSIFY %02d] %s -> %s | aspect=%s orb=%.3f phase=%s score=%.3f activity=%s reason=%s",
+                idx,
                 event.transit_body,
                 event.natal_target,
                 event.aspect,
@@ -909,7 +844,6 @@ class HoroscopeCalculator:
                 event.activity,
                 event.reason,
             )
-
         return events
 
     # ----------------------------------------------------------------------
@@ -933,41 +867,24 @@ class HoroscopeCalculator:
             event.aspect.lower(),
         )
 
-    def _deduplicate_events(
-        self,
-        events: List[TransitEvent],
-    ) -> List[TransitEvent]:
-        """
-        Дедупликация НЕ по id объекта.
-
-        Если два объекта описывают одну и ту же конфигурацию,
-        оставляем более сильный.
-        """
+    def _deduplicate_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
         best: Dict[Tuple[str, str, str], TransitEvent] = {}
 
         for event in events:
             key = self._canonical_event_key(event)
-
             current = best.get(key)
-
             if current is None:
                 best[key] = event
                 continue
-
-            # Оставляем более точное/сильное событие.
-            if event.score > current.score:
-                best[key] = event
-            elif event.score == current.score and event.orb < current.orb:
+            if event.score > current.score or (event.score == current.score and event.orb < current.orb):
                 best[key] = event
 
         result = list(best.values())
-
-        logger.info(
-            "[DEDUP] %d from %d",
-            len(result),
-            len(events),
-        )
-
+        logger.info("=== ДЕДУПЛИКАЦИЯ ===")
+        logger.info("Было: %d, стало: %d", len(events), len(result))
+        for idx, event in enumerate(result):
+            logger.info("[DEDUP %02d] %s -> %s | aspect=%s orb=%.3f score=%.3f", idx, event.transit_body,
+                        event.natal_target, event.aspect, event.orb, event.score)
         self.dedup_events = result
         return result
 
@@ -975,26 +892,13 @@ class HoroscopeCalculator:
     # FILTER
     # ----------------------------------------------------------------------
 
-    def _filter_events(
-        self,
-        events: List[TransitEvent],
-    ) -> Tuple[List[TransitEvent], List[TransitEvent]]:
-        """
-        Тупой и детерминированный фильтр.
-
-        Он НЕ пересчитывает activity.
-        Он НЕ меняет score.
-        Он НЕ создаёт новые TransitEvent.
-
-        Поэтому здесь невозможно потерять FOREGROUND из-за
-        повторного присваивания.
-        """
+    def _filter_events(self, events: List[TransitEvent]) -> Tuple[List[TransitEvent], List[TransitEvent]]:
         foreground: List[TransitEvent] = []
         background: List[TransitEvent] = []
 
-        for index, event in enumerate(events):
+        logger.info("=== ФИЛЬТРАЦИЯ ===")
+        for idx, event in enumerate(events):
             activity = str(event.activity).strip().upper()
-
             if activity == "FOREGROUND":
                 foreground.append(event)
                 decision = "FOREGROUND"
@@ -1003,26 +907,19 @@ class HoroscopeCalculator:
                 decision = "BACKGROUND"
 
             logger.info(
-                "[FILTER %02d] %s -> %s | score=%.3f | orb=%.3f | "
-                "reason=%s",
-                index,
-                event.display_name,
+                "[FILTER %02d] %s -> %s | activity=%s reason=%s orb=%.3f score=%.3f",
+                idx,
+                event.transit_body,
+                event.natal_target,
                 decision,
-                event.score,
-                event.orb,
                 event.reason,
+                event.orb,
+                event.score,
             )
 
-        logger.info(
-            "[FILTER RESULT] input=%d foreground=%d background=%d",
-            len(events),
-            len(foreground),
-            len(background),
-        )
-
+        logger.info("[FILTER] Итог: FOREGROUND=%d, BACKGROUND=%d", len(foreground), len(background))
         self.foreground_events = foreground
         self.background_events = background
-
         return foreground, background
 
     # ----------------------------------------------------------------------
@@ -1037,46 +934,41 @@ class HoroscopeCalculator:
             -event.orb,
         )
 
-    def _rank_events(
-        self,
-        events: List[TransitEvent],
-    ) -> List[TransitEvent]:
-        ranked = sorted(
-            events,
-            key=self._ranking_key,
-            reverse=True,
-        )
-
-        for index, event in enumerate(ranked, start=1):
+    def _rank_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
+        ranked = sorted(events, key=self._ranking_key, reverse=True)
+        logger.info("=== РАНЖИРОВАНИЕ ===")
+        for idx, event in enumerate(ranked, start=1):
             logger.info(
-                "[RANK %02d] %s | score=%.3f | orb=%.3f | "
-                "phase=%s | reason=%s",
-                index,
-                event.display_name,
-                event.score,
+                "[RANK %02d] %s -> %s | orb=%.3f score=%.3f phase=%s reason=%s",
+                idx,
+                event.transit_body,
+                event.natal_target,
                 event.orb,
+                event.score,
+                event.phase,
+                event.reason,
+            )
+        return ranked
+
+    def _build_final(self, foreground: List[TransitEvent], max_display: int = DEFAULT_MAX_DISPLAY) -> List[
+        TransitEvent]:
+        ranked = self._rank_events(foreground)
+        final = ranked[:max_display]
+
+        logger.info("=== ФИНАЛЬНЫЙ СПИСОК ===")
+        for idx, event in enumerate(final, start=1):
+            logger.info(
+                "[FINAL %02d] %s -> %s | orb=%.3f score=%.3f phase=%s reason=%s",
+                idx,
+                event.transit_body,
+                event.natal_target,
+                event.orb,
+                event.score,
                 event.phase,
                 event.reason,
             )
 
-        return ranked
-
-    def _build_final(
-        self,
-        foreground: List[TransitEvent],
-        max_display: int = DEFAULT_MAX_DISPLAY,
-    ) -> List[TransitEvent]:
-        ranked = self._rank_events(foreground)
-        final = ranked[:max_display]
-
         self.final_events = final
-
-        logger.info(
-            "[FINAL] %d events (max_display=%d)",
-            len(final),
-            max_display,
-        )
-
         return final
 
     # ----------------------------------------------------------------------
@@ -1466,6 +1358,9 @@ class HoroscopeCalculator:
             "Учитывай орб и фазу: сходящийся аспект обычно важнее "
             "расходящегося при прочих равных."
         )
+
+        logger.info("=== КОНЕЧНЫЙ ПРОМПТ ===")
+        logger.info("\n%s", "\n".join(lines))
 
         return "\n".join(lines)
 

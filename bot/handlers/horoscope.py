@@ -181,8 +181,8 @@ async def confirm_horoscope(callback: CallbackQuery):
 
         # 3. Строим контекст
         context = calc.build_context(period=period, target_date=target_date)
-        qa_report = calc.get_qa_report()
-        logger.info("=== QA REPORT ===\n%s", qa_report)
+        #qa_report = calc.get_qa_report()
+        #logger.info("=== QA REPORT ===\n%s", qa_report)
 
         # 4. Загружаем шаблон промпта
         template = await load_prompt_template('prompt_horoscope.txt')
@@ -206,11 +206,11 @@ async def confirm_horoscope(callback: CallbackQuery):
 
         # 8. Если включён режим эмуляции – показываем диагностику и промпт
         if emulation:
-            qa_report = calc.get_qa_report()
-            logger.info(f"QA-отчёт:\n{qa_report}")
+            #qa_report = calc.get_qa_report()
+            #logger.info(f"QA-отчёт:\n{qa_report}")
             final_text = (
                 f"🔍 РЕЖИМ ЭМУЛЯЦИИ\n\n"
-                f"--- QA ОТЧЁТ ---\n{qa_report}\n\n"
+                #f"--- QA ОТЧЁТ ---\n{qa_report}\n\n"
                 f"--- ПРОМПТ ---\n{prompt}"
             )
         else:
