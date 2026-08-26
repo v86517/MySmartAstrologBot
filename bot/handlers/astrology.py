@@ -272,7 +272,8 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("⏳ Строим натальную карту...", reply_markup=ReplyKeyboardRemove())
 
     try:
-        result = await calc.generate(save_to_db=False)
+        # 5. Генерируем результат – сохраняем в БД (данные из профиля)
+        result = await calc.generate(save_to_db=True)
         basic = calc.get_basic_parameters()
 
         if emulation:
@@ -384,6 +385,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
         # Данные введены вручную
         user_data = {k: v for k, v in manual_data.items() if k != 'is_manual'}
         astrology_data.pop(user_id, None)
+        save_to_db = False  # ручной ввод – не сохраняем в БД
     else:
         # Берём из БД
         user_data = await get_user_data(user_id)
@@ -391,6 +393,7 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
             await callback.message.answer(await get_text(user_id, 'error_not_found'), reply_markup=get_main_menu(lang))
             await state.clear()
             return
+        save_to_db = True   # данные из профиля – сохраняем/обновляем
 
     # 2. Проверяем наличие оплаченных сессий (всегда из БД)
     user_data_from_db = await get_user_data(user_id)
@@ -416,8 +419,8 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("⏳ Строим натальную карту...", reply_markup=ReplyKeyboardRemove())
 
     try:
-        # 5. Генерируем результат
-        result = await calc.generate(save_to_db=False)
+        # 5. Генерируем результат с учётом флага сохранения
+        result = await calc.generate(save_to_db=save_to_db)
         basic = calc.get_basic_parameters()
 
         # 6. Формируем вывод
