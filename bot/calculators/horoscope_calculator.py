@@ -3018,11 +3018,11 @@ class HoroscopeCalculator:
     # ----------------------------------------------------------------------
 
     def calculate(
-        self,
-        period_type: str,
-        period_start_utc: datetime,
-        period_end_utc: datetime,
-        max_display: Optional[int] = None,
+            self,
+            period_type: str,
+            period_start_utc: datetime,
+            period_end_utc: datetime,
+            max_display: Optional[int] = None,
     ) -> ForecastResult:
 
         period = ForecastPeriod.from_values(
@@ -3038,18 +3038,12 @@ class HoroscopeCalculator:
             max_display,
         )
 
-        cached = self._result_cache.get(
-            cache_key
-        )
-
+        cached = self._result_cache.get(cache_key)
         if cached is not None:
             self.last_result = cached
             return cached
 
-        logger.info(
-            "=== HOROSCOPE PIPELINE START ==="
-        )
-
+        logger.info("=== HOROSCOPE PIPELINE START ===")
         logger.info(
             "period=%s start=%s end=%s",
             period.period_type.value,
@@ -3061,107 +3055,88 @@ class HoroscopeCalculator:
         # 1. Transit windows
         # --------------------------------------------------------------
 
-        raw_events = (
-            self.transit_engine.scan(
-                period
-            )
-        )
+        logger.info("[STEP 1] Scanning transit windows...")
+        try:
+            raw_events = self.transit_engine.scan(period)
+        except Exception as e:
+            logger.error(f"[STEP 1] ERROR in transit_engine.scan: {e}", exc_info=True)
+            raise
 
-        logger.info(
-            "[TRANSITS] raw=%d",
-            len(raw_events),
-        )
+        logger.info("[TRANSITS] raw=%d", len(raw_events))
 
         # --------------------------------------------------------------
         # 2. Score
         # --------------------------------------------------------------
 
+        logger.info("[STEP 2] Scoring events...")
         for event in raw_events:
-            event.score = self.scorer.score(
-                event,
-                period,
-            )
+            event.score = self.scorer.score(event, period)
+        logger.info("[STEP 2] Scoring complete.")
 
         # --------------------------------------------------------------
         # 3. Classification
         # --------------------------------------------------------------
 
+        logger.info("[STEP 3] Classifying events...")
         for event in raw_events:
-            self.classifier.classify(
-                event
-            )
+            self.classifier.classify(event)
+        logger.info("[STEP 3] Classification complete.")
 
         # --------------------------------------------------------------
         # 4. Dedup
         # --------------------------------------------------------------
 
-        deduped = (
-            self.deduplicator.deduplicate(
-                raw_events
-            )
-        )
+        logger.info("[STEP 4] Deduplicating events...")
+        deduped = self.deduplicator.deduplicate(raw_events)
+        logger.info("[DEDUP] raw=%d deduped=%d", len(raw_events), len(deduped))
 
         # --------------------------------------------------------------
         # 5. Foreground / background
         # --------------------------------------------------------------
 
+        logger.info("[STEP 5] Splitting foreground/background...")
         foreground = [
-            event
-            for event in deduped
-            if event.activity
-            == Activity.FOREGROUND
+            event for event in deduped
+            if event.activity == Activity.FOREGROUND
         ]
-
         background = [
-            event
-            for event in deduped
-            if event.activity
-            == Activity.BACKGROUND
+            event for event in deduped
+            if event.activity == Activity.BACKGROUND
         ]
+        logger.info("[STEP 5] foreground=%d background=%d", len(foreground), len(background))
 
         # --------------------------------------------------------------
         # 6. Ranking
         # --------------------------------------------------------------
 
-        foreground = self.ranker.sort(
-            foreground
-        )
-
-        background = self.ranker.sort(
-            background
-        )
+        logger.info("[STEP 6] Ranking foreground...")
+        foreground = self.ranker.sort(foreground)
+        background = self.ranker.sort(background)
+        logger.info("[STEP 6] Ranking complete.")
 
         # --------------------------------------------------------------
         # 7. Final selection
         # --------------------------------------------------------------
 
-        limit = self._max_final_events(
-            period.period_type,
-            max_display,
-        )
-
+        limit = self._max_final_events(period.period_type, max_display)
         final_events = foreground[:limit]
+        logger.info("[STEP 7] final_events=%d (limit=%d)", len(final_events), limit)
 
         # --------------------------------------------------------------
         # 8. Themes
         # --------------------------------------------------------------
 
-        themes = (
-            self.theme_aggregator.aggregate(
-                deduped,
-                self.config,
-            )
-        )
+        logger.info("[STEP 8] Aggregating themes...")
+        themes = self.theme_aggregator.aggregate(deduped, self.config)
+        logger.info("[STEP 8] themes=%d", len(themes))
 
         # --------------------------------------------------------------
         # 9. Retrogrades
         # --------------------------------------------------------------
 
-        retrogrades = (
-            self._collect_retrogrades(
-                period
-            )
-        )
+        logger.info("[STEP 9] Collecting retrogrades...")
+        retrogrades = self._collect_retrogrades(period)
+        logger.info("[STEP 9] retrogrades collected for %d planets", len(retrogrades))
 
         result = ForecastResult(
             period=period,
@@ -3173,10 +3148,7 @@ class HoroscopeCalculator:
             retrogrades=retrogrades,
         )
 
-        self._result_cache[
-            cache_key
-        ] = result
-
+        self._result_cache[cache_key] = result
         self.last_result = result
 
         logger.info(
