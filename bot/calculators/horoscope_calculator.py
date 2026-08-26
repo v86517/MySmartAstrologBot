@@ -1186,46 +1186,72 @@ class TransitWindowEngine:
             timestamp.second,
         )
 
-    def _get_transit_subject(
-        self,
-        timestamp: datetime,
-    ) -> Any:
-
+    def _get_transit_subject(self, timestamp: datetime) -> Any:
         timestamp = ensure_utc(timestamp)
         key = self._subject_cache_key(timestamp)
 
         with self._lock:
             cached = self._subject_cache.get(key)
-
             if cached is not None:
                 return cached
 
-            subject = AstrologicalSubjectFactory.from_birth_data(
-                name="Transit",
-                year=timestamp.year,
-                month=timestamp.month,
-                day=timestamp.day,
-                hour=timestamp.hour,
-                minute=timestamp.minute,
-                seconds=timestamp.second,
-                lng=self.lng,
-                lat=self.lat,
-                tz_str="UTC",
-                online=False,
-            )
+        # Используем прямой конструктор вместо фабрики
+        from kerykeion import AstrologicalSubject
+        subject = AstrologicalSubject(
+            name="Transit",
+            year=timestamp.year,
+            month=timestamp.month,
+            day=timestamp.day,
+            hour=timestamp.hour,
+            minute=timestamp.minute,
+            lat=self.lat,
+            lng=self.lng,
+            tz_str="UTC"
+        )
 
-            self._subject_cache[key] = subject
+        self._subject_cache[key] = subject
+        return subject
 
-            return subject
+    # def _get_transit_subject(
+    #     self,
+    #     timestamp: datetime,
+    # ) -> Any:
+    #
+    #     timestamp = ensure_utc(timestamp)
+    #     key = self._subject_cache_key(timestamp)
+    #
+    #     with self._lock:
+    #         cached = self._subject_cache.get(key)
+    #
+    #         if cached is not None:
+    #             return cached
+    #
+    #         subject = AstrologicalSubjectFactory.from_birth_data(
+    #             name="Transit",
+    #             year=timestamp.year,
+    #             month=timestamp.month,
+    #             day=timestamp.day,
+    #             hour=timestamp.hour,
+    #             minute=timestamp.minute,
+    #             seconds=timestamp.second,
+    #             lng=self.lng,
+    #             lat=self.lat,
+    #             tz_str="UTC",
+    #             online=False,
+    #         )
+    #
+    #         self._subject_cache[key] = subject
+    #
+    #         return subject
 
     # ----------------------------------------------------------------------
     # POINT SNAPSHOT
     # ----------------------------------------------------------------------
 
     def get_point_snapshot(
-        self,
-        planet: str,
-        timestamp: datetime,
+            self,
+            planet: str,
+            timestamp: datetime,
     ) -> TransitPointSnapshot:
 
         planet = normalize_name(planet)
@@ -1235,9 +1261,10 @@ class TransitWindowEngine:
 
         with self._lock:
             cached = self._snapshot_cache.get(cache_key)
-
             if cached is not None:
                 return cached
+
+        logger.info("[SNAPSHOT] Getting %s at %s", planet, timestamp.isoformat())
 
         subject = self._get_transit_subject(timestamp)
 
@@ -2907,7 +2934,7 @@ class HoroscopeCalculator:
                     "Natal coordinates are required "
                     "for transit calculations."
                 )
-
+        logger.info("[INIT] Creating transit engine...")
         self.transit_engine = TransitWindowEngine(
             natal_subject=self.natal_subject,
             natal_snapshot=self.natal_snapshot,
@@ -2917,6 +2944,7 @@ class HoroscopeCalculator:
             ),
             config=config,
         )
+        logger.info("[INIT] Transit engine created.")
 
         self.scorer = TransitScorer(
             config=config
