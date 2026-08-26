@@ -1,74 +1,17 @@
-"""
-production_transit_engine.py
-
-Production-grade transit engine for:
-    - daily horoscope
-    - monthly horoscope
-    - yearly horoscope
-
-Architecture:
-
-    AstrologyCalculator
-            |
-            v
-      NatalSnapshot
-            |
-            v
-    TransitWindowEngine
-            |
-            +--> exact aspect detection
-            +--> ingress / egress
-            +--> repeated hits
-            +--> 3-pass retrograde detection
-            |
-            v
-      TransitEvent
-            |
-            +--> scoring
-            +--> classification
-            +--> semantic deduplication
-            +--> thematic aggregation
-            |
-            v
-      HoroscopeContext
-
-Internal time:
-    UTC only.
-
-External API:
-    accepts timezone-aware datetime values.
-
-Kerykeion:
-    v5 API / AstrologicalSubjectFactory.
-"""
+# bot/calculators/horoscope_calculator.py
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import math
-import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from enum import Enum
-from functools import lru_cache
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Iterable,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    Tuple,
-)
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from kerykeion import AstrologicalSubjectFactory
+from kerykeion import AstrologicalSubject
 
 from bot.calculators.astrology_calculator import AstrologyCalculator
-
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +20,9 @@ logger = logging.getLogger(__name__)
 # CONSTANTS
 # ============================================================================
 
-UTC = timezone.utc
+SUPPORTED_PERIODS = {"day", "month", "year"}
 
-TRANSIT_PLANETS: Tuple[str, ...] = (
+TRANSIT_PLANETS = (
     "sun",
     "moon",
     "mercury",
@@ -92,7 +35,38 @@ TRANSIT_PLANETS: Tuple[str, ...] = (
     "pluto",
 )
 
-NATAL_PLANETS: Tuple[str, ...] = (
+FAST_PLANETS = {
+    "sun",
+    "moon",
+    "mercury",
+    "venus",
+    "mars",
+}
+
+SLOW_PLANETS = {
+    "jupiter",
+    "saturn",
+    "uranus",
+    "neptune",
+    "pluto",
+}
+
+PERSONAL_TARGETS = {
+    "sun",
+    "moon",
+    "mercury",
+    "venus",
+    "mars",
+}
+
+ANGLE_TARGETS = {
+    "ascendant",
+    "medium_coeli",
+    "descendant",
+    "imum_coeli",
+}
+
+NATAL_PLANETS = {
     "sun",
     "moon",
     "mercury",
@@ -105,18 +79,11 @@ NATAL_PLANETS: Tuple[str, ...] = (
     "pluto",
     "chiron",
     "true_north_lunar_node",
-)
+}
 
-ANGLES: Tuple[str, ...] = (
-    "ascendant",
-    "medium_coeli",
-    "descendant",
-    "imum_coeli",
-)
+NATAL_TARGETS = NATAL_PLANETS | ANGLE_TARGETS
 
-NATAL_TARGETS = frozenset(NATAL_PLANETS + ANGLES)
-
-MAJOR_ASPECTS: Dict[str, float] = {
+MAJOR_ASPECT_ANGLES = {
     "conjunction": 0.0,
     "sextile": 60.0,
     "square": 90.0,
@@ -124,7 +91,7 @@ MAJOR_ASPECTS: Dict[str, float] = {
     "opposition": 180.0,
 }
 
-ASPECT_ORBS: Dict[str, float] = {
+DEFAULT_ASPECT_ORBS = {
     "conjunction": 5.0,
     "opposition": 5.0,
     "square": 4.0,
@@ -132,7 +99,7 @@ ASPECT_ORBS: Dict[str, float] = {
     "sextile": 3.0,
 }
 
-ASPECT_WEIGHT: Dict[str, float] = {
+ASPECT_WEIGHT = {
     "conjunction": 1.00,
     "opposition": 0.95,
     "square": 0.90,
@@ -140,7 +107,7 @@ ASPECT_WEIGHT: Dict[str, float] = {
     "sextile": 0.75,
 }
 
-PLANET_WEIGHT: Dict[str, float] = {
+PLANET_WEIGHT = {
     "pluto": 10.0,
     "neptune": 9.0,
     "uranus": 9.0,
@@ -150,10 +117,10 @@ PLANET_WEIGHT: Dict[str, float] = {
     "venus": 5.0,
     "mercury": 5.0,
     "sun": 5.0,
-    "moon": 4.0,
+    "moon": 3.0,
 }
 
-TARGET_WEIGHT: Dict[str, float] = {
+TARGET_WEIGHT = {
     "sun": 10.0,
     "moon": 10.0,
     "ascendant": 10.0,
@@ -172,46 +139,7 @@ TARGET_WEIGHT: Dict[str, float] = {
     "true_north_lunar_node": 3.0,
 }
 
-SLOW_PLANETS = frozenset(
-    {
-        "jupiter",
-        "saturn",
-        "uranus",
-        "neptune",
-        "pluto",
-    }
-)
-
-PERSONAL_PLANETS = frozenset(
-    {
-        "sun",
-        "moon",
-        "mercury",
-        "venus",
-        "mars",
-    }
-)
-
-SOCIAL_PLANETS = frozenset(
-    {
-        "jupiter",
-        "saturn",
-    }
-)
-
-OUTER_PLANETS = frozenset(
-    {
-        "uranus",
-        "neptune",
-        "pluto",
-    }
-)
-
-FAST_PLANETS = frozenset(
-    set(TRANSIT_PLANETS) - set(SLOW_PLANETS)
-)
-
-PLANET_RU: Dict[str, str] = {
+PLANET_RU = {
     "sun": "Солнце",
     "moon": "Луна",
     "mercury": "Меркурий",
@@ -226,7 +154,7 @@ PLANET_RU: Dict[str, str] = {
     "true_north_lunar_node": "Северный лунный узел",
 }
 
-TARGET_RU: Dict[str, str] = {
+TARGET_RU = {
     **PLANET_RU,
     "ascendant": "ASC",
     "medium_coeli": "MC",
@@ -234,7 +162,7 @@ TARGET_RU: Dict[str, str] = {
     "imum_coeli": "IC",
 }
 
-ASPECT_RU: Dict[str, str] = {
+ASPECT_RU = {
     "conjunction": "соединение",
     "opposition": "оппозиция",
     "square": "квадрат",
@@ -242,463 +170,41 @@ ASPECT_RU: Dict[str, str] = {
     "sextile": "секстиль",
 }
 
-PHASE_RU: Dict[str, str] = {
+PHASE_RU = {
     "applying": "сходящийся",
     "exact": "точный",
     "separating": "расходящийся",
-    "static": "стационарный",
+    "stationary": "стационарный",
     "unknown": "не определена",
+}
+
+THEME_FOR_TARGET = {
+    "sun": "identity",
+    "moon": "emotions",
+    "mercury": "communication",
+    "venus": "relationships",
+    "mars": "action",
+    "jupiter": "growth",
+    "saturn": "responsibility",
+    "uranus": "change",
+    "neptune": "meaning",
+    "pluto": "transformation",
+    "chiron": "healing",
+    "true_north_lunar_node": "direction",
+    "ascendant": "self",
+    "medium_coeli": "career",
+    "descendant": "relationships",
+    "imum_coeli": "home",
 }
 
 
 # ============================================================================
-# ENUMS
+# HELPERS
 # ============================================================================
-
-class PeriodType(str, Enum):
-    DAY = "day"
-    MONTH = "month"
-    YEAR = "year"
-
-
-class Activity(str, Enum):
-    FOREGROUND = "FOREGROUND"
-    BACKGROUND = "BACKGROUND"
-
-
-class Motion(str, Enum):
-    DIRECT = "direct"
-    RETROGRADE = "retrograde"
-    STATIONARY = "stationary"
-    UNKNOWN = "unknown"
-
-
-class EventPhase(str, Enum):
-    APPLYING = "applying"
-    EXACT = "exact"
-    SEPARATING = "separating"
-    STATIC = "static"
-    UNKNOWN = "unknown"
-
-
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-
-@dataclass(frozen=True)
-class EngineConfig:
-    """
-    Production configuration for TransitWindowEngine.
-
-    Основной принцип:
-        coarse scan -> detect candidate -> refine -> exact hit
-
-    Sampling используется только для обнаружения кандидатов.
-    Точная дата аспекта НЕ зависит от coarse step.
-
-    Поэтому можно существенно увеличить шаг sampling без потери
-    точности exact-hit.
-    """
-
-    # ================================================================
-    # ASPECT DETECTION
-    # ================================================================
-
-    aspect_orbs: Mapping[str, float] = field(
-        default_factory=lambda: dict(ASPECT_ORBS)
-    )
-
-    # Аспект считается exact, если distance <= tolerance.
-    exact_tolerance_deg: float = 0.005
-
-    # Максимальная допустимая ошибка exact timestamp.
-    exact_tolerance_seconds: float = 30.0
-
-    # Root solver.
-    root_tolerance_seconds: float = 30.0
-
-    # ================================================================
-    # COARSE SAMPLING
-    # ================================================================
-    #
-    # Эти значения используются для обычного поиска окон.
-    #
-    # НЕ пытайся получать exact hit напрямую этими шагами.
-    # После обнаружения crossing/window запускается refinement.
-    #
-
-    # DAY
-    day_step_minutes: int = 30
-
-    # MONTH
-    month_step_hours: int = 6
-
-    # YEAR
-    year_step_hours: int = 24
-
-    # ================================================================
-    # PLANET-SPECIFIC SAMPLING
-    # ================================================================
-    #
-    # Это НЕ минимальный шаг для каждого расчёта.
-    #
-    # Он используется только как safety cap:
-    #
-    # effective_step =
-    #     min(period_step, planet_cap)
-    #
-    # Но для slow planets периодический step обычно уже достаточно
-    # мал, поэтому они практически всегда считают один раз на coarse step.
-    #
-
-    fast_planet_step_minutes: int = 60
-
-    slow_planet_step_hours: int = 48
-
-    # ================================================================
-    # ADAPTIVE SAMPLING
-    # ================================================================
-    #
-    # На длинных периодах быстрые планеты могут генерировать огромное
-    # количество событий. Поэтому sampling должен зависеть от типа
-    # прогноза.
-    #
-
-    # Для дневного прогноза:
-    #   Sun/Mercury/Venus/Mars -> 30 min
-    #
-    # Для месяца:
-    #   быстрые -> 6 h
-    #
-    # Для года:
-    #   быстрые -> 24 h
-    #
-    # Exact hit после обнаружения всё равно уточняется.
-    #
-
-    day_fast_step_minutes: int = 30
-    month_fast_step_hours: int = 6
-    year_fast_step_hours: int = 24
-
-    day_slow_step_hours: int = 6
-    month_slow_step_hours: int = 12
-    year_slow_step_hours: int = 48
-
-    # ================================================================
-    # BOUNDARY SEARCH
-    # ================================================================
-
-    # Fast planets:
-    # аспект может быстро войти/выйти из orb.
-    boundary_search_days_fast: float = 7.0
-
-    # Slow planets:
-    # широкое окно для поиска соседних exact hits.
-    boundary_search_days_slow: float = 365.0
-
-    # Максимальная глубина расширения поиска.
-    boundary_search_max_iterations: int = 20
-
-    # ================================================================
-    # RETROGRADE DETECTION
-    # ================================================================
-    #
-    # Важно:
-    #
-    # 1. coarse
-    # 2. mid
-    # 3. final
-    #
-    # Но НЕ нужно делать final-resolution scan по всему периоду.
-    # Final scan выполняется только возле обнаруженного station window.
-    #
-
-    retrograde_coarse_hours: int = 48
-
-    retrograde_mid_hours: int = 12
-
-    retrograde_final_seconds: int = 60
-
-    # Скорость в градусах/сутки.
-    retrograde_speed_epsilon: float = 0.00001
-
-    # Минимальный интервал вокруг потенциальной станции.
-    retrograde_refine_hours: int = 72
-
-    # ================================================================
-    # EVENT CLASSIFICATION
-    # ================================================================
-
-    foreground_max_orb: float = 3.0
-
-    very_tight_orb: float = 0.5
-
-    slow_planet_tight_orb: float = 1.5
-
-    fast_planet_tight_orb: float = 1.5
-
-    angle_applying_orb: float = 2.5
-
-    # ================================================================
-    # FORECAST LIMITS
-    # ================================================================
-
-    max_events_per_period: int = 500
-
-    max_events_per_theme: int = 8
-
-    max_final_events_day: int = 12
-
-    max_final_events_month: int = 20
-
-    max_final_events_year: int = 30
-
-    # ================================================================
-    # RANKING
-    # ================================================================
-
-    applying_bonus: float = 1.5
-
-    separating_bonus: float = 0.15
-
-    angle_bonus: float = 2.5
-
-    personal_target_bonus: float = 1.0
-
-    retrograde_bonus: float = 0.5
-
-    repeated_hit_bonus: float = 1.25
-
-    # ================================================================
-    # SAFETY
-    # ================================================================
-
-    max_scan_days: int = 5000
-
-    # Защита от случайного взрыва количества sampling points.
-    max_sampling_points_day: int = 200
-
-    max_sampling_points_month: int = 200
-
-    max_sampling_points_year: int = 400
-
-    # ================================================================
-    # DERIVED SETTINGS
-    # ================================================================
-
-    @property
-    def max_final_events(self) -> int:
-        return max(
-            self.max_final_events_day,
-            self.max_final_events_month,
-            self.max_final_events_year,
-        )
-
-    def period_step_seconds(self, period_type: str) -> int:
-        """
-        Основной coarse step для конкретного типа прогноза.
-        """
-
-        if period_type == "day":
-            return self.day_step_minutes * 60
-
-        if period_type == "month":
-            return self.month_step_hours * 3600
-
-        if period_type == "year":
-            return self.year_step_hours * 3600
-
-        raise ValueError(
-            f"Unsupported period_type: {period_type!r}"
-        )
-
-    def planet_step_seconds(
-        self,
-        period_type: str,
-        planet: str,
-    ) -> int:
-        """
-        Возвращает effective coarse sampling step.
-
-        Приоритет:
-
-            period step
-                ↓
-            planet safety cap
-                ↓
-            effective step
-
-        На длинных периодах не заставляем быстрые планеты
-        считаться с дневным/получасовым разрешением.
-        """
-
-        planet = planet.lower()
-
-        fast_planets = {
-            "sun",
-            "moon",
-            "mercury",
-            "venus",
-            "mars",
-        }
-
-        slow_planets = {
-            "jupiter",
-            "saturn",
-            "uranus",
-            "neptune",
-            "pluto",
-        }
-
-        # ------------------------------------------------------------
-        # DAY
-        # ------------------------------------------------------------
-
-        if period_type == "day":
-
-            if planet in fast_planets:
-                return self.day_fast_step_minutes * 60
-
-            if planet in slow_planets:
-                return self.day_slow_step_hours * 3600
-
-            return self.day_step_minutes * 60
-
-        # ------------------------------------------------------------
-        # MONTH
-        # ------------------------------------------------------------
-
-        if period_type == "month":
-
-            if planet in fast_planets:
-                return self.month_fast_step_hours * 3600
-
-            if planet in slow_planets:
-                return self.month_slow_step_hours * 3600
-
-            return self.month_step_hours * 3600
-
-        # ------------------------------------------------------------
-        # YEAR
-        # ------------------------------------------------------------
-
-        if period_type == "year":
-
-            if planet in fast_planets:
-                return self.year_fast_step_hours * 3600
-
-            if planet in slow_planets:
-                return self.year_slow_step_hours * 3600
-
-            return self.year_step_hours * 3600
-
-        raise ValueError(
-            f"Unsupported period_type: {period_type!r}"
-        )
-
-    def max_sampling_points(
-        self,
-        period_type: str,
-    ) -> int:
-        if period_type == "day":
-            return self.max_sampling_points_day
-
-        if period_type == "month":
-            return self.max_sampling_points_month
-
-        if period_type == "year":
-            return self.max_sampling_points_year
-
-        raise ValueError(
-            f"Unsupported period_type: {period_type!r}"
-        )
-
-
-DEFAULT_CONFIG = EngineConfig()
-
-# ============================================================================
-# PERIOD
-# ============================================================================
-
-@dataclass(frozen=True)
-class ForecastPeriod:
-    period_type: PeriodType
-    start_utc: datetime
-    end_utc: datetime
-
-    def __post_init__(self) -> None:
-        start = ensure_utc(self.start_utc)
-        end = ensure_utc(self.end_utc)
-
-        if end <= start:
-            raise ValueError("period_end_utc must be greater than period_start_utc")
-
-        duration = end - start
-
-        if duration.total_seconds() <= 0:
-            raise ValueError("Forecast period cannot be empty.")
-
-        if duration.days > DEFAULT_CONFIG.max_scan_days:
-            raise ValueError("Forecast period is unreasonably large.")
-
-        object.__setattr__(self, "start_utc", start)
-        object.__setattr__(self, "end_utc", end)
-
-    @property
-    def duration(self) -> timedelta:
-        return self.end_utc - self.start_utc
-
-    @property
-    def days(self) -> float:
-        return self.duration.total_seconds() / 86400.0
-
-    @classmethod
-    def from_values(
-        cls,
-        period_type: str,
-        period_start_utc: datetime,
-        period_end_utc: datetime,
-    ) -> "ForecastPeriod":
-        try:
-            ptype = PeriodType(period_type)
-        except ValueError as exc:
-            raise ValueError(
-                f"Unsupported period_type={period_type!r}. "
-                f"Expected day/month/year."
-            ) from exc
-
-        return cls(
-            period_type=ptype,
-            start_utc=period_start_utc,
-            end_utc=period_end_utc,
-        )
-
-
-# ============================================================================
-# BASIC HELPERS
-# ============================================================================
-
-def ensure_utc(value: datetime) -> datetime:
-    if not isinstance(value, datetime):
-        raise TypeError("Expected datetime.")
-
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError(
-            "Datetime must be timezone-aware. "
-            "Naive datetimes are forbidden in production."
-        )
-
-    return value.astimezone(UTC)
-
-
-def clamp(value: float, low: float, high: float) -> float:
-    return max(low, min(high, value))
-
 
 def normalize_name(value: Any) -> str:
     if value is None:
         return ""
-
     return (
         str(value)
         .strip()
@@ -709,426 +215,194 @@ def normalize_name(value: Any) -> str:
     )
 
 
-def to_float(
-    value: Any,
-    default: Optional[float] = None,
-) -> Optional[float]:
+def to_float(value: Any, default: Optional[float] = None) -> Optional[float]:
     if value is None:
         return default
-
     try:
         return float(value)
     except (TypeError, ValueError):
         return default
 
 
+def clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
 def normalize_longitude(value: float) -> float:
     return value % 360.0
 
 
-def signed_angular_distance(a: float, b: float) -> float:
-    """
-    Signed shortest angular difference a-b in [-180, +180).
-    """
+def angular_distance(a: float, b: float) -> float:
+    diff = abs(normalize_longitude(a) - normalize_longitude(b))
+    return min(diff, 360.0 - diff)
 
+
+def signed_angle_difference(a: float, b: float) -> float:
     return ((a - b + 180.0) % 360.0) - 180.0
 
 
-def angular_distance(a: float, b: float) -> float:
-    return abs(signed_angular_distance(a, b))
+def get_attr_safe(obj: Any, *names: str, default: Any = None) -> Any:
+    for name in names:
+        if hasattr(obj, name):
+            return getattr(obj, name)
+    return default
 
 
-def aspect_orb(
-    transit_longitude: float,
-    natal_longitude: float,
-    aspect_angle: float,
-) -> float:
-    """
-    Exact deviation from requested aspect.
-
-    Works correctly for 0° and 180° as well as normal aspects.
-    """
-
-    separation = angular_distance(
-        transit_longitude,
-        natal_longitude,
-    )
-
-    return abs(separation - aspect_angle)
+def datetime_key(dt: datetime) -> str:
+    dt = ensure_utc(dt)
+    return dt.isoformat(timespec="seconds")
 
 
-def sha1_key(*parts: Any) -> str:
-    raw = "|".join(str(part) for part in parts)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+def ensure_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def midpoint(a: datetime, b: datetime) -> datetime:
+    return a + (b - a) / 2
 
 
 # ============================================================================
-# KERYKEION DATA ACCESS
-# ============================================================================
-
-def get_point(subject: Any, name: str) -> Any:
-    """
-    Supports:
-        subject.sun
-        subject.model().sun
-        subject.model_dump()
-        dict-like models
-    """
-
-    name = normalize_name(name)
-
-    if hasattr(subject, name):
-        return getattr(subject, name)
-
-    model = getattr(subject, "model", None)
-
-    if callable(model):
-        try:
-            model = model()
-        except Exception:
-            model = None
-
-    if model is not None and hasattr(model, name):
-        return getattr(model, name)
-
-    if isinstance(model, Mapping):
-        return model.get(name)
-
-    return None
-
-
-def get_point_value(
-    subject: Any,
-    point_name: str,
-    field_name: str,
-    default: Any = None,
-) -> Any:
-    point = get_point(subject, point_name)
-
-    if point is None:
-        return default
-
-    if isinstance(point, Mapping):
-        return point.get(field_name, default)
-
-    return getattr(point, field_name, default)
-
-
-def point_longitude(
-    subject: Any,
-    point_name: str,
-) -> Optional[float]:
-    value = get_point_value(
-        subject,
-        point_name,
-        "abs_pos",
-        None,
-    )
-
-    value = to_float(value)
-
-    if value is None:
-        return None
-
-    return normalize_longitude(value)
-
-
-def point_speed(
-    subject: Any,
-    point_name: str,
-) -> Optional[float]:
-    return to_float(
-        get_point_value(
-            subject,
-            point_name,
-            "speed",
-            None,
-        )
-    )
-
-
-def point_retrograde(
-    subject: Any,
-    point_name: str,
-) -> Optional[bool]:
-    value = get_point_value(
-        subject,
-        point_name,
-        "retrograde",
-        None,
-    )
-
-    if value is None:
-        return None
-
-    return bool(value)
-
-
-def point_house(
-    subject: Any,
-    point_name: str,
-) -> Any:
-    return get_point_value(
-        subject,
-        point_name,
-        "house",
-        None,
-    )
-
-
-# ============================================================================
-# NATAL SNAPSHOT
+# CONFIGURATION
 # ============================================================================
 
 @dataclass(frozen=True)
-class NatalTarget:
-    name: str
-    longitude: float
-    house: Any = None
-    is_angle: bool = False
+class EngineConfig:
+    aspect_orbs: Mapping[str, float] = field(
+        default_factory=lambda: dict(DEFAULT_ASPECT_ORBS)
+    )
 
-    @property
-    def canonical_name(self) -> str:
-        return normalize_name(self.name)
+    exact_tolerance_deg: float = 0.005
+    exact_tolerance_seconds: float = 30.0
+    root_tolerance_seconds: float = 30.0
+
+    day_step_minutes: int = 30
+    month_step_hours: int = 6
+    year_step_hours: int = 24
+
+    include_moon_in_year: bool = False
+    include_fast_planets_year: bool = True
+
+    boundary_search_hours_fast: int = 168
+    boundary_search_days_slow: int = 365
+    boundary_search_max_iterations: int = 12
+
+    retrograde_coarse_hours: int = 48
+    retrograde_mid_hours: int = 12
+    retrograde_final_seconds: int = 60
+    retrograde_refine_hours: int = 72
+    retrograde_speed_epsilon: float = 0.00001
+
+    foreground_max_orb: float = 3.0
+    very_tight_orb: float = 0.5
+    slow_planet_tight_orb: float = 1.5
+    fast_planet_tight_orb: float = 1.5
+    angle_applying_orb: float = 2.5
+
+    max_events_per_period: int = 500
+    max_events_per_theme: int = 8
+
+    max_final_events_day: int = 12
+    max_final_events_month: int = 20
+    max_final_events_year: int = 30
+
+    max_scan_days: int = 5000
+
+    applying_bonus: float = 1.5
+    separating_bonus: float = 0.15
+    angle_bonus: float = 2.5
+    personal_target_bonus: float = 1.0
+    retrograde_bonus: float = 0.5
+    repeated_hit_bonus: float = 1.25
+
+    log_snapshots: bool = False
+
+    def period_step_seconds(self, period_type: str) -> int:
+        if period_type == "day":
+            return self.day_step_minutes * 60
+        if period_type == "month":
+            return self.month_step_hours * 3600
+        if period_type == "year":
+            return self.year_step_hours * 3600
+        raise ValueError(f"Unsupported period_type={period_type!r}")
+
+    def max_final_events(self, period_type: str) -> int:
+        if period_type == "day":
+            return self.max_final_events_day
+        if period_type == "month":
+            return self.max_final_events_month
+        if period_type == "year":
+            return self.max_final_events_year
+        raise ValueError(f"Unsupported period_type={period_type!r}")
 
 
-@dataclass(frozen=True)
-class NatalSnapshot:
-    targets: Tuple[NatalTarget, ...]
-
-    @classmethod
-    def from_subject(
-        cls,
-        subject: Any,
-    ) -> "NatalSnapshot":
-
-        result: List[NatalTarget] = []
-
-        for name in NATAL_PLANETS:
-            longitude = point_longitude(subject, name)
-
-            if longitude is None:
-                continue
-
-            result.append(
-                NatalTarget(
-                    name=name,
-                    longitude=longitude,
-                    house=point_house(subject, name),
-                    is_angle=False,
-                )
-            )
-
-        for name in ANGLES:
-            longitude = point_longitude(subject, name)
-
-            if longitude is None:
-                continue
-
-            result.append(
-                NatalTarget(
-                    name=name,
-                    longitude=longitude,
-                    house=None,
-                    is_angle=True,
-                )
-            )
-
-        return cls(
-            targets=tuple(result)
-        )
-
-    def get(
-        self,
-        name: str,
-    ) -> Optional[NatalTarget]:
-        normalized = normalize_name(name)
-
-        for target in self.targets:
-            if target.name == normalized:
-                return target
-
-        return None
-
-
-# ============================================================================
-# TRANSIT SNAPSHOT
-# ============================================================================
-
-@dataclass(frozen=True)
-class TransitPointSnapshot:
-    planet: str
-    timestamp_utc: datetime
-    longitude: float
-    speed: Optional[float]
-    retrograde: Optional[bool]
-    house: Any = None
-
-    @property
-    def motion(self) -> Motion:
-        if self.retrograde is True:
-            return Motion.RETROGRADE
-
-        if self.speed is not None:
-            if abs(self.speed) <= 0.00001:
-                return Motion.STATIONARY
-            if self.speed < 0:
-                return Motion.RETROGRADE
-            return Motion.DIRECT
-
-        return Motion.UNKNOWN
+DEFAULT_CONFIG = EngineConfig()
 
 
 # ============================================================================
-# RETROGRADE
+# DATA OBJECTS
 # ============================================================================
 
 @dataclass(frozen=True)
-class StationEvent:
-    planet: str
-    timestamp_utc: datetime
-    from_motion: Motion
-    to_motion: Motion
-    speed: Optional[float]
-
-    @property
-    def station_type(self) -> str:
-        if self.to_motion == Motion.RETROGRADE:
-            return "retrograde_station"
-
-        if self.to_motion == Motion.DIRECT:
-            return "direct_station"
-
-        return "station"
-
-
-@dataclass(frozen=True)
-class RetrogradeWindow:
-    planet: str
+class ForecastPeriod:
+    period_type: str
     start_utc: datetime
     end_utc: datetime
-    start_station: Optional[StationEvent]
-    end_station: Optional[StationEvent]
 
-    @property
-    def duration_days(self) -> float:
-        return (
-            self.end_utc - self.start_utc
-        ).total_seconds() / 86400.0
+    def __post_init__(self) -> None:
+        start = ensure_utc(self.start_utc)
+        end = ensure_utc(self.end_utc)
 
-    def contains(self, timestamp: datetime) -> bool:
-        timestamp = ensure_utc(timestamp)
-        return self.start_utc <= timestamp <= self.end_utc
+        if self.period_type not in SUPPORTED_PERIODS:
+            raise ValueError(f"Unsupported period_type={self.period_type!r}")
 
+        if end <= start:
+            raise ValueError("Forecast period end must be greater than start.")
 
-# ============================================================================
-# TRANSIT WINDOW
-# ============================================================================
+        if (end - start).days > DEFAULT_CONFIG.max_scan_days:
+            raise ValueError("Forecast period exceeds max_scan_days.")
+
 
 @dataclass
-class TransitWindow:
-    """
-    One continuous activation window of one natal transit aspect.
+class PlanetSnapshot:
+    timestamp: datetime
+    longitude: float
+    speed: float
+    retrograde: bool
+    house: Any = None
 
-    Example:
 
-        Saturn square natal Sun
-
-    can produce:
-
-        Window #1:
-            ingress -> exact #1 -> egress
-
-        Window #2:
-            ingress -> exact #2 -> egress
-
-        Window #3:
-            ingress -> exact #3 -> egress
-
-    because of retrograde motion.
-    """
-
+@dataclass
+class TransitEvent:
     transit_body: str
     natal_target: str
     aspect: str
-
     aspect_angle: float
-    max_orb: float
-
-    start_utc: datetime
-    end_utc: datetime
-
-    ingress_utc: Optional[datetime] = None
-    egress_utc: Optional[datetime] = None
-
-    exact_hits_utc: List[datetime] = field(default_factory=list)
-
-    minimum_orb: float = 999.0
-    minimum_orb_utc: Optional[datetime] = None
-
-    phase_at_period_start: EventPhase = EventPhase.UNKNOWN
-    phase_at_period_end: EventPhase = EventPhase.UNKNOWN
-
-    retrograde_present: bool = False
-    retrograde_windows: List[RetrogradeWindow] = field(
-        default_factory=list
-    )
-
-    activity: Activity = Activity.BACKGROUND
-    score: float = 0.0
-    reason: str = ""
-
-    themes: Tuple[str, ...] = ()
-
-    transit_house_at_exact: Any = None
+    start_utc: Optional[datetime]
+    exact_utc: Optional[datetime]
+    end_utc: Optional[datetime]
+    orb_at_exact: float
+    phase: str
+    transit_longitude: float
+    natal_longitude: float
+    transit_house: Any = None
     natal_house: Any = None
-
-    repeated_hit_index: int = 1
-    repeated_hit_count: int = 1
-
-    source: str = "TransitWindowEngine"
+    is_retrograde: bool = False
+    transit_speed: float = 0.0
+    score: float = 0.0
+    activity: str = "BACKGROUND"
+    reason: str = ""
+    hit_index: int = 1
+    theme: str = ""
 
     @property
-    def event_key(self) -> str:
-        return sha1_key(
-            self.transit_body,
-            self.natal_target,
-            self.aspect,
-            self.start_utc.isoformat(),
-            self.end_utc.isoformat(),
-        )
+    def unique_key(self) -> str:
+        return f"{self.transit_body}:{self.natal_target}:{self.aspect}:{self.hit_index}"
 
     @property
     def semantic_key(self) -> Tuple[str, str, str]:
-        return (
-            self.transit_body,
-            self.natal_target,
-            self.aspect,
-        )
-
-    @property
-    def exact_count(self) -> int:
-        return len(self.exact_hits_utc)
-
-    @property
-    def duration_days(self) -> float:
-        return (
-            self.end_utc - self.start_utc
-        ).total_seconds() / 86400.0
-
-    @property
-    def primary_exact_utc(self) -> Optional[datetime]:
-        if not self.exact_hits_utc:
-            return self.minimum_orb_utc
-
-        return min(
-            self.exact_hits_utc,
-            key=lambda value: abs(
-                (
-                    value - self.start_utc
-                ).total_seconds()
-            ),
-        )
+        return (self.transit_body, self.natal_target, self.aspect)
 
     @property
     def display_name(self) -> str:
@@ -1139,1959 +413,50 @@ class TransitWindow:
         )
 
 
-# ============================================================================
-# THEMATIC AGGREGATION
-# ============================================================================
-
 @dataclass
-class ThemeAggregate:
+class TransitEpisode:
+    transit_body: str
+    natal_target: str
+    aspect: str
     theme: str
-
-    event_count: int = 0
-    total_score: float = 0.0
-    peak_score: float = 0.0
-
-    exact_dates: List[datetime] = field(default_factory=list)
-
-    event_keys: List[str] = field(default_factory=list)
-
-    dominant_planets: List[str] = field(default_factory=list)
-    dominant_targets: List[str] = field(default_factory=list)
+    first_start_utc: Optional[datetime]
+    last_end_utc: Optional[datetime]
+    exact_hits: List[datetime] = field(default_factory=list)
+    max_score: float = 0.0
+    hit_count: int = 0
+    retrograde_hits: int = 0
 
     @property
-    def strongest_event_key(self) -> Optional[str]:
-        if not self.event_keys:
-            return None
+    def semantic_key(self) -> Tuple[str, str, str]:
+        return (self.transit_body, self.natal_target, self.aspect)
 
-        return self.event_keys[0]
-
-
-# ============================================================================
-# THEMES
-# ============================================================================
-
-THEME_RULES: Dict[str, Dict[str, Any]] = {
-    "identity": {
-        "targets": {
-            "sun",
-            "ascendant",
-            "medium_coeli",
-        },
-        "planets": {
-            "sun",
-            "uranus",
-            "pluto",
-            "saturn",
-        },
-    },
-    "relationships": {
-        "targets": {
-            "venus",
-            "mars",
-            "descendant",
-            "sun",
-            "moon",
-        },
-        "planets": {
-            "venus",
-            "mars",
-            "jupiter",
-            "saturn",
-            "uranus",
-            "neptune",
-            "pluto",
-        },
-    },
-    "love": {
-        "targets": {
-            "venus",
-            "descendant",
-            "moon",
-        },
-        "planets": {
-            "venus",
-            "mars",
-            "jupiter",
-            "saturn",
-            "uranus",
-            "neptune",
-            "pluto",
-        },
-    },
-    "career": {
-        "targets": {
-            "medium_coeli",
-            "sun",
-            "saturn",
-            "mars",
-            "jupiter",
-        },
-        "planets": {
-            "jupiter",
-            "saturn",
-            "uranus",
-            "pluto",
-        },
-    },
-    "money": {
-        "targets": {
-            "venus",
-            "jupiter",
-            "saturn",
-            "pluto",
-        },
-        "planets": {
-            "jupiter",
-            "saturn",
-            "pluto",
-                "uranus",
-        },
-    },
-    "home": {
-        "targets": {
-            "imum_coeli",
-            "moon",
-        },
-        "planets": {
-            "saturn",
-            "uranus",
-            "neptune",
-            "pluto",
-        },
-    },
-    "communication": {
-        "targets": {
-            "mercury",
-            "sun",
-            "moon",
-        },
-        "planets": {
-            "mercury",
-            "uranus",
-            "neptune",
-            "saturn",
-        },
-    },
-    "energy": {
-        "targets": {
-            "mars",
-            "sun",
-            "ascendant",
-        },
-        "planets": {
-            "mars",
-            "sun",
-            "saturn",
-            "uranus",
-            "pluto",
-        },
-    },
-    "emotions": {
-        "targets": {
-            "moon",
-            "venus",
-            "ascendant",
-        },
-        "planets": {
-            "moon",
-            "saturn",
-            "neptune",
-            "pluto",
-            "uranus",
-        },
-    },
-    "growth": {
-        "targets": {
-            "jupiter",
-            "sun",
-            "medium_coeli",
-            "ascendant",
-        },
-        "planets": {
-            "jupiter",
-            "uranus",
-            "saturn",
-            "pluto",
-        },
-    },
-}
-
-
-def classify_themes(
-    transit_body: str,
-    natal_target: str,
-) -> Tuple[str, ...]:
-    themes: List[str] = []
-
-    for theme, rule in THEME_RULES.items():
-        if (
-            natal_target in rule["targets"]
-            or transit_body in rule["planets"]
-        ):
-            themes.append(theme)
-
-    # Hard fallback.
-    if not themes:
-        themes.append("general")
-
-    return tuple(themes)
-
-
-# ============================================================================
-# TRANSIT WINDOW ENGINE
-# ============================================================================
-
-class TransitWindowEngine:
-    """
-    Core temporal engine.
-
-    Responsibilities:
-
-        1. calculate transit planetary positions
-        2. detect aspect activation windows
-        3. locate ingress
-        4. locate exact hits
-        5. locate egress
-        6. detect repeated hits caused by retrograde
-        7. detect retrograde periods
-        8. attach motion information
-    """
-
-    def __init__(
-        self,
-        natal_subject: Any,
-        natal_snapshot: NatalSnapshot,
-        coords: Tuple[float, float],
-        config: EngineConfig = DEFAULT_CONFIG,
-        timezone_name: str = "UTC",
-    ):
-        self.natal_subject = natal_subject
-        self.natal_snapshot = natal_snapshot
-
-        self.lat = float(coords[0])
-        self.lng = float(coords[1])
-
-        self.config = config
-        self.timezone_name = timezone_name
-
-        self._subject_cache: Dict[
-            Tuple[int, int, int, int, int, int],
-            Any,
-        ] = {}
-
-        self._snapshot_cache: Dict[
-            Tuple[str, datetime],
-            TransitPointSnapshot,
-        ] = {}
-
-        self._retrograde_cache: Dict[
-            Tuple[str, datetime, datetime],
-            Tuple[RetrogradeWindow, ...],
-        ] = {}
-
-        self._lock = threading.RLock()
-
-    # ----------------------------------------------------------------------
-    # SUBJECT
-    # ----------------------------------------------------------------------
-
-    def _subject_cache_key(
-        self,
-        timestamp: datetime,
-    ) -> Tuple[int, int, int, int, int, int]:
-
-        timestamp = ensure_utc(timestamp)
-
-        return (
-            timestamp.year,
-            timestamp.month,
-            timestamp.day,
-            timestamp.hour,
-            timestamp.minute,
-            timestamp.second,
-        )
-
-    def _get_transit_subject(self, timestamp: datetime) -> Any:
-        timestamp = ensure_utc(timestamp)
-        key = self._subject_cache_key(timestamp)
-
-        with self._lock:
-            cached = self._subject_cache.get(key)
-            if cached is not None:
-                return cached
-
-        # Используем прямой конструктор вместо фабрики
-        from kerykeion import AstrologicalSubject
-        subject = AstrologicalSubject(
-            name="Transit",
-            year=timestamp.year,
-            month=timestamp.month,
-            day=timestamp.day,
-            hour=timestamp.hour,
-            minute=timestamp.minute,
-            lat=self.lat,
-            lng=self.lng,
-            tz_str="UTC"
-        )
-
-        self._subject_cache[key] = subject
-        return subject
-
-    # def _get_transit_subject(
-    #     self,
-    #     timestamp: datetime,
-    # ) -> Any:
-    #
-    #     timestamp = ensure_utc(timestamp)
-    #     key = self._subject_cache_key(timestamp)
-    #
-    #     with self._lock:
-    #         cached = self._subject_cache.get(key)
-    #
-    #         if cached is not None:
-    #             return cached
-    #
-    #         subject = AstrologicalSubjectFactory.from_birth_data(
-    #             name="Transit",
-    #             year=timestamp.year,
-    #             month=timestamp.month,
-    #             day=timestamp.day,
-    #             hour=timestamp.hour,
-    #             minute=timestamp.minute,
-    #             seconds=timestamp.second,
-    #             lng=self.lng,
-    #             lat=self.lat,
-    #             tz_str="UTC",
-    #             online=False,
-    #         )
-    #
-    #         self._subject_cache[key] = subject
-    #
-    #         return subject
-
-    # ----------------------------------------------------------------------
-    # POINT SNAPSHOT
-    # ----------------------------------------------------------------------
-
-    def get_point_snapshot(
-            self,
-            planet: str,
-            timestamp: datetime,
-    ) -> TransitPointSnapshot:
-
-        planet = normalize_name(planet)
-        timestamp = ensure_utc(timestamp)
-
-        cache_key = (planet, timestamp)
-
-        with self._lock:
-            cached = self._snapshot_cache.get(cache_key)
-            if cached is not None:
-                return cached
-
-        logger.info("[SNAPSHOT] Getting %s at %s", planet, timestamp.isoformat())
-
-        subject = self._get_transit_subject(timestamp)
-
-        longitude = point_longitude(
-            subject,
-            planet,
-        )
-
-        if longitude is None:
-            raise RuntimeError(
-                f"Kerykeion returned no longitude for {planet} "
-                f"at {timestamp.isoformat()}."
-            )
-
-        snapshot = TransitPointSnapshot(
-            planet=planet,
-            timestamp_utc=timestamp,
-            longitude=longitude,
-            speed=point_speed(subject, planet),
-            retrograde=point_retrograde(subject, planet),
-            house=point_house(subject, planet),
-        )
-
-        with self._lock:
-            self._snapshot_cache[cache_key] = snapshot
-
-        return snapshot
-
-    # ----------------------------------------------------------------------
-    # RESOLUTION
-    # ----------------------------------------------------------------------
-
-    def _base_step(
-        self,
-        period_type: PeriodType,
-    ) -> timedelta:
-
-        if period_type == PeriodType.DAY:
-            return timedelta(
-                minutes=self.config.day_step_minutes
-            )
-
-        if period_type == PeriodType.MONTH:
-            return timedelta(
-                hours=self.config.month_step_hours
-            )
-
-        return timedelta(
-            hours=self.config.year_step_hours
-        )
-
-    def _planet_step(
-        self,
-        period_type: PeriodType,
-        planet: str,
-    ) -> timedelta:
-
-        base = self._base_step(period_type)
-
-        if planet in FAST_PLANETS:
-            return min(
-                base,
-                timedelta(
-                    minutes=self.config.fast_planet_step_minutes
-                ),
-            )
-
-        return min(
-            base,
-            timedelta(
-                hours=self.config.slow_planet_step_hours
-            ),
-        )
-
-    # ----------------------------------------------------------------------
-    # TIME GRID
-    # ----------------------------------------------------------------------
-
-    @staticmethod
-    def _build_grid(
-        start: datetime,
-        end: datetime,
-        step: timedelta,
-    ) -> List[datetime]:
-
-        start = ensure_utc(start)
-        end = ensure_utc(end)
-
-        if step.total_seconds() <= 0:
-            raise ValueError("step must be positive")
-
-        values: List[datetime] = [start]
-        cursor = start
-
-        while cursor < end:
-            next_cursor = cursor + step
-
-            if next_cursor >= end:
-                break
-
-            values.append(next_cursor)
-            cursor = next_cursor
-
-        if values[-1] != end:
-            values.append(end)
-
-        return values
-
-    # ----------------------------------------------------------------------
-    # ASPECT STATE
-    # ----------------------------------------------------------------------
-
-    def _aspect_state(
-        self,
-        planet: str,
-        natal_target: NatalTarget,
-        aspect: str,
-        timestamp: datetime,
-    ) -> Tuple[float, float]:
-
-        snapshot = self.get_point_snapshot(
-            planet,
-            timestamp,
-        )
-
-        orb = aspect_orb(
-            snapshot.longitude,
-            natal_target.longitude,
-            MAJOR_ASPECTS[aspect],
-        )
-
-        return orb, snapshot.longitude
-
-    # ----------------------------------------------------------------------
-    # ACTIVE STATE
-    # ----------------------------------------------------------------------
-
-    def _is_active(
-        self,
-        orb: float,
-        max_orb: float,
-    ) -> bool:
-        return orb <= max_orb + 1e-9
-
-    # ----------------------------------------------------------------------
-    # ROOT FINDING
-    # ----------------------------------------------------------------------
-
-    def _bisect_threshold(
-        self,
-        planet: str,
-        target: NatalTarget,
-        aspect: str,
-        left: datetime,
-        right: datetime,
-        threshold: float,
-    ) -> datetime:
-
-        left = ensure_utc(left)
-        right = ensure_utc(right)
-
-        left_orb, _ = self._aspect_state(
-            planet,
-            target,
-            aspect,
-            left,
-        )
-
-        right_orb, _ = self._aspect_state(
-            planet,
-            target,
-            aspect,
-            right,
-        )
-
-        left_active = left_orb <= threshold
-        right_active = right_orb <= threshold
-
-        if left_active == right_active:
-            return left if left_active else right
-
-        tolerance = timedelta(
-            seconds=self.config.root_tolerance_seconds
-        )
-
-        while right - left > tolerance:
-            middle = left + (
-                right - left
-            ) / 2
-
-            middle_orb, _ = self._aspect_state(
-                planet,
-                target,
-                aspect,
-                middle,
-            )
-
-            middle_active = middle_orb <= threshold
-
-            if middle_active == left_active:
-                left = middle
-                left_active = middle_active
-            else:
-                right = middle
-                right_active = middle_active
-
-        return left + (right - left) / 2
-
-    # ----------------------------------------------------------------------
-    # EXACT ASPECT MINIMIZATION
-    # ----------------------------------------------------------------------
-
-    def _golden_section_minimum(
-        self,
-        planet: str,
-        target: NatalTarget,
-        aspect: str,
-        left: datetime,
-        right: datetime,
-    ) -> Tuple[datetime, float]:
-
-        """
-        Finds minimum orb without assuming a sign-changing root.
-
-        This matters around retrograde motion:
-        an aspect can touch exact and reverse without behaving like
-        a normal monotonic root.
-        """
-
-        total_seconds = (
-            right - left
-        ).total_seconds()
-
-        if total_seconds <= 0:
-            orb, _ = self._aspect_state(
-                planet,
-                target,
-                aspect,
-                left,
-            )
-            return left, orb
-
-        phi = (1.0 + math.sqrt(5.0)) / 2.0
-
-        x1_seconds = total_seconds / phi
-        x2_seconds = total_seconds - x1_seconds
-
-        x1 = left + timedelta(
-            seconds=x1_seconds
-        )
-
-        x2 = left + timedelta(
-            seconds=x2_seconds
-        )
-
-        _, f1 = self._aspect_state(
-            planet,
-            target,
-            aspect,
-            x1,
-        )
-
-        _, f2 = self._aspect_state(
-            planet,
-            target,
-            aspect,
-            x2,
-        )
-
-        tolerance = timedelta(
-            seconds=self.config.exact_tolerance_seconds
-        )
-
-        while right - left > tolerance:
-            if f1 > f2:
-                left = x1
-                x1 = x2
-                f1 = f2
-
-                x2 = right - (
-                    right - left
-                ) / phi
-
-                _, f2 = self._aspect_state(
-                    planet,
-                    target,
-                    aspect,
-                    x2,
-                )
-
-            else:
-                right = x2
-                x2 = x1
-                f2 = f1
-
-                x1 = left + (
-                    right - left
-                ) / phi
-
-                _, f1 = self._aspect_state(
-                    planet,
-                    target,
-                    aspect,
-                    x1,
-                )
-
-        result = left + (right - left) / 2
-
-        result_orb, _ = self._aspect_state(
-            planet,
-            target,
-            aspect,
-            result,
-        )
-
-        return result, result_orb
-
-    # ----------------------------------------------------------------------
-    # EXACT HIT
-    # ----------------------------------------------------------------------
-
-    def _find_exact_hit(
-        self,
-        planet: str,
-        target: NatalTarget,
-        aspect: str,
-        left: datetime,
-        right: datetime,
-    ) -> Optional[Tuple[datetime, float]]:
-
-        exact_time, minimum_orb = (
-            self._golden_section_minimum(
-                planet,
-                target,
-                aspect,
-                left,
-                right,
-            )
-        )
-
-        if minimum_orb <= self.config.exact_tolerance_deg:
-            return exact_time, minimum_orb
-
-        return None
-
-    # ----------------------------------------------------------------------
-    # ASPECT WINDOW
-    # ----------------------------------------------------------------------
-
-    def _build_single_window(
-        self,
-        planet: str,
-        target: NatalTarget,
-        aspect: str,
-        active_start: datetime,
-        active_end: datetime,
-        period: ForecastPeriod,
-    ) -> TransitWindow:
-
-        max_orb = self.config.aspect_orbs[aspect]
-
-        start_orb, _ = self._aspect_state(
-            planet,
-            target,
-            aspect,
-            active_start,
-        )
-
-        end_orb, _ = self._aspect_state(
-            planet,
-            target,
-            aspect,
-            active_end,
-        )
-
-        ingress = None
-        egress = None
-
-        if (
-            start_orb > max_orb
-            and active_start > period.start_utc
-        ):
-            ingress = self._bisect_threshold(
-                planet,
-                target,
-                aspect,
-                active_start - timedelta(hours=24),
-                active_start,
-                max_orb,
-            )
-
-        if (
-            end_orb > max_orb
-            and active_end < period.end_utc
-        ):
-            egress = self._bisect_threshold(
-                planet,
-                target,
-                aspect,
-                active_end,
-                active_end + timedelta(hours=24),
-                max_orb,
-            )
-
-        # Search exact points within window.
-        local_step = self._planet_step(
-            period.period_type,
-            planet,
-        )
-
-        exact_hits: List[datetime] = []
-
-        cursor = active_start
-
-        while cursor < active_end:
-            nxt = min(
-                cursor + local_step,
-                active_end,
-            )
-
-            exact = self._find_exact_hit(
-                planet,
-                target,
-                aspect,
-                cursor,
-                nxt,
-            )
-
-            if exact is not None:
-                exact_time, _ = exact
-
-                if not exact_hits:
-                    exact_hits.append(exact_time)
-
-                elif abs(
-                    (
-                        exact_time - exact_hits[-1]
-                    ).total_seconds()
-                ) > self.config.exact_tolerance_seconds * 2:
-                    exact_hits.append(exact_time)
-
-            cursor = nxt
-
-        # Global minimum.
-        minimum_time, minimum_orb = (
-            self._golden_section_minimum(
-                planet,
-                target,
-                aspect,
-                active_start,
-                active_end,
-            )
-        )
-
-        return TransitWindow(
-            transit_body=planet,
-            natal_target=target.name,
-            aspect=aspect,
-            aspect_angle=MAJOR_ASPECTS[aspect],
-            max_orb=max_orb,
-            start_utc=active_start,
-            end_utc=active_end,
-            ingress_utc=ingress,
-            egress_utc=egress,
-            exact_hits_utc=sorted(
-                set(exact_hits)
-            ),
-            minimum_orb=minimum_orb,
-            minimum_orb_utc=minimum_time,
-            natal_house=target.house,
-            themes=classify_themes(
-                planet,
-                target.name,
-            ),
-        )
-
-    # ----------------------------------------------------------------------
-    # WINDOW DETECTION
-    # ----------------------------------------------------------------------
-
-    def _find_windows_for_pair(
-        self,
-        planet: str,
-        target: NatalTarget,
-        aspect: str,
-        period: ForecastPeriod,
-    ) -> List[TransitWindow]:
-
-        max_orb = self.config.aspect_orbs[aspect]
-
-        step = self._planet_step(
-            period.period_type,
-            planet,
-        )
-
-        # Extend the scan so we can determine boundary state.
-        boundary_days = (
-            self.config.boundary_search_days_slow
-            if planet in SLOW_PLANETS
-            else self.config.boundary_search_days_fast
-        )
-
-        scan_start = period.start_utc - timedelta(
-            days=boundary_days
-        )
-
-        scan_end = period.end_utc + timedelta(
-            days=boundary_days
-        )
-
-        # Never scan absurdly large periods.
-        if (
-            scan_end - scan_start
-        ).days > self.config.max_scan_days:
-            raise RuntimeError(
-                f"Transit scan for {planet} exceeded safety limit."
-            )
-
-        grid = self._build_grid(
-            scan_start,
-            scan_end,
-            step,
-        )
-
-        states: List[Tuple[datetime, float]] = []
-
-        for timestamp in grid:
-            orb, _ = self._aspect_state(
-                planet,
-                target,
-                aspect,
-                timestamp,
-            )
-
-            states.append(
-                (
-                    timestamp,
-                    orb,
-                )
-            )
-
-        windows: List[
-            Tuple[datetime, datetime]
-        ] = []
-
-        active_start: Optional[datetime] = None
-
-        for idx, (
-            timestamp,
-            orb,
-        ) in enumerate(states):
-
-            active = self._is_active(
-                orb,
-                max_orb,
-            )
-
-            if active and active_start is None:
-                active_start = timestamp
-
-            if (
-                not active
-                and active_start is not None
-            ):
-                previous_timestamp = states[
-                    max(0, idx - 1)
-                ][0]
-
-                if previous_timestamp < timestamp:
-                    boundary = self._bisect_threshold(
-                        planet,
-                        target,
-                        aspect,
-                        previous_timestamp,
-                        timestamp,
-                        max_orb,
-                    )
-                else:
-                    boundary = timestamp
-
-                windows.append(
-                    (
-                        active_start,
-                        boundary,
-                    )
-                )
-
-                active_start = None
-
-        if active_start is not None:
-            windows.append(
-                (
-                    active_start,
-                    scan_end,
-                )
-            )
-
-        result: List[TransitWindow] = []
-
-        for start, end in windows:
-            # Clip to forecast period only after exact boundaries
-            # are known.
-            clipped_start = max(
-                start,
-                period.start_utc,
-            )
-
-            clipped_end = min(
-                end,
-                period.end_utc,
-            )
-
-            if clipped_end <= clipped_start:
-                continue
-
-            window = self._build_single_window(
-                planet=planet,
-                target=target,
-                aspect=aspect,
-                active_start=clipped_start,
-                active_end=clipped_end,
-                period=period,
-            )
-
-            # Exact dates must belong to requested period.
-            window.exact_hits_utc = [
-                value
-                for value in window.exact_hits_utc
-                if period.start_utc
-                <= value
-                <= period.end_utc
-            ]
-
-            if (
-                window.minimum_orb
-                <= max_orb + 1e-9
-            ):
-                result.append(window)
-
-        return result
-
-    # ----------------------------------------------------------------------
-    # RETROGRADE PASS 1
-    # ----------------------------------------------------------------------
-
-    def _retrograde_pass_1(
-        self,
-        planet: str,
-        start: datetime,
-        end: datetime,
-    ) -> List[Tuple[datetime, Motion]]:
-
-        step = timedelta(
-            hours=self.config.retrograde_coarse_hours
-        )
-
-        grid = self._build_grid(
-            start,
-            end,
-            step,
-        )
-
-        result: List[Tuple[datetime, Motion]] = []
-
-        for timestamp in grid:
-            snapshot = self.get_point_snapshot(
-                planet,
-                timestamp,
-            )
-
-            result.append(
-                (
-                    timestamp,
-                    snapshot.motion,
-                )
-            )
-
-        return result
-
-    # ----------------------------------------------------------------------
-    # RETROGRADE PASS 2
-    # ----------------------------------------------------------------------
-
-    def _retrograde_pass_2(
-        self,
-        planet: str,
-        brackets: List[Tuple[datetime, datetime]],
-    ) -> List[Tuple[datetime, datetime]]:
-
-        result: List[Tuple[datetime, datetime]] = []
-
-        step = timedelta(
-            hours=self.config.retrograde_mid_hours
-        )
-
-        for coarse_left, coarse_right in brackets:
-
-            grid = self._build_grid(
-                coarse_left,
-                coarse_right,
-                step,
-            )
-
-            previous = grid[0]
-            previous_snapshot = self.get_point_snapshot(
-                planet,
-                previous,
-            )
-
-            previous_motion = previous_snapshot.motion
-
-            for current in grid[1:]:
-                current_snapshot = (
-                    self.get_point_snapshot(
-                        planet,
-                        current,
-                    )
-                )
-
-                current_motion = current_snapshot.motion
-
-                if (
-                    previous_motion
-                    != current_motion
-                    and {
-                        previous_motion,
-                        current_motion,
-                    }
-                    & {
-                        Motion.DIRECT,
-                        Motion.RETROGRADE,
-                    }
-                ):
-                    result.append(
-                        (
-                            previous,
-                            current,
-                        )
-                    )
-
-                previous = current
-                previous_motion = current_motion
-
-        return result
-
-    # ----------------------------------------------------------------------
-    # RETROGRADE PASS 3
-    # ----------------------------------------------------------------------
-
-    def _refine_station(
-        self,
-        planet: str,
-        left: datetime,
-        right: datetime,
-    ) -> Optional[StationEvent]:
-
-        left_snapshot = self.get_point_snapshot(
-            planet,
-            left,
-        )
-
-        right_snapshot = self.get_point_snapshot(
-            planet,
-            right,
-        )
-
-        left_speed = left_snapshot.speed
-        right_speed = right_snapshot.speed
-
-        if (
-            left_speed is None
-            or right_speed is None
-        ):
-            return None
-
-        if (
-            left_speed == 0
-            or right_speed == 0
-        ):
-            timestamp = (
-                left
-                if left_speed == 0
-                else right
-            )
-
-        elif left_speed * right_speed > 0:
-            return None
-
-        else:
-            tolerance = timedelta(
-                seconds=self.config.retrograde_final_seconds
-            )
-
-            lo = left
-            hi = right
-
-            while hi - lo > tolerance:
-                middle = lo + (
-                    hi - lo
-                ) / 2
-
-                middle_snapshot = (
-                    self.get_point_snapshot(
-                        planet,
-                        middle,
-                    )
-                )
-
-                middle_speed = middle_snapshot.speed
-
-                if middle_speed is None:
-                    break
-
-                if abs(middle_speed) <= (
-                    self.config.retrograde_speed_epsilon
-                ):
-                    lo = middle
-                    hi = middle
-                    break
-
-                if left_speed * middle_speed <= 0:
-                    hi = middle
-                    right_speed = middle_speed
-                else:
-                    lo = middle
-                    left_speed = middle_speed
-
-            timestamp = lo + (
-                hi - lo
-            ) / 2
-
-        before = self.get_point_snapshot(
-            planet,
-            timestamp - timedelta(minutes=5),
-        )
-
-        after = self.get_point_snapshot(
-            planet,
-            timestamp + timedelta(minutes=5),
-        )
-
-        before_motion = before.motion
-        after_motion = after.motion
-
-        if (
-            before_motion
-            not in {
-                Motion.DIRECT,
-                Motion.RETROGRADE,
-            }
-            or after_motion
-            not in {
-                Motion.DIRECT,
-                Motion.RETROGRADE,
-            }
-        ):
-            return None
-
-        if before_motion == after_motion:
-            return None
-
-        return StationEvent(
-            planet=planet,
-            timestamp_utc=timestamp,
-            from_motion=before_motion,
-            to_motion=after_motion,
-            speed=self.get_point_snapshot(
-                planet,
-                timestamp,
-            ).speed,
-        )
-
-    # ----------------------------------------------------------------------
-    # RETROGRADE ENGINE
-    # ----------------------------------------------------------------------
-
-    def detect_retrograde(
-        self,
-        planet: str,
-        start: datetime,
-        end: datetime,
-    ) -> Tuple[RetrogradeWindow, ...]:
-
-        planet = normalize_name(planet)
-        start = ensure_utc(start)
-        end = ensure_utc(end)
-
-        cache_key = (
-            planet,
-            start,
-            end,
-        )
-
-        cached = self._retrograde_cache.get(
-            cache_key
-        )
-
-        if cached is not None:
-            return cached
-
-        # PASS 1
-        coarse = self._retrograde_pass_1(
-            planet,
-            start,
-            end,
-        )
-
-        brackets: List[
-            Tuple[datetime, datetime]
-        ] = []
-
-        for idx in range(1, len(coarse)):
-            left_time, left_motion = coarse[idx - 1]
-            right_time, right_motion = coarse[idx]
-
-            if (
-                left_motion
-                != right_motion
-                and {
-                    left_motion,
-                    right_motion,
-                }
-                & {
-                    Motion.DIRECT,
-                    Motion.RETROGRADE,
-                }
-            ):
-                brackets.append(
-                    (
-                        left_time,
-                        right_time,
-                    )
-                )
-
-        # PASS 2
-        refined_brackets = self._retrograde_pass_2(
-            planet,
-            brackets,
-        )
-
-        # PASS 3
-        stations: List[StationEvent] = []
-
-        for left, right in refined_brackets:
-            station = self._refine_station(
-                planet,
-                left,
-                right,
-            )
-
-            if station is not None:
-                stations.append(station)
-
-        stations.sort(
-            key=lambda item: item.timestamp_utc
-        )
-
-        windows: List[RetrogradeWindow] = []
-
-        retrograde_start: Optional[
-            StationEvent
-        ] = None
-
-        for station in stations:
-
-            if (
-                station.to_motion
-                == Motion.RETROGRADE
-            ):
-                retrograde_start = station
-
-            elif (
-                station.to_motion
-                == Motion.DIRECT
-                and retrograde_start is not None
-            ):
-                windows.append(
-                    RetrogradeWindow(
-                        planet=planet,
-                        start_utc=retrograde_start.timestamp_utc,
-                        end_utc=station.timestamp_utc,
-                        start_station=retrograde_start,
-                        end_station=station,
-                    )
-                )
-
-                retrograde_start = None
-
-        if retrograde_start is not None:
-            # Period continues beyond the requested interval.
-            windows.append(
-                RetrogradeWindow(
-                    planet=planet,
-                    start_utc=retrograde_start.timestamp_utc,
-                    end_utc=end,
-                    start_station=retrograde_start,
-                    end_station=None,
-                )
-            )
-
-        result = tuple(windows)
-
-        self._retrograde_cache[
-            cache_key
-        ] = result
-
-        return result
-
-    # ----------------------------------------------------------------------
-    # EVENT RETROGRADE DECORATION
-    # ----------------------------------------------------------------------
-
-    def attach_retrograde(
-        self,
-        event: TransitWindow,
-        period: ForecastPeriod,
-    ) -> None:
-
-        retrograde = self.detect_retrograde(
-            event.transit_body,
-            period.start_utc,
-            period.end_utc,
-        )
-
-        event.retrograde_windows = list(
-            retrograde
-        )
-
-        event.retrograde_present = any(
-            window.start_utc <= event.end_utc
-            and window.end_utc >= event.start_utc
-            for window in retrograde
-        )
-
-    # ----------------------------------------------------------------------
-    # PHASE
-    # ----------------------------------------------------------------------
-
-    def calculate_phase(
-        self,
-        event: TransitWindow,
-        timestamp: datetime,
-    ) -> EventPhase:
-
-        timestamp = ensure_utc(timestamp)
-
-        before = max(
-            event.start_utc,
-            timestamp - timedelta(hours=6),
-        )
-
-        after = min(
-            event.end_utc,
-            timestamp + timedelta(hours=6),
-        )
-
-        if before == after:
-            return EventPhase.STATIC
-
-        before_orb, _ = self._aspect_state(
-            event.transit_body,
-            self.natal_snapshot.get(
-                event.natal_target
-            ),
-            event.aspect,
-            before,
-        )
-
-        current_orb, _ = self._aspect_state(
-            event.transit_body,
-            self.natal_snapshot.get(
-                event.natal_target
-            ),
-            event.aspect,
-            timestamp,
-        )
-
-        after_orb, _ = self._aspect_state(
-            event.transit_body,
-            self.natal_snapshot.get(
-                event.natal_target
-            ),
-            event.aspect,
-            after,
-        )
-
-        if (
-            current_orb
-            <= self.config.exact_tolerance_deg
-        ):
-            return EventPhase.EXACT
-
-        if (
-            after_orb < current_orb
-            and current_orb <= before_orb
-        ):
-            return EventPhase.APPLYING
-
-        if (
-            after_orb > current_orb
-            and current_orb >= before_orb
-        ):
-            return EventPhase.SEPARATING
-
-        return EventPhase.STATIC
-
-    # ----------------------------------------------------------------------
-    # PUBLIC SCAN
-    # ----------------------------------------------------------------------
-
-    def scan(
-        self,
-        period: ForecastPeriod,
-    ) -> List[TransitWindow]:
-
-        events: List[TransitWindow] = []
-
-        for planet in TRANSIT_PLANETS:
-
-            for target in self.natal_snapshot.targets:
-
-                for aspect in MAJOR_ASPECTS:
-
-                    windows = self._find_windows_for_pair(
-                        planet=planet,
-                        target=target,
-                        aspect=aspect,
-                        period=period,
-                    )
-
-                    for event in windows:
-
-                        self.attach_retrograde(
-                            event,
-                            period,
-                        )
-
-                        exact = event.primary_exact_utc
-
-                        if exact is not None:
-                            phase = self.calculate_phase(
-                                event,
-                                exact,
-                            )
-                        else:
-                            phase = self.calculate_phase(
-                                event,
-                                event.start_utc,
-                            )
-
-                        if (
-                            event.exact_hits_utc
-                        ):
-                            event.phase_at_period_start = (
-                                EventPhase.APPLYING
-                            )
-
-                        event.phase_at_period_end = phase
-
-                        events.append(event)
-
-        if len(events) > self.config.max_events_per_period:
-            raise RuntimeError(
-                "Transit engine produced an unexpectedly large "
-                f"number of events: {len(events)}"
-            )
-
-        return events
-
-
-# ============================================================================
-# SCORING
-# ============================================================================
-
-class TransitScorer:
-
-    def __init__(
-        self,
-        config: EngineConfig = DEFAULT_CONFIG,
-    ):
-        self.config = config
-
-    @staticmethod
-    def _orb_strength(
-        orb: float,
-        max_orb: float,
-    ) -> float:
-
-        if max_orb <= 0:
-            return 0.0
-
-        ratio = clamp(
-            orb / max_orb,
-            0.0,
-            1.0,
-        )
-
-        # Non-linear:
-        # 0° is much stronger than edge of orb.
-        return (1.0 - ratio) ** 1.7
-
-    def score(
-        self,
-        event: TransitWindow,
-        period: ForecastPeriod,
-    ) -> float:
-
-        score = 0.0
-
-        planet = event.transit_body
-        target = event.natal_target
-
-        score += PLANET_WEIGHT.get(
-            planet,
-            0.0,
-        )
-
-        score += TARGET_WEIGHT.get(
-            target,
-            0.0,
-        ) * 0.35
-
-        score += ASPECT_WEIGHT.get(
-            event.aspect,
-            0.0,
-        ) * 3.0
-
-        score += (
-            self._orb_strength(
-                event.minimum_orb,
-                event.max_orb,
-            )
-            * 6.0
-        )
-
-        if target in ANGLES:
-            score += self.config.angle_bonus
-
-        if target in PERSONAL_PLANETS:
-            score += self.config.personal_target_bonus
-
-        if event.retrograde_present:
-            score += self.config.retrograde_bonus
-
-        if event.exact_count > 1:
-            score += (
-                min(
-                    event.exact_count - 1,
-                    3,
-                )
-                * self.config.repeated_hit_bonus
-            )
-
-        if event.phase_at_period_end == EventPhase.APPLYING:
-            score += self.config.applying_bonus
-
-        elif event.phase_at_period_end == EventPhase.SEPARATING:
-            score += self.config.separating_bonus
-
-        # Longer outer-planet windows should not automatically dominate.
-        if planet in OUTER_PLANETS:
-            score *= 1.0
-
-        # Very short Moon events are useful for daily forecast,
-        # but should not dominate monthly/yearly forecasts.
-        if (
-            planet == "moon"
-            and period.period_type != PeriodType.DAY
-        ):
-            score *= 0.65
-
-        return round(
-            score,
-            4,
-        )
-
-
-# ============================================================================
-# CLASSIFICATION
-# ============================================================================
-
-class TransitClassifier:
-
-    def __init__(
-        self,
-        config: EngineConfig = DEFAULT_CONFIG,
-    ):
-        self.config = config
-
-    def classify(
-        self,
-        event: TransitWindow,
-    ) -> TransitWindow:
-
-        orb = event.minimum_orb
-        planet = event.transit_body
-        target = event.natal_target
-
-        if orb > event.max_orb:
-            event.activity = Activity.BACKGROUND
-            event.reason = "outside_aspect_orb"
-            return event
-
-        if (
-            target in ANGLES
-            and orb <= self.config.foreground_max_orb
-        ):
-            event.activity = Activity.FOREGROUND
-            event.reason = "angle_activation"
-            return event
-
-        if (
-            planet in SLOW_PLANETS
-            and orb <= self.config.slow_planet_tight_orb
-        ):
-            event.activity = Activity.FOREGROUND
-            event.reason = "slow_planet_tight"
-            return event
-
-        if orb <= self.config.very_tight_orb:
-            event.activity = Activity.FOREGROUND
-            event.reason = "very_tight"
-            return event
-
-        if (
-            planet in FAST_PLANETS
-            and orb <= self.config.fast_planet_tight_orb
-        ):
-            event.activity = Activity.FOREGROUND
-            event.reason = "fast_planet_tight"
-            return event
-
-        if (
-            event.exact_count > 0
-            and event.retrograde_present
-        ):
-            event.activity = Activity.FOREGROUND
-            event.reason = "exact_retrograde_repeat"
-            return event
-
-        event.activity = Activity.BACKGROUND
-        event.reason = "ordinary_background"
-
-        return event
-
-
-# ============================================================================
-# SEMANTIC DEDUPLICATION
-# ============================================================================
-
-class TransitDeduplicator:
-
-    @staticmethod
-    def _event_sort_key(
-        event: TransitWindow,
-    ) -> Tuple:
-
-        return (
-            -event.score,
-            event.minimum_orb,
-            event.start_utc,
-        )
-
-    def deduplicate(
-        self,
-        events: Sequence[TransitWindow],
-    ) -> List[TransitWindow]:
-
-        """
-        Do NOT collapse repeated retrograde hits.
-
-        Saturn square natal Sun in May, August and November
-        are three real temporal activations.
-
-        We only deduplicate exact duplicates produced by overlapping
-        sampling windows.
-        """
-
-        seen: Dict[str, TransitWindow] = {}
-
-        for event in events:
-
-            key = sha1_key(
-                event.transit_body,
-                event.natal_target,
-                event.aspect,
-                event.start_utc.isoformat(),
-                event.end_utc.isoformat(),
-            )
-
-            current = seen.get(key)
-
-            if current is None:
-                seen[key] = event
-                continue
-
-            if event.score > current.score:
-                seen[key] = event
-
-        result = list(seen.values())
-
-        result.sort(
-            key=self._event_sort_key
-        )
-
-        # Repeated hit numbering.
-        groups: Dict[
-            Tuple[str, str, str],
-            List[TransitWindow],
-        ] = defaultdict(list)
-
-        for event in result:
-            groups[
-                event.semantic_key
-            ].append(event)
-
-        for group in groups.values():
-            group.sort(
-                key=lambda item: item.start_utc
-            )
-
-            total = len(group)
-
-            for index, event in enumerate(
-                group,
-                start=1,
-            ):
-                event.repeated_hit_index = index
-                event.repeated_hit_count = total
-
-        return result
-
-
-# ============================================================================
-# RANKING
-# ============================================================================
-
-class TransitRanker:
-
-    @staticmethod
-    def sort(
-        events: Iterable[TransitWindow],
-    ) -> List[TransitWindow]:
-
-        return sorted(
-            events,
-            key=lambda event: (
-                -event.score,
-                -event.exact_count,
-                0
-                if event.retrograde_present
-                else 1,
-                event.minimum_orb,
-                event.start_utc,
-            ),
-        )
-
-
-# ============================================================================
-# THEMATIC AGGREGATOR
-# ============================================================================
-
-class ThemeAggregator:
-
-    def aggregate(
-        self,
-        events: Sequence[TransitWindow],
-        config: EngineConfig = DEFAULT_CONFIG,
-    ) -> Dict[str, ThemeAggregate]:
-
-        result: Dict[
-            str,
-            ThemeAggregate,
-        ] = {}
-
-        for event in events:
-
-            for theme in event.themes:
-
-                aggregate = result.get(theme)
-
-                if aggregate is None:
-                    aggregate = ThemeAggregate(
-                        theme=theme
-                    )
-
-                    result[theme] = aggregate
-
-                aggregate.event_count += 1
-                aggregate.total_score += event.score
-                aggregate.peak_score = max(
-                    aggregate.peak_score,
-                    event.score,
-                )
-
-                aggregate.event_keys.append(
-                    event.event_key
-                )
-
-                aggregate.exact_dates.extend(
-                    event.exact_hits_utc
-                )
-
-        # Normalize event ordering.
-        for aggregate in result.values():
-
-            aggregate.exact_dates = sorted(
-                set(
-                    aggregate.exact_dates
-                )
-            )
-
-            aggregate.event_keys = list(
-                dict.fromkeys(
-                    aggregate.event_keys
-                )
-            )
-
-        return dict(
-            sorted(
-                result.items(),
-                key=lambda item: (
-                    -item[1].peak_score,
-                    -item[1].total_score,
-                ),
-            )
-        )
-
-
-# ============================================================================
-# FORECAST RESULT
-# ============================================================================
 
 @dataclass
-class ForecastResult:
-    period: ForecastPeriod
+class RetrogradeWindow:
+    planet: str
+    station_start_utc: datetime
+    station_exact_utc: datetime
+    station_end_utc: datetime
+    before_speed: float
+    station_speed: float
+    after_speed: float
+    retrograde_after: bool
 
-    raw_events: List[TransitWindow]
-
-    foreground_events: List[TransitWindow]
-    background_events: List[TransitWindow]
-
-    final_events: List[TransitWindow]
-
-    themes: Dict[str, ThemeAggregate]
-
-    retrogrades: Dict[
-        str,
-        Tuple[RetrogradeWindow, ...],
-    ]
-
-    generated_at_utc: datetime = field(
-        default_factory=lambda: datetime.now(UTC)
-    )
-
-    engine_version: str = "3.0.0"
-
-    def stats(self) -> Dict[str, Any]:
-        return {
-            "period_type": self.period.period_type.value,
-            "period_start_utc": self.period.start_utc.isoformat(),
-            "period_end_utc": self.period.end_utc.isoformat(),
-            "raw_events": len(self.raw_events),
-            "foreground_events": len(
-                self.foreground_events
-            ),
-            "background_events": len(
-                self.background_events
-            ),
-            "final_events": len(
-                self.final_events
-            ),
-            "themes": len(self.themes),
-            "retrograde_planets": len(
-                self.retrogrades
-            ),
-        }
+    @property
+    def is_stationary(self) -> bool:
+        return abs(self.station_speed) < 0.0001
 
 
 # ============================================================================
-# PRODUCTION HOROSCOPE CALCULATOR
+# ENGINE
 # ============================================================================
 
 class HoroscopeCalculator:
     """
-    Production horoscope facade.
+    Production horoscope calculator.
 
-    Existing application can continue using:
-
-        calculator.build_context(
-            period_type="month",
-            period_start_utc=...,
-            period_end_utc=...,
-        )
-
-    The calculator owns:
-        - natal chart
-        - temporal transit engine
-        - scoring
-        - classification
-        - aggregation
-        - LLM serialization
+    Совместим с ботом: принимает user_data, lang, telegram_id, coords, emulation_mode.
+    Предоставляет build_context, get_qa_report, get_stats.
     """
 
     VERSION = "3.0.0"
@@ -3101,12 +466,10 @@ class HoroscopeCalculator:
         user_data: Dict[str, Any],
         lang: str = "ru",
         telegram_id: Optional[int] = None,
-        coords: Optional[
-            Tuple[float, float, str]
-        ] = None,
+        coords: Optional[Tuple[float, float, str]] = None,
         emulation_mode: bool = False,
         config: EngineConfig = DEFAULT_CONFIG,
-    ):
+    ) -> None:
         self.user_data = user_data
         self.lang = lang
         self.telegram_id = telegram_id
@@ -3114,6 +477,7 @@ class HoroscopeCalculator:
         self.emulation_mode = emulation_mode
         self.config = config
 
+        # Получаем натальную карту через существующий AstrologyCalculator
         self.astro_calc = AstrologyCalculator(
             user_data,
             lang=lang,
@@ -3121,882 +485,1087 @@ class HoroscopeCalculator:
             coords=coords,
             emulation_mode=False,
         )
+        self.natal_data = self.astro_calc._build_natal_chart()
+        self.natal_subject = self.astro_calc._subject
 
-        self.natal_data = (
-            self.astro_calc._build_natal_chart()
-        )
-
-        self.natal_subject = (
-            self.astro_calc._subject
-        )
-
-        self.natal_snapshot = (
-            NatalSnapshot.from_subject(
-                self.natal_subject
-            )
-        )
-
-        location = self.natal_data.get(
-            "location",
-            {},
-        )
-
-        lat = to_float(
-            location.get("lat")
-        )
-
-        lng = to_float(
-            location.get("lng")
-        )
+        # Извлекаем координаты
+        location = self.natal_data.get("location", {})
+        lat = to_float(location.get("lat"))
+        lng = to_float(location.get("lng"))
 
         if lat is None or lng is None:
-
             if coords is not None:
-                lat = float(coords[0])
-                lng = float(coords[1])
+                lat, lng, _ = coords
             else:
                 raise ValueError(
-                    "Natal coordinates are required "
-                    "for transit calculations."
+                    "Natal coordinates are required for transit calculations."
                 )
-        logger.info("[INIT] Creating transit engine...")
-        self.transit_engine = TransitWindowEngine(
-            natal_subject=self.natal_subject,
-            natal_snapshot=self.natal_snapshot,
-            coords=(
-                float(lat),
-                float(lng),
-            ),
-            config=config,
-        )
-        logger.info("[INIT] Transit engine created.")
 
-        self.scorer = TransitScorer(
-            config=config
-        )
+        self.lat = float(lat)
+        self.lng = float(lng)
 
-        self.classifier = TransitClassifier(
-            config=config
-        )
+        # Инициализируем внутреннее состояние движка
+        self._snapshot_cache: Dict[str, AstrologicalSubject] = {}
+        self._planet_snapshot_cache: Dict[Tuple[str, str], PlanetSnapshot] = {}
+        self._retrograde_cache: Dict[Tuple[str, str, str], RetrogradeWindow] = {}
+        self._natal_points = self._extract_natal_points()
 
-        self.deduplicator = (
-            TransitDeduplicator()
-        )
+        self.events: List[TransitEvent] = []
+        self.episodes: List[TransitEpisode] = []
+        self.retrograde_windows: Dict[str, List[RetrogradeWindow]] = defaultdict(list)
 
-        self.ranker = TransitRanker()
-        self.theme_aggregator = (
-            ThemeAggregator()
-        )
+        self.stats: Dict[str, int] = {
+            "snapshot_requests": 0,
+            "snapshot_created": 0,
+            "snapshot_cache_hits": 0,
+            "candidate_windows": 0,
+            "exact_hits": 0,
+            "retrograde_candidates": 0,
+            "retrograde_refinements": 0,
+        }
 
-        self.last_result: Optional[
-            ForecastResult
-        ] = None
+    # ======================================================================
+    # NATAL
+    # ======================================================================
 
-        self._result_cache: Dict[
-            Tuple[Any, ...],
-            ForecastResult,
-        ] = {}
+    def _get_model_dict(self, subject: AstrologicalSubject) -> Dict[str, Any]:
+        model = getattr(subject, "model", None)
+        if callable(model):
+            model = model()
+        if model is None:
+            model = subject
+        if hasattr(model, "model_dump"):
+            return model.model_dump()
+        if hasattr(model, "dict"):
+            return model.dict()
+        raw = getattr(model, "__dict__", {})
+        return raw if isinstance(raw, dict) else {}
 
-    # ----------------------------------------------------------------------
-    # MAX EVENTS
-    # ----------------------------------------------------------------------
+    def _point_dict(self, subject: AstrologicalSubject, name: str) -> Optional[Dict[str, Any]]:
+        data = self._get_model_dict(subject)
+        value = data.get(name)
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return value
+        return {
+            "abs_pos": to_float(get_attr_safe(value, "abs_pos")),
+            "position": to_float(get_attr_safe(value, "position")),
+            "sign": get_attr_safe(value, "sign"),
+            "house": get_attr_safe(value, "house"),
+            "speed": to_float(get_attr_safe(value, "speed"), 0.0),
+            "retrograde": bool(get_attr_safe(value, "retrograde", False)),
+        }
 
-    def _max_final_events(
-        self,
-        period_type: PeriodType,
-        requested: Optional[int],
-    ) -> int:
-
-        if requested is not None:
-            return max(
-                1,
-                min(
-                    requested,
-                    self.config.max_events_per_period,
-                ),
-            )
-
-        if period_type == PeriodType.DAY:
-            return self.config.max_final_events_day
-
-        if period_type == PeriodType.MONTH:
-            return self.config.max_final_events_month
-
-        return self.config.max_final_events_year
-
-    # ----------------------------------------------------------------------
-    # RETROGRADES
-    # ----------------------------------------------------------------------
-
-    def _collect_retrogrades(
-        self,
-        period: ForecastPeriod,
-    ) -> Dict[
-        str,
-        Tuple[RetrogradeWindow, ...],
-    ]:
-
-        result: Dict[
-            str,
-            Tuple[RetrogradeWindow, ...],
-        ] = {}
-
-        # Sun and Moon are never retrograde.
-        for planet in (
-            "mercury",
-            "venus",
-            "mars",
-            "jupiter",
-            "saturn",
-            "uranus",
-            "neptune",
-            "pluto",
-        ):
-
-            windows = (
-                self.transit_engine.detect_retrograde(
-                    planet,
-                    period.start_utc,
-                    period.end_utc,
-                )
-            )
-
-            if windows:
-                result[planet] = windows
-
+    def _extract_natal_points(self) -> Dict[str, Dict[str, Any]]:
+        result: Dict[str, Dict[str, Any]] = {}
+        for name in NATAL_TARGETS:
+            data = self._point_dict(self.natal_subject, name)
+            if not data:
+                continue
+            longitude = to_float(data.get("abs_pos"))
+            if longitude is None:
+                continue
+            result[name] = {**data, "abs_pos": normalize_longitude(longitude)}
         return result
 
-    # ----------------------------------------------------------------------
-    # PIPELINE
-    # ----------------------------------------------------------------------
+    # ======================================================================
+    # PERIOD
+    # ======================================================================
 
-    def calculate(
-            self,
-            period_type: str,
-            period_start_utc: datetime,
-            period_end_utc: datetime,
-            max_display: Optional[int] = None,
-    ) -> ForecastResult:
+    def _validate_period(self, period: ForecastPeriod) -> None:
+        duration = period.end_utc - period.start_utc
+        if duration.total_seconds() <= 0:
+            raise ValueError("Invalid forecast period.")
+        if duration.days > self.config.max_scan_days:
+            raise ValueError("Forecast period exceeds configured safety limit.")
 
-        period = ForecastPeriod.from_values(
-            period_type=period_type,
-            period_start_utc=period_start_utc,
-            period_end_utc=period_end_utc,
-        )
+    def _planets_for_period(self, period_type: str) -> Tuple[str, ...]:
+        if period_type == "day":
+            return TRANSIT_PLANETS
+        if period_type == "month":
+            return TRANSIT_PLANETS
+        if period_type == "year":
+            planets = list(TRANSIT_PLANETS)
+            if not self.config.include_moon_in_year:
+                planets.remove("moon")
+            return tuple(planets)
+        raise ValueError(f"Unsupported period_type={period_type!r}")
 
-        cache_key = (
-            period.period_type.value,
-            period.start_utc,
-            period.end_utc,
-            max_display,
-        )
+    # ======================================================================
+    # SNAPSHOT CACHE
+    # ======================================================================
 
-        cached = self._result_cache.get(cache_key)
+    def _snapshot(self, timestamp: datetime) -> AstrologicalSubject:
+        timestamp = ensure_utc(timestamp)
+        key = datetime_key(timestamp)
+        self.stats["snapshot_requests"] += 1
+
+        cached = self._snapshot_cache.get(key)
         if cached is not None:
-            self.last_result = cached
+            self.stats["snapshot_cache_hits"] += 1
             return cached
 
-        logger.info("=== HOROSCOPE PIPELINE START ===")
-        logger.info(
-            "period=%s start=%s end=%s",
-            period.period_type.value,
-            period.start_utc.isoformat(),
-            period.end_utc.isoformat(),
+        subject = AstrologicalSubject(
+            name="Transit",
+            year=timestamp.year,
+            month=timestamp.month,
+            day=timestamp.day,
+            hour=timestamp.hour,
+            minute=timestamp.minute,
+            lat=self.lat,
+            lng=self.lng,
+            tz_str="UTC",
         )
 
-        # --------------------------------------------------------------
-        # 1. Transit windows
-        # --------------------------------------------------------------
+        self._snapshot_cache[key] = subject
+        self.stats["snapshot_created"] += 1
 
-        logger.info("[STEP 1] Scanning transit windows...")
-        try:
-            raw_events = self.transit_engine.scan(period)
-        except Exception as e:
-            logger.error(f"[STEP 1] ERROR in transit_engine.scan: {e}", exc_info=True)
-            raise
+        if self.config.log_snapshots:
+            logger.info("[SNAPSHOT] created=%s cache=%d", key, len(self._snapshot_cache))
 
-        logger.info("[TRANSITS] raw=%d", len(raw_events))
+        return subject
 
-        # --------------------------------------------------------------
-        # 2. Score
-        # --------------------------------------------------------------
-
-        logger.info("[STEP 2] Scoring events...")
-        for event in raw_events:
-            event.score = self.scorer.score(event, period)
-        logger.info("[STEP 2] Scoring complete.")
-
-        # --------------------------------------------------------------
-        # 3. Classification
-        # --------------------------------------------------------------
-
-        logger.info("[STEP 3] Classifying events...")
-        for event in raw_events:
-            self.classifier.classify(event)
-        logger.info("[STEP 3] Classification complete.")
-
-        # --------------------------------------------------------------
-        # 4. Dedup
-        # --------------------------------------------------------------
-
-        logger.info("[STEP 4] Deduplicating events...")
-        deduped = self.deduplicator.deduplicate(raw_events)
-        logger.info("[DEDUP] raw=%d deduped=%d", len(raw_events), len(deduped))
-
-        # --------------------------------------------------------------
-        # 5. Foreground / background
-        # --------------------------------------------------------------
-
-        logger.info("[STEP 5] Splitting foreground/background...")
-        foreground = [
-            event for event in deduped
-            if event.activity == Activity.FOREGROUND
-        ]
-        background = [
-            event for event in deduped
-            if event.activity == Activity.BACKGROUND
-        ]
-        logger.info("[STEP 5] foreground=%d background=%d", len(foreground), len(background))
-
-        # --------------------------------------------------------------
-        # 6. Ranking
-        # --------------------------------------------------------------
-
-        logger.info("[STEP 6] Ranking foreground...")
-        foreground = self.ranker.sort(foreground)
-        background = self.ranker.sort(background)
-        logger.info("[STEP 6] Ranking complete.")
-
-        # --------------------------------------------------------------
-        # 7. Final selection
-        # --------------------------------------------------------------
-
-        limit = self._max_final_events(period.period_type, max_display)
-        final_events = foreground[:limit]
-        logger.info("[STEP 7] final_events=%d (limit=%d)", len(final_events), limit)
-
-        # --------------------------------------------------------------
-        # 8. Themes
-        # --------------------------------------------------------------
-
-        logger.info("[STEP 8] Aggregating themes...")
-        themes = self.theme_aggregator.aggregate(deduped, self.config)
-        logger.info("[STEP 8] themes=%d", len(themes))
-
-        # --------------------------------------------------------------
-        # 9. Retrogrades
-        # --------------------------------------------------------------
-
-        logger.info("[STEP 9] Collecting retrogrades...")
-        retrogrades = self._collect_retrogrades(period)
-        logger.info("[STEP 9] retrogrades collected for %d planets", len(retrogrades))
-
-        result = ForecastResult(
-            period=period,
-            raw_events=deduped,
-            foreground_events=foreground,
-            background_events=background,
-            final_events=final_events,
-            themes=themes,
-            retrogrades=retrogrades,
+    def _extract_transit_planet(
+        self,
+        subject: AstrologicalSubject,
+        planet: str,
+    ) -> Optional[PlanetSnapshot]:
+        key = (
+            datetime_key(
+                datetime(
+                    subject.utc_year,
+                    subject.utc_month,
+                    subject.utc_day,
+                    subject.utc_hour,
+                    subject.utc_minute,
+                    tzinfo=timezone.utc,
+                )
+            ),
+            planet,
         )
 
-        self._result_cache[cache_key] = result
-        self.last_result = result
+        cached = self._planet_snapshot_cache.get(key)
+        if cached is not None:
+            return cached
 
-        logger.info(
-            "=== HOROSCOPE PIPELINE END === "
-            "raw=%d foreground=%d background=%d final=%d",
-            len(deduped),
-            len(foreground),
-            len(background),
-            len(final_events),
+        data = self._point_dict(subject, planet)
+        if not data:
+            return None
+
+        longitude = to_float(data.get("abs_pos"))
+        if longitude is None:
+            return None
+
+        snapshot = PlanetSnapshot(
+            timestamp=ensure_utc(
+                datetime(
+                    subject.utc_year,
+                    subject.utc_month,
+                    subject.utc_day,
+                    subject.utc_hour,
+                    subject.utc_minute,
+                    tzinfo=timezone.utc,
+                )
+            ),
+            longitude=normalize_longitude(longitude),
+            speed=to_float(data.get("speed"), 0.0) or 0.0,
+            retrograde=bool(data.get("retrograde", False)),
+            house=data.get("house"),
         )
 
+        self._planet_snapshot_cache[key] = snapshot
+        return snapshot
+
+    # ======================================================================
+    # SAMPLING
+    # ======================================================================
+
+    def _sampling_step(self, period_type: str) -> timedelta:
+        return timedelta(seconds=self.config.period_step_seconds(period_type))
+
+    def _generate_sampling_times(self, period: ForecastPeriod) -> List[datetime]:
+        step = self._sampling_step(period.period_type)
+        result: List[datetime] = []
+        cursor = ensure_utc(period.start_utc)
+        while cursor < period.end_utc:
+            result.append(cursor)
+            cursor += step
+        if not result or result[-1] != period.end_utc:
+            result.append(ensure_utc(period.end_utc))
         return result
 
-    # ----------------------------------------------------------------------
-    # DATE FORMATTING
-    # ----------------------------------------------------------------------
+    # ======================================================================
+    # ASPECT MATH
+    # ======================================================================
+
+    def _aspect_orb(
+        self,
+        planet_longitude: float,
+        natal_longitude: float,
+        aspect_angle: float,
+    ) -> float:
+        distance = angular_distance(planet_longitude, natal_longitude)
+        return abs(distance - aspect_angle)
+
+    def _aspect_state(
+        self,
+        planet_longitude: float,
+        natal_longitude: float,
+    ) -> List[Tuple[str, float]]:
+        result: List[Tuple[str, float]] = []
+        distance = angular_distance(planet_longitude, natal_longitude)
+        for aspect, angle in MAJOR_ASPECT_ANGLES.items():
+            orb = abs(distance - angle)
+            max_orb = self.config.aspect_orbs.get(aspect, 0.0)
+            if orb <= max_orb:
+                result.append((aspect, orb))
+        return result
+
+    # ======================================================================
+    # CANDIDATE DETECTION
+    # ======================================================================
+
+    def _detect_candidate_windows(
+        self,
+        period: ForecastPeriod,
+        planets: Sequence[str],
+    ) -> List[Tuple[str, str, str, datetime, datetime]]:
+        timestamps = self._generate_sampling_times(period)
+
+        previous: Dict[Tuple[str, str], Tuple[datetime, float, str, float]] = {}
+        candidates: List[Tuple[str, str, str, datetime, datetime]] = []
+
+        for timestamp in timestamps:
+            subject = self._snapshot(timestamp)
+            for planet in planets:
+                transit = self._extract_transit_planet(subject, planet)
+                if transit is None:
+                    continue
+                for target, natal_data in self._natal_points.items():
+                    natal_longitude = to_float(natal_data.get("abs_pos"))
+                    if natal_longitude is None:
+                        continue
+                    states = self._aspect_state(transit.longitude, natal_longitude)
+
+                    current_keys = set()
+                    for aspect, orb in states:
+                        key = (planet, target, aspect)
+                        current_keys.add(key)
+
+                        previous_state = previous.get(key)
+                        if previous_state is None:
+                            previous[key] = (timestamp, orb, aspect, transit.longitude)
+                            continue
+
+                        previous_time, previous_orb, _, _ = previous_state
+                        max_orb = self.config.aspect_orbs[aspect]
+
+                        # Если оба орба внутри — это кандидат
+                        if previous_orb <= max_orb and orb <= max_orb:
+                            candidates.append(
+                                (planet, target, aspect, previous_time, timestamp)
+                            )
+
+                        previous[key] = (timestamp, orb, aspect, transit.longitude)
+
+                    # Удаляем старые ключи, если аспект исчез
+                    for old_key in list(previous):
+                        if old_key[:2] == (planet, target):
+                            if old_key not in current_keys:
+                                previous.pop(old_key, None)
+
+        candidates = self._merge_candidate_windows(candidates)
+        self.stats["candidate_windows"] = len(candidates)
+        logger.info(
+            "[CANDIDATES] windows=%d snapshots=%d",
+            len(candidates),
+            self.stats["snapshot_created"],
+        )
+        return candidates
+
+    def _merge_candidate_windows(
+        self,
+        candidates: Sequence[Tuple[str, str, str, datetime, datetime]],
+    ) -> List[Tuple[str, str, str, datetime, datetime]]:
+        grouped: Dict[Tuple[str, str, str], List[Tuple[datetime, datetime]]] = defaultdict(list)
+        for planet, target, aspect, start, end in candidates:
+            grouped[(planet, target, aspect)].append((start, end))
+
+        result = []
+        for key, windows in grouped.items():
+            windows.sort()
+            current_start: Optional[datetime] = None
+            current_end: Optional[datetime] = None
+            for start, end in windows:
+                if current_start is None:
+                    current_start = start
+                    current_end = end
+                    continue
+                if start <= current_end:
+                    current_end = max(current_end, end)
+                else:
+                    result.append((key[0], key[1], key[2], current_start, current_end))
+                    current_start = start
+                    current_end = end
+            if current_start is not None:
+                result.append((key[0], key[1], key[2], current_start, current_end))
+        return result
+
+    # ======================================================================
+    # ROOT / EXACT
+    # ======================================================================
+
+    def _aspect_function(
+        self,
+        timestamp: datetime,
+        planet: str,
+        target: str,
+        aspect: str,
+    ) -> float:
+        subject = self._snapshot(timestamp)
+        transit = self._extract_transit_planet(subject, planet)
+        natal = self._natal_points.get(target)
+        if transit is None or natal is None:
+            raise RuntimeError("Missing planet or natal target.")
+        natal_longitude = to_float(natal.get("abs_pos"))
+        if natal_longitude is None:
+            raise RuntimeError("Missing natal longitude.")
+        distance = angular_distance(transit.longitude, natal_longitude)
+        target_angle = MAJOR_ASPECT_ANGLES[aspect]
+        return distance - target_angle
+
+    def _refine_exact_hit(
+        self,
+        planet: str,
+        target: str,
+        aspect: str,
+        start: datetime,
+        end: datetime,
+    ) -> Optional[datetime]:
+        start = ensure_utc(start)
+        end = ensure_utc(end)
+        if end <= start:
+            return None
+
+        tolerance = timedelta(seconds=self.config.root_tolerance_seconds)
+        left, right = start, end
+        phi = (1.0 + math.sqrt(5.0)) / 2.0
+
+        while right - left > tolerance:
+            span = (right - left).total_seconds()
+            x1 = right - timedelta(seconds=span / phi)
+            x2 = left + timedelta(seconds=span / phi)
+            f1 = abs(self._aspect_function(x1, planet, target, aspect))
+            f2 = abs(self._aspect_function(x2, planet, target, aspect))
+            if f1 < f2:
+                right = x2
+            else:
+                left = x1
+
+        result = midpoint(left, right)
+        orb = abs(self._aspect_function(result, planet, target, aspect))
+        max_orb = self.config.aspect_orbs[aspect]
+        if orb > max_orb:
+            return None
+        return result
+
+    # ======================================================================
+    # BOUNDARY SEARCH
+    # ======================================================================
+
+    def _boundary_radius(self, planet: str) -> timedelta:
+        if planet in SLOW_PLANETS:
+            return timedelta(days=self.config.boundary_search_days_slow)
+        return timedelta(hours=self.config.boundary_search_hours_fast)
+
+    def _find_boundary(
+        self,
+        planet: str,
+        target: str,
+        aspect: str,
+        center: datetime,
+        direction: int,
+        period: ForecastPeriod,
+    ) -> Optional[datetime]:
+        radius = self._boundary_radius(planet)
+        boundary = center + direction * radius
+        boundary = max(period.start_utc, min(boundary, period.end_utc))
+        if boundary == center:
+            return None
+
+        center_orb = abs(self._aspect_function(center, planet, target, aspect))
+        boundary_orb = abs(self._aspect_function(boundary, planet, target, aspect))
+        max_orb = self.config.aspect_orbs[aspect]
+
+        if center_orb <= max_orb and boundary_orb <= max_orb:
+            return boundary
+        if center_orb > max_orb and boundary_orb > max_orb:
+            return None
+
+        left, right = min(center, boundary), max(center, boundary)
+        for _ in range(50):
+            if right - left <= timedelta(seconds=self.config.root_tolerance_seconds):
+                break
+            mid = midpoint(left, right)
+            orb = abs(self._aspect_function(mid, planet, target, aspect))
+            if orb <= max_orb:
+                if direction < 0:
+                    left = mid
+                else:
+                    right = mid
+            else:
+                if direction < 0:
+                    right = mid
+                else:
+                    left = mid
+        return left if direction < 0 else right
+
+    # ======================================================================
+    # EVENT CONSTRUCTION
+    # ======================================================================
+
+    def _phase(self, planet: str, target: str, aspect: str, exact: datetime) -> str:
+        delta = timedelta(minutes=30)
+        before = exact - delta
+        after = exact + delta
+        try:
+            before_orb = abs(self._aspect_function(before, planet, target, aspect))
+            after_orb = abs(self._aspect_function(after, planet, target, aspect))
+        except Exception:
+            return "unknown"
+        if before_orb > after_orb:
+            return "applying"
+        if before_orb < after_orb:
+            return "separating"
+        return "exact"
+
+    def _build_event(
+        self,
+        planet: str,
+        target: str,
+        aspect: str,
+        exact: datetime,
+        start: Optional[datetime],
+        end: Optional[datetime],
+    ) -> Optional[TransitEvent]:
+        subject = self._snapshot(exact)
+        transit = self._extract_transit_planet(subject, planet)
+        natal = self._natal_points.get(target)
+        if transit is None or natal is None:
+            return None
+        natal_longitude = to_float(natal.get("abs_pos"))
+        if natal_longitude is None:
+            return None
+
+        orb = abs(self._aspect_function(exact, planet, target, aspect))
+        phase = self._phase(planet, target, aspect, exact)
+        theme = THEME_FOR_TARGET.get(target, "general")
+
+        event = TransitEvent(
+            transit_body=planet,
+            natal_target=target,
+            aspect=aspect,
+            aspect_angle=MAJOR_ASPECT_ANGLES[aspect],
+            start_utc=start,
+            exact_utc=exact,
+            end_utc=end,
+            orb_at_exact=orb,
+            phase=phase,
+            transit_longitude=transit.longitude,
+            natal_longitude=natal_longitude,
+            transit_house=transit.house,
+            natal_house=natal.get("house"),
+            is_retrograde=transit.retrograde,
+            transit_speed=transit.speed,
+            theme=theme,
+        )
+        self._classify_event(event)
+        return event
+
+    # ======================================================================
+    # CLASSIFICATION
+    # ======================================================================
 
     @staticmethod
-    def _format_date(
-        value: Optional[datetime],
-    ) -> str:
+    def _orb_strength(orb: float) -> float:
+        if orb <= 0.1:
+            return 1.0
+        if orb <= 0.5:
+            return 0.9
+        if orb <= 1.0:
+            return 0.75
+        if orb <= 2.0:
+            return 0.55
+        if orb <= 3.0:
+            return 0.35
+        return 0.0
 
-        if value is None:
-            return "не определена"
+    def _score(self, event: TransitEvent) -> float:
+        score = PLANET_WEIGHT.get(event.transit_body, 0.0)
+        score += TARGET_WEIGHT.get(event.natal_target, 0.0) * 0.35
+        score += ASPECT_WEIGHT.get(event.aspect, 0.0) * 3.0
+        score += self._orb_strength(event.orb_at_exact) * 5.0
+        if event.natal_target in ANGLE_TARGETS:
+            score += self.config.angle_bonus
+        if event.natal_target in PERSONAL_TARGETS:
+            score += self.config.personal_target_bonus
+        if event.phase == "applying":
+            score += self.config.applying_bonus
+        elif event.phase == "separating":
+            score += self.config.separating_bonus
+        if event.is_retrograde:
+            score += self.config.retrograde_bonus
+        return round(score, 3)
 
-        return value.astimezone(
-            UTC
-        ).strftime(
-            "%d.%m.%Y %H:%M UTC"
-        )
+    def _classify_event(self, event: TransitEvent) -> None:
+        event.score = self._score(event)
+        if event.orb_at_exact > self.config.foreground_max_orb:
+            event.activity = "BACKGROUND"
+            event.reason = "orb_too_wide"
+            return
 
-    @staticmethod
-    def _format_date_short(
-        value: Optional[datetime],
-    ) -> str:
+        planet = event.transit_body
+        target = event.natal_target
+        orb = event.orb_at_exact
 
-        if value is None:
-            return "—"
+        if planet in SLOW_PLANETS and target in ANGLE_TARGETS:
+            event.activity = "FOREGROUND"
+            event.reason = "slow_planet_to_angle"
+            return
+        if planet in SLOW_PLANETS and orb <= self.config.slow_planet_tight_orb:
+            event.activity = "FOREGROUND"
+            event.reason = "slow_planet_tight_orb"
+            return
+        if orb <= self.config.very_tight_orb:
+            event.activity = "FOREGROUND"
+            event.reason = "very_tight_orb"
+            return
+        if target in ANGLE_TARGETS and event.phase == "applying" and orb <= self.config.angle_applying_orb:
+            event.activity = "FOREGROUND"
+            event.reason = "angle_applying"
+            return
+        if event.phase == "applying" and orb <= self.config.fast_planet_tight_orb:
+            event.activity = "FOREGROUND"
+            event.reason = "applying_tight"
+            return
 
-        return value.astimezone(
-            UTC
-        ).strftime(
-            "%d.%m.%Y"
-        )
+        event.activity = "BACKGROUND"
+        event.reason = "ordinary_background"
 
-    # ----------------------------------------------------------------------
-    # EVENT SERIALIZATION
-    # ----------------------------------------------------------------------
+    # ======================================================================
+    # EXACT TRANSIT PIPELINE
+    # ======================================================================
 
-    def _event_to_context(
+    def _resolve_candidate(
         self,
-        index: int,
-        event: TransitWindow,
-    ) -> List[str]:
-
-        lines: List[str] = []
-
-        exact_dates = ", ".join(
-            self._format_date_short(
-                value
-            )
-            for value in event.exact_hits_utc
+        planet: str,
+        target: str,
+        aspect: str,
+        start: datetime,
+        end: datetime,
+        period: ForecastPeriod,
+    ) -> Optional[TransitEvent]:
+        exact = self._refine_exact_hit(planet, target, aspect, start, end)
+        if exact is None:
+            return None
+        boundary_start = self._find_boundary(planet, target, aspect, exact, -1, period)
+        boundary_end = self._find_boundary(planet, target, aspect, exact, +1, period)
+        event = self._build_event(
+            planet=planet,
+            target=target,
+            aspect=aspect,
+            exact=exact,
+            start=boundary_start,
+            end=boundary_end,
         )
+        return event
 
-        if not exact_dates:
-            exact_dates = "нет"
+    # ======================================================================
+    # RETROGRADE
+    # ======================================================================
 
-        lines.append(
-            f"{index}. "
-            f"{event.display_name}"
-        )
+    def _planet_speed(self, planet: str, timestamp: datetime) -> float:
+        subject = self._snapshot(timestamp)
+        transit = self._extract_transit_planet(subject, planet)
+        if transit is None:
+            return 0.0
+        return transit.speed
 
-        lines.append(
-            f"   Период: "
-            f"{self._format_date(event.start_utc)} "
-            f"→ "
-            f"{self._format_date(event.end_utc)}"
-        )
-
-        lines.append(
-            f"   Точный контакт: {exact_dates}"
-        )
-
-        lines.append(
-            f"   Минимальный орб: "
-            f"{event.minimum_orb:.3f}°"
-        )
-
-        phase_key = event.phase_at_period_end.value
-        phase_text = PHASE_RU.get(phase_key, phase_key)
-        lines.append(f"   Фаза: {phase_text}")
-
-        lines.append(
-            f"   Score: {event.score:.2f}"
-        )
-
-        lines.append(
-            f"   Activity: "
-            f"{event.activity.value}"
-        )
-
-        lines.append(
-            f"   Причина: {event.reason}"
-        )
-
-        lines.append(
-            f"   Темы: "
-            f"{', '.join(event.themes)}"
-        )
-
-        lines.append(
-            f"   Повторный проход: "
-            f"{event.repeated_hit_index}/"
-            f"{event.repeated_hit_count}"
-        )
-
-        lines.append(
-            f"   Ретроградность: "
-            f"{'да' if event.retrograde_present else 'нет'}"
-        )
-
-        if event.transit_house_at_exact:
-            lines.append(
-                f"   Дом транзитной планеты: "
-                f"{event.transit_house_at_exact}"
-            )
-
-        if event.natal_house:
-            lines.append(
-                f"   Натальная точка: "
-                f"{event.natal_house}"
-            )
-
-        return lines
-
-    # ----------------------------------------------------------------------
-    # NATAL CONTEXT
-    # ----------------------------------------------------------------------
-
-    def _build_natal_context(
+    def _detect_station_candidates(
         self,
-    ) -> List[str]:
+        planet: str,
+        period: ForecastPeriod,
+    ) -> List[Tuple[datetime, datetime]]:
+        step = timedelta(hours=self.config.retrograde_coarse_hours)
+        cursor = period.start_utc
+        previous_time: Optional[datetime] = None
+        previous_speed: Optional[float] = None
+        result = []
 
-        lines: List[str] = []
+        while cursor <= period.end_utc:
+            speed = self._planet_speed(planet, cursor)
+            if previous_speed is not None and previous_time is not None:
+                if previous_speed * speed <= 0:
+                    result.append((previous_time, cursor))
+            previous_time = cursor
+            previous_speed = speed
+            cursor += step
 
-        lines.append(
-            "=== НАТАЛЬНЫЕ ДАННЫЕ ==="
-        )
+        self.stats["retrograde_candidates"] += len(result)
+        return result
 
-        for target in self.natal_snapshot.targets:
-
-            longitude = target.longitude
-
-            lines.append(
-                f"{TARGET_RU.get(target.name, target.name)}: "
-                f"{longitude:.4f}°"
-                + (
-                    f", дом {target.house}"
-                    if target.house is not None
-                    else ""
-                )
-            )
-
-        lines.append("")
-
-        return lines
-
-    # ----------------------------------------------------------------------
-    # THEME CONTEXT
-    # ----------------------------------------------------------------------
-
-    def _build_theme_context(
+    def _refine_station_mid(
         self,
-        result: ForecastResult,
-    ) -> List[str]:
+        planet: str,
+        start: datetime,
+        end: datetime,
+    ) -> Tuple[datetime, datetime]:
+        step = timedelta(hours=self.config.retrograde_mid_hours)
+        cursor = start
+        best_time = start
+        best_abs_speed = float("inf")
+        while cursor <= end:
+            speed = abs(self._planet_speed(planet, cursor))
+            if speed < best_abs_speed:
+                best_abs_speed = speed
+                best_time = cursor
+            cursor += step
+        radius = timedelta(hours=self.config.retrograde_refine_hours)
+        return max(start, best_time - radius), min(end, best_time + radius)
 
-        lines: List[str] = []
+    def _refine_station_final(
+        self,
+        planet: str,
+        start: datetime,
+        end: datetime,
+    ) -> datetime:
+        tolerance = timedelta(seconds=self.config.retrograde_final_seconds)
+        left, right = start, end
+        while right - left > tolerance:
+            mid = midpoint(left, right)
+            left_probe = midpoint(left, mid)
+            right_probe = midpoint(mid, right)
+            left_speed = abs(self._planet_speed(planet, left_probe))
+            right_speed = abs(self._planet_speed(planet, right_probe))
+            if left_speed < right_speed:
+                right = mid
+            else:
+                left = mid
+        return midpoint(left, right)
 
-        lines.append(
-            "=== ТЕМАТИЧЕСКАЯ КАРТА ПЕРИОДА ==="
+    def _detect_retrograde_for_planet(
+        self,
+        planet: str,
+        period: ForecastPeriod,
+    ) -> List[RetrogradeWindow]:
+        cache_key = (
+            period.period_type,
+            datetime_key(period.start_utc),
+            datetime_key(period.end_utc),
         )
+        existing = self._retrograde_cache.get((planet, *cache_key))
+        if existing is not None:
+            return [existing]
 
-        for theme, aggregate in result.themes.items():
+        candidates = self._detect_station_candidates(planet, period)
+        windows: List[RetrogradeWindow] = []
 
-            if aggregate.event_count <= 0:
+        for coarse_start, coarse_end in candidates:
+            mid_start, mid_end = self._refine_station_mid(planet, coarse_start, coarse_end)
+            station = self._refine_station_final(planet, mid_start, mid_end)
+            before = station - timedelta(hours=6)
+            after = station + timedelta(hours=6)
+            before_speed = self._planet_speed(planet, before)
+            station_speed = self._planet_speed(planet, station)
+            after_speed = self._planet_speed(planet, after)
+            retrograde_after = before_speed >= 0 and after_speed < 0
+            retrograde_before = before_speed < 0 and after_speed >= 0
+            if not (retrograde_after or retrograde_before):
                 continue
 
-            lines.append(
-                f"- {theme}: "
-                f"events={aggregate.event_count}; "
-                f"total_score={aggregate.total_score:.2f}; "
-                f"peak_score={aggregate.peak_score:.2f}"
+            window_radius = timedelta(hours=self.config.retrograde_refine_hours)
+            window = RetrogradeWindow(
+                planet=planet,
+                station_start_utc=max(period.start_utc, station - window_radius),
+                station_exact_utc=station,
+                station_end_utc=min(period.end_utc, station + window_radius),
+                before_speed=before_speed,
+                station_speed=station_speed,
+                after_speed=after_speed,
+                retrograde_after=retrograde_after,
             )
+            windows.append(window)
+            self.stats["retrograde_refinements"] += 1
 
-            if aggregate.exact_dates:
-                dates = ", ".join(
-                    self._format_date_short(
-                        value
-                    )
-                    for value in aggregate.exact_dates[:10]
-                )
+        self.retrograde_windows[planet].extend(windows)
+        return windows
 
-                lines.append(
-                    f"  exact_dates={dates}"
-                )
+    def _detect_retrogrades(self, period: ForecastPeriod, planets: Sequence[str]) -> None:
+        for planet in planets:
+            if planet == "moon":
+                continue
+            self._detect_retrograde_for_planet(planet, period)
 
-        lines.append("")
+    # ======================================================================
+    # DEDUPLICATION
+    # ======================================================================
 
-        return lines
+    def _deduplicate_events(self, events: Sequence[TransitEvent]) -> List[TransitEvent]:
+        grouped: Dict[Tuple[str, str, str], List[TransitEvent]] = defaultdict(list)
+        for event in events:
+            grouped[event.semantic_key].append(event)
 
-    # ----------------------------------------------------------------------
-    # RETROGRADE CONTEXT
-    # ----------------------------------------------------------------------
+        result: List[TransitEvent] = []
+        for _, group in grouped.items():
+            group.sort(key=lambda e: e.exact_utc or datetime.max.replace(tzinfo=timezone.utc))
+            unique: List[TransitEvent] = []
+            for event in group:
+                if not unique:
+                    unique.append(event)
+                    continue
+                previous = unique[-1]
+                if (
+                    event.exact_utc
+                    and previous.exact_utc
+                    and abs((event.exact_utc - previous.exact_utc).total_seconds())
+                    <= self.config.exact_tolerance_seconds
+                ):
+                    if event.score > previous.score:
+                        unique[-1] = event
+                else:
+                    unique.append(event)
+            for index, event in enumerate(unique, start=1):
+                event.hit_index = index
+            result.extend(unique)
+        return result
 
-    def _build_retrograde_context(
-        self,
-        result: ForecastResult,
-    ) -> List[str]:
+    # ======================================================================
+    # RETROGRADE ANNOTATION
+    # ======================================================================
 
-        lines: List[str] = []
+    def _is_retrograde_at(self, planet: str, timestamp: datetime) -> bool:
+        subject = self._snapshot(timestamp)
+        transit = self._extract_transit_planet(subject, planet)
+        if transit is None:
+            return False
+        return transit.retrograde
 
-        lines.append(
-            "=== РЕТРОГРАДНОСТЬ ==="
+    def _annotate_retrograde(self, events: Sequence[TransitEvent]) -> None:
+        for event in events:
+            if event.exact_utc is None:
+                continue
+            event.is_retrograde = self._is_retrograde_at(event.transit_body, event.exact_utc)
+            if event.is_retrograde:
+                event.score = round(event.score + self.config.retrograde_bonus, 3)
+
+    # ======================================================================
+    # THEMATIC AGGREGATION
+    # ======================================================================
+
+    def _aggregate_themes(self, events: Sequence[TransitEvent]) -> List[TransitEpisode]:
+        grouped: Dict[Tuple[str, str, str], List[TransitEvent]] = defaultdict(list)
+        for event in events:
+            grouped[event.semantic_key].append(event)
+
+        episodes: List[TransitEpisode] = []
+        for key, group in grouped.items():
+            group = sorted(group, key=lambda e: e.exact_utc or datetime.max.replace(tzinfo=timezone.utc))
+            first = group[0]
+            episode = TransitEpisode(
+                transit_body=first.transit_body,
+                natal_target=first.natal_target,
+                aspect=first.aspect,
+                theme=first.theme,
+                first_start_utc=min((e.start_utc for e in group if e.start_utc is not None), default=None),
+                last_end_utc=max((e.end_utc for e in group if e.end_utc is not None), default=None),
+                exact_hits=[e.exact_utc for e in group if e.exact_utc is not None],
+                max_score=max(e.score for e in group),
+                hit_count=len(group),
+                retrograde_hits=sum(1 for e in group if e.is_retrograde),
+            )
+            if episode.hit_count > 1:
+                episode.max_score += self.config.repeated_hit_bonus * min(episode.hit_count - 1, 3)
+            episodes.append(episode)
+        self.episodes = episodes
+        return episodes
+
+    # ======================================================================
+    # RANKING
+    # ======================================================================
+
+    def _episode_score(self, episode: TransitEpisode) -> float:
+        return round(episode.max_score, 3)
+
+    def _rank_episodes(self, episodes: Sequence[TransitEpisode]) -> List[TransitEpisode]:
+        return sorted(
+            episodes,
+            key=lambda e: (self._episode_score(e), e.hit_count, e.retrograde_hits),
+            reverse=True,
         )
 
-        if not result.retrogrades:
-            lines.append(
-                "Нет ретроградных периодов "
-                "для рассматриваемых планет."
-            )
-            lines.append("")
-            return lines
+    # ======================================================================
+    # FINAL PIPELINE
+    # ======================================================================
 
-        for planet, windows in (
-            result.retrogrades.items()
-        ):
+    def calculate(
+        self,
+        period: ForecastPeriod,
+        max_display: Optional[int] = None,
+    ) -> List[TransitEpisode]:
+        self._validate_period(period)
 
-            lines.append(
-                f"- {PLANET_RU.get(planet, planet)}:"
-            )
+        self.events.clear()
+        self.episodes.clear()
+        self.retrograde_windows.clear()
 
-            for window in windows:
+        self.stats.update({
+            "snapshot_requests": 0,
+            "snapshot_created": 0,
+            "snapshot_cache_hits": 0,
+            "candidate_windows": 0,
+            "exact_hits": 0,
+            "retrograde_candidates": 0,
+            "retrograde_refinements": 0,
+        })
 
-                lines.append(
-                    f"  {self._format_date(window.start_utc)} "
-                    f"→ "
-                    f"{self._format_date(window.end_utc)}"
-                )
+        logger.info("=== TRANSIT ENGINE START ===")
+        logger.info(
+            "period=%s start=%s end=%s",
+            period.period_type,
+            datetime_key(period.start_utc),
+            datetime_key(period.end_utc),
+        )
 
-                if window.start_station:
-                    lines.append(
-                        "  "
-                        f"станция: "
-                        f"{self._format_date(window.start_station.timestamp_utc)} "
-                        f""
-                        f"{window.start_station.station_type}"
-                    )
+        planets = self._planets_for_period(period.period_type)
+        logger.info("planets=%s", ",".join(planets))
 
-                if window.end_station:
-                    lines.append(
-                        "  "
-                        f"станция: "
-                        f"{self._format_date(window.end_station.timestamp_utc)} "
-                        f""
-                        f"{window.end_station.station_type}"
-                    )
+        # PASS A — transit candidate detection
+        candidates = self._detect_candidate_windows(period, planets)
 
-        lines.append("")
+        # PASS B — exact dates
+        events: List[TransitEvent] = []
+        for planet, target, aspect, start, end in candidates:
+            if len(events) >= self.config.max_events_per_period:
+                logger.warning("Event safety limit reached.")
+                break
+            event = self._resolve_candidate(planet, target, aspect, start, end, period)
+            if event is None:
+                continue
+            if event.exact_utc is not None:
+                if not (period.start_utc <= event.exact_utc <= period.end_utc):
+                    continue
+            events.append(event)
 
-        return lines
+        events = self._deduplicate_events(events)
+        self.stats["exact_hits"] = len(events)
 
-    # ----------------------------------------------------------------------
-    # LLM CONTEXT
-    # ----------------------------------------------------------------------
+        # PASS C — retrograde
+        self._detect_retrogrades(period, planets)
+        self._annotate_retrograde(events)
+
+        # CLASSIFY again after retrograde metadata
+        for event in events:
+            self._classify_event(event)
+
+        self.events = events
+
+        # THEMATIC AGGREGATION
+        episodes = self._aggregate_themes(events)
+        ranked = self._rank_episodes(episodes)
+
+        # Применяем max_display если передан, иначе из конфига
+        if max_display is not None:
+            limit = max_display
+        else:
+            limit = self.config.max_final_events(period.period_type)
+
+        final = ranked[:limit]
+
+        logger.info(
+            "=== TRANSIT ENGINE END ==="
+            " snapshots_created=%d snapshot_requests=%d cache_hits=%d candidates=%d exact_hits=%d episodes=%d final=%d",
+            self.stats["snapshot_created"],
+            self.stats["snapshot_requests"],
+            self.stats["snapshot_cache_hits"],
+            self.stats["candidate_windows"],
+            self.stats["exact_hits"],
+            len(episodes),
+            len(final),
+        )
+
+        return final
+
+    # ======================================================================
+    # PUBLIC METHODS
+    # ======================================================================
 
     def build_context(
         self,
         period_type: str,
         period_start_utc: datetime,
         period_end_utc: datetime,
-        max_display: Optional[int] = None,
+        max_display: int = 12,
     ) -> str:
-
-        result = self.calculate(
+        """
+        Возвращает готовый текст для LLM.
+        Если включён emulation_mode, возвращает QA-отчёт.
+        """
+        period = ForecastPeriod(
             period_type=period_type,
-            period_start_utc=period_start_utc,
-            period_end_utc=period_end_utc,
-            max_display=max_display,
+            start_utc=ensure_utc(period_start_utc),
+            end_utc=ensure_utc(period_end_utc),
         )
+
+        if self.emulation_mode:
+            # Вместо нормального контекста возвращаем QA-отчёт
+            return self.get_qa_report()
+
+        episodes = self.calculate(period, max_display=max_display)
 
         lines: List[str] = []
 
-        lines.append(
-            "=== АСТРОЛОГИЧЕСКИЙ КОНТЕКСТ ==="
-        )
-
-        lines.append(
-            f"Тип периода: "
-            f"{result.period.period_type.value}"
-        )
-
-        lines.append(
-            f"Начало: "
-            f"{self._format_date(result.period.start_utc)}"
-        )
-
-        lines.append(
-            f"Конец: "
-            f"{self._format_date(result.period.end_utc)}"
-        )
-
-        lines.append(
-            f"Движок: "
-            f"{self.VERSION}"
-        )
-
+        lines.append("=== АСТРОЛОГИЧЕСКИЙ КОНТЕКСТ ===")
+        lines.append(f"Тип периода: {period.period_type}")
+        lines.append(f"Начало UTC: {period.start_utc.isoformat()}")
+        lines.append(f"Конец UTC: {period.end_utc.isoformat()}")
         lines.append("")
 
-        lines.extend(
-            self._build_natal_context()
-        )
-
-        # --------------------------------------------------------------
-        # Main transits
-        # --------------------------------------------------------------
-
-        lines.append(
-            "=== ГЛАВНЫЕ ТРАНЗИТЫ ==="
-        )
-
-        if not result.final_events:
+        # NATAL
+        lines.append("=== НАТАЛЬНЫЕ ТОЧКИ ===")
+        for target, data in sorted(self._natal_points.items()):
+            longitude = to_float(data.get("abs_pos"))
+            if longitude is None:
+                continue
+            sign = data.get("sign", "")
+            position = to_float(data.get("position"), 0.0) or 0.0
+            house = data.get("house")
             lines.append(
-                "Нет транзитов, прошедших "
-                "порог значимости."
+                f"{TARGET_RU.get(target, target)}: "
+                f"{sign} {position:.2f}°"
+                + (f", дом {house}" if house else "")
             )
+        lines.append("")
 
+        # THEMATIC EVENTS
+        lines.append("=== ГЛАВНЫЕ ТРАНЗИТНЫЕ ТЕМЫ ===")
+        if not episodes:
+            lines.append("Нет транзитов, прошедших порог значимости.")
         else:
+            for index, episode in enumerate(episodes, start=1):
+                planet = PLANET_RU.get(episode.transit_body, episode.transit_body)
+                target = TARGET_RU.get(episode.natal_target, episode.natal_target)
+                aspect = ASPECT_RU.get(episode.aspect, episode.aspect)
+                lines.append(f"{index}. {planet} — {aspect} — {target}")
+                lines.append(f"   Тема: {episode.theme}")
+                lines.append(f"   Количество точных проходов: {episode.hit_count}")
 
-            for index, event in enumerate(
-                result.final_events,
-                start=1,
-            ):
-                lines.extend(
-                    self._event_to_context(
-                        index,
-                        event,
-                    )
-                )
+                if episode.exact_hits:
+                    exact_dates = ", ".join(dt.isoformat(timespec="minutes") for dt in episode.exact_hits)
+                    lines.append(f"   Точные даты UTC: {exact_dates}")
+
+                if episode.first_start_utc:
+                    lines.append(f"   Начало влияния UTC: {episode.first_start_utc.isoformat(timespec='minutes')}")
+                if episode.last_end_utc:
+                    lines.append(f"   Конец влияния UTC: {episode.last_end_utc.isoformat(timespec='minutes')}")
+
+                lines.append(f"   Retrograde hits: {episode.retrograde_hits}")
+                lines.append(f"   Priority score: {episode.max_score:.2f}")
 
         lines.append("")
 
-        # --------------------------------------------------------------
-        # Themes
-        # --------------------------------------------------------------
-
-        lines.extend(
-            self._build_theme_context(
-                result
-            )
-        )
-
-        # --------------------------------------------------------------
-        # Retrograde
-        # --------------------------------------------------------------
-
-        lines.extend(
-            self._build_retrograde_context(
-                result
-            )
-        )
-
-        # --------------------------------------------------------------
-        # Background
-        # --------------------------------------------------------------
-
-        lines.append(
-            "=== ФОНОВЫЕ ТРАНЗИТЫ ==="
-        )
-
-        if not result.background_events:
-            lines.append("Нет.")
-
-        else:
-
-            background_limit = {
-                PeriodType.DAY: 10,
-                PeriodType.MONTH: 20,
-                PeriodType.YEAR: 30,
-            }[
-                result.period.period_type
-            ]
-
-            for index, event in enumerate(
-                result.background_events[
-                    :background_limit
-                ],
-                start=1,
-            ):
+        # RETROGRADES
+        lines.append("=== РЕТРОГРАДНЫЕ СТАНЦИИ ===")
+        retrogrades_found = False
+        for planet, windows in sorted(self.retrograde_windows.items()):
+            for window in windows:
+                retrogrades_found = True
+                direction = "начало ретроградности" if window.retrograde_after else "окончание ретроградности"
                 lines.append(
-                    f"{index}. "
-                    f"{event.display_name}; "
-                    f"период "
-                    f"{self._format_date_short(event.start_utc)}"
-                    f"–"
-                    f"{self._format_date_short(event.end_utc)}; "
-                    f"точность "
-                    f"{event.minimum_orb:.2f}°; "
-                    f"score={event.score:.2f}"
+                    f"- {PLANET_RU.get(planet, planet)}: {direction}; "
+                    f"станция {window.station_exact_utc.isoformat(timespec='minutes')} UTC"
                 )
-
+        if not retrogrades_found:
+            lines.append("Нет.")
         lines.append("")
 
-        # --------------------------------------------------------------
-        # LLM rules
-        # --------------------------------------------------------------
+        # ENGINE QA
+        lines.append("=== ENGINE QA ===")
+        lines.append(f"Snapshots created: {self.stats['snapshot_created']}")
+        lines.append(f"Snapshot requests: {self.stats['snapshot_requests']}")
+        lines.append(f"Snapshot cache hits: {self.stats['snapshot_cache_hits']}")
+        lines.append(f"Candidate windows: {self.stats['candidate_windows']}")
+        lines.append(f"Exact hits: {self.stats['exact_hits']}")
+        lines.append(f"Retrograde refinements: {self.stats['retrograde_refinements']}")
+        lines.append("")
 
-        lines.append(
-            "=== ИНСТРУКЦИЯ ДЛЯ ИНТЕРПРЕТАТОРА ==="
-        )
-
-        lines.append(
-            "1. Используй только транзиты, "
-            "присутствующие в данных."
-        )
-
-        lines.append(
-            "2. Точные даты являются расчетными "
-            "астрономическими моментами аспекта; "
-            "не придумывай другие даты."
-        )
-
-        lines.append(
-            "3. Если у транзита несколько exact dates, "
-            "это отдельные проходы одного аспекта, "
-            "обычно связанные с ретроградным движением."
-        )
-
-        lines.append(
-            "4. Главные транзиты используй как "
-            "основной материал прогноза."
-        )
-
-        lines.append(
-            "5. Тематическую карту используй для "
-            "структурирования прогноза по сферам жизни."
-        )
-
-        lines.append(
-            "6. Score — техническая величина ранжирования, "
-            "не астрологическое значение."
-        )
-
-        lines.append(
-            "7. Не превращай каждый фоновой транзит "
-            "в отдельное предсказание."
-        )
-
-        lines.append(
-            "8. Для month/year отдавай приоритет "
-            "долгим и повторным транзитам."
-        )
-
-        lines.append(
-            "9. Для day учитывай быстрые транзиты "
-            "и точные моменты."
-        )
-
-        lines.append(
-            "10. Не утверждай причинно-следственные "
-            "факты о здоровье, финансах или других "
-            "реальных последствиях только на основании "
-            "астрологического транзита."
-        )
+        # LLM INSTRUCTIONS
+        lines.append("=== ИНСТРУКЦИЯ ДЛЯ ИНТЕРПРЕТАТОРА ===")
+        lines.append("Используй транзитные темы как основу прогноза.")
+        lines.append("Точные даты бери только из поля 'Точные даты UTC'.")
+        lines.append("Не придумывай дополнительные транзиты или даты.")
+        lines.append("Если у транзита несколько точных проходов, рассматривай их как один повторяющийся тематический процесс.")
+        lines.append("Ретроградный проход не считать новым независимым жизненным сюжетом: он является частью того же transit episode.")
+        lines.append("Score предназначен только для внутреннего ранжирования и не должен объясняться пользователю.")
+        lines.append("Для дневного прогноза приоритет — конкретные события текущего дня.")
+        lines.append("Для месячного прогноза приоритет — точные даты и периоды повторных проходов.")
+        lines.append("Для годового прогноза приоритет — медленные планеты, станции, повторные проходы и долгосрочные тематические процессы.")
 
         return "\n".join(lines)
 
-    # ----------------------------------------------------------------------
-    # EMULATION / QA
-    # ----------------------------------------------------------------------
+    # ======================================================================
+    # QA
+    # ======================================================================
+
+    def get_stats(self) -> Dict[str, Any]:
+        return {
+            **self.stats,
+            "events": len(self.events),
+            "episodes": len(self.episodes),
+            "snapshot_cache_size": len(self._snapshot_cache),
+        }
 
     def get_qa_report(self) -> str:
+        lines = [
+            "=== TRANSIT ENGINE QA ===",
+            f"Snapshots created: {self.stats['snapshot_created']}",
+            f"Snapshot requests: {self.stats['snapshot_requests']}",
+            f"Cache hits: {self.stats['snapshot_cache_hits']}",
+            f"Candidate windows: {self.stats['candidate_windows']}",
+            f"Exact hits: {self.stats['exact_hits']}",
+            f"Retrograde candidates: {self.stats['retrograde_candidates']}",
+            f"Retrograde refinements: {self.stats['retrograde_refinements']}",
+            f"Events: {len(self.events)}",
+            f"Episodes: {len(self.episodes)}",
+            "",
+            "=== EVENTS ===",
+        ]
 
-        result = self.last_result
-
-        if result is None:
-            return "No forecast has been calculated."
-
-        lines: List[str] = []
-
-        lines.append(
-            "=== HOROSCOPE QA REPORT ==="
-        )
-
-        stats = result.stats()
-
-        for key, value in stats.items():
-            lines.append(
-                f"{key}: {value}"
-            )
-
-        lines.append("")
-
-        lines.append(
-            "=== FINAL EVENTS ==="
-        )
-
-        for index, event in enumerate(
-            result.final_events,
-            start=1,
+        for event in sorted(
+            self.events,
+            key=lambda e: e.exact_utc or datetime.max.replace(tzinfo=timezone.utc),
         ):
-            exact_dates = ','.join(
-                self._format_date_short(value)
-                for value in event.exact_hits_utc
-            ) or 'none'
-
+            exact = event.exact_utc.isoformat(timespec="seconds") if event.exact_utc else "N/A"
             lines.append(
-                f"{index:02d}. "
                 f"{event.display_name} | "
-                f"{self._format_date(event.start_utc)} "
-                f"-> "
-                f"{self._format_date(event.end_utc)} | "
-                f"exact={exact_dates} | "
-                f"orb={event.minimum_orb:.3f} | "
-                f"score={event.score:.3f} | "
-                f"activity={event.activity.value} | "
-                f"reason={event.reason} | "
-                f"retrograde={event.retrograde_present}"
+                f"exact={exact} | "
+                f"orb={event.orb_at_exact:.4f} | "
+                f"phase={event.phase} | "
+                f"retrograde={event.is_retrograde} | "
+                f"score={event.score:.3f}"
             )
 
         lines.append("")
-
-        lines.append(
-            "=== THEMES ==="
-        )
-
-        for theme, aggregate in (
-            result.themes.items()
-        ):
-
-            lines.append(
-                f"{theme}: "
-                f"count={aggregate.event_count} "
-                f"total={aggregate.total_score:.2f} "
-                f"peak={aggregate.peak_score:.2f}"
-            )
-
-        lines.append("")
-
-        lines.append(
-            "=== RETROGRADES ==="
-        )
-
-        for planet, windows in (
-            result.retrogrades.items()
-        ):
-
+        lines.append("=== RETROGRADE WINDOWS ===")
+        for planet, windows in sorted(self.retrograde_windows.items()):
             for window in windows:
                 lines.append(
                     f"{planet}: "
-                    f"{self._format_date(window.start_utc)} "
-                    f"-> "
-                    f"{self._format_date(window.end_utc)}"
+                    f"{window.station_exact_utc.isoformat(timespec='seconds')} | "
+                    f"before={window.before_speed:.8f} | "
+                    f"station={window.station_speed:.8f} | "
+                    f"after={window.after_speed:.8f} | "
+                    f"retrograde_after={window.retrograde_after}"
                 )
 
         return "\n".join(lines)
-
-
-# ============================================================================
-# OPTIONAL: SIMPLE FACTORY
-# ============================================================================
-
-def build_horoscope_context(
-    user_data: Dict[str, Any],
-    period_type: str,
-    period_start_utc: datetime,
-    period_end_utc: datetime,
-    lang: str = "ru",
-    telegram_id: Optional[int] = None,
-    coords: Optional[
-        Tuple[float, float, str]
-    ] = None,
-    max_display: Optional[int] = None,
-) -> str:
-
-    calculator = HoroscopeCalculator(
-        user_data=user_data,
-        lang=lang,
-        telegram_id=telegram_id,
-        coords=coords,
-        emulation_mode=False,
-    )
-
-    return calculator.build_context(
-        period_type=period_type,
-        period_start_utc=period_start_utc,
-        period_end_utc=period_end_utc,
-        max_display=max_display,
-    )
