@@ -342,22 +342,22 @@ class AstrologyCalculator:
 
         return prompt
 
-    async def generate(self) -> str:
+    async def generate(self, save_to_db: bool = True) -> str:
         """
-        Основной метод: строит карту, сохраняет координаты и UTC в БД, формирует промпт,
-        и в зависимости от режима эмуляции либо возвращает промпт, либо отправляет в Gemini.
+        Основной метод: строит карту, сохраняет координаты (если save_to_db=True),
+        формирует промпт и возвращает ответ Gemini.
         """
-        # 1. Строим карту – это гарантирует, что координаты и UTC определены
         self._build_natal_chart()
 
-        # 2. Сохраняем координаты и UTC-строку в БД (если есть что сохранять)
-        if self._calculated_coords and self.telegram_id:
+        # Сохраняем координаты, только если явно разрешено
+        if save_to_db and self._calculated_coords and self.telegram_id:
             lat, lng = self._calculated_coords
             utc_str = self._calculated_utc_str
             if not utc_str and self._utc_dt:
                 utc_str = self._utc_dt.isoformat(timespec='seconds')
             if utc_str:
-                logger.info(f"💾 Сохраняем координаты и UTC в БД: lat={lat}, lng={lng}, utc={utc_str} для {self.telegram_id}")
+                logger.info(
+                    f"💾 Сохраняем координаты и UTC в БД: lat={lat}, lng={lng}, utc={utc_str} для {self.telegram_id}")
                 result = await save_user_coords(self.telegram_id, lat, lng, utc_str)
                 if result:
                     logger.info(f"✅ Координаты и UTC сохранены в БД для {self.telegram_id}")
@@ -366,9 +366,8 @@ class AstrologyCalculator:
             else:
                 logger.warning("⚠️ Нет UTC-строки для сохранения")
         else:
-            logger.warning(f"⚠️ Не удалось сохранить: _calculated_coords={self._calculated_coords}, telegram_id={self.telegram_id}")
+            logger.info("ℹ️ Сохранение координат в БД отключено (save_to_db=False)")
 
-        # 3. Формируем промпт
         prompt = self._build_prompt()
 
         # 4. Режим эмуляции или реальный запрос
