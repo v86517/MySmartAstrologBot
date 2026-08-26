@@ -430,6 +430,14 @@ class TransitEpisode:
     def semantic_key(self) -> Tuple[str, str, str]:
         return (self.transit_body, self.natal_target, self.aspect)
 
+    @property
+    def display_name(self) -> str:
+        return (
+            f"{PLANET_RU.get(self.transit_body, self.transit_body)} "
+            f"{ASPECT_RU.get(self.aspect, self.aspect)} "
+            f"{TARGET_RU.get(self.natal_target, self.natal_target)}"
+        )
+
 
 @dataclass
 class RetrogradeWindow:
