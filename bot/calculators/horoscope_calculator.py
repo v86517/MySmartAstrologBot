@@ -1042,6 +1042,29 @@ class HoroscopeCalculator:
         if target_date is None:
             target_date = datetime.now(timezone.utc)
 
+        # ======================================================================
+        # ЛОГИРОВАНИЕ НАТАЛЬНЫХ ДАННЫХ (всегда в начале лога)
+        # ======================================================================
+        logger.info("=== НАТАЛЬНЫЕ ДАННЫЕ ===")
+        for planet in ("sun", "moon", "mercury", "venus", "mars",
+                       "jupiter", "saturn", "uranus", "neptune", "pluto"):
+            data = self.natal_planets.get(planet)
+            if data:
+                sign = data.get("sign", "")
+                position = to_float(data.get("position"), 0.0) or 0.0
+                house = data.get("house", "")
+                retro = " ретроградный" if data.get("retrograde") else ""
+                logger.info("  %s: %s %.2f°, %s дом%s",
+                            PLANET_RU.get(planet, planet), sign, position, house, retro)
+
+        for angle in ("ascendant", "medium_coeli", "descendant", "imum_coeli"):
+            data = self.natal_angles.get(angle)
+            if data:
+                sign = data.get("sign", "")
+                position = to_float(data.get("position"), 0.0) or 0.0
+                logger.info("  %s: %s %.2f°", TARGET_RU.get(angle, angle), sign, position)
+        logger.info("=== КОНЕЦ НАТАЛЬНЫХ ДАННЫХ ===")
+
         # Выполняем полный pipeline
         self.calculate(
             target_date=target_date,
