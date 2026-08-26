@@ -468,6 +468,7 @@ class HoroscopeCalculator:
         telegram_id: Optional[int] = None,
         coords: Optional[Tuple[float, float, str]] = None,
         emulation_mode: bool = False,
+        gemini_service: Optional[Any] = None,
         config: EngineConfig = DEFAULT_CONFIG,
     ) -> None:
         self.user_data = user_data
@@ -476,6 +477,7 @@ class HoroscopeCalculator:
         self.coords = coords
         self.emulation_mode = emulation_mode
         self.config = config
+        self.gemini_service = gemini_service
 
         # Получаем натальную карту через существующий AstrologyCalculator
         self.astro_calc = AstrologyCalculator(
@@ -1449,6 +1451,12 @@ class HoroscopeCalculator:
             period_end_utc: datetime,
             max_display: int = 12,
     ) -> str:
+        """
+        Формирует промпт.
+        Если emulation_mode=True – возвращает промпт без отправки в Gemini.
+        Если gemini_service доступен – отправляет в Gemini и возвращает ответ.
+        Если gemini_service недоступен – возвращает промпт.
+        """
         logger.info("=== BUILD CONTEXT START ===")
         logger.info("period_type=%s start=%s end=%s max_display=%d",
                     period_type,
@@ -1456,18 +1464,45 @@ class HoroscopeCalculator:
                     period_end_utc.isoformat(),
                     max_display)
 
-        if self.emulation_mode:
-            logger.info("Emulation mode enabled, returning QA report.")
-            return self.get_qa_report()
-
         period = ForecastPeriod(
             period_type=period_type,
             start_utc=ensure_utc(period_start_utc),
             end_utc=ensure_utc(period_end_utc),
         )
 
+        # Всегда выполняем расчёт
         episodes = self.calculate(period, max_display=max_display)
 
+        # Формируем промпт
+        prompt = self._build_prompt(period, episodes)
+
+        # Режим эмуляции – возвращаем промпт без отправки в Gemini
+        if self.emulation_mode:
+            logger.info("Emulation mode: returning prompt without Gemini")
+            return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+
+        # Обычный режим – отправляем в Gemini
+        if self.gemini_service is None:
+            logger.warning("Gemini service not available, returning prompt only")
+            return prompt
+
+        logger.info("Sending prompt to Gemini...")
+        try:
+            response = self.gemini_service.send_raw_prompt(prompt)
+            logger.info("Gemini response received")
+            return response
+        except Exception as e:
+            logger.error(f"Error sending to Gemini: {e}", exc_info=True)
+            return f"❌ Ошибка при обращении к Gemini: {str(e)}\n\n{prompt}"
+
+    def _build_prompt(
+            self,
+            period: ForecastPeriod,
+            episodes: List[TransitEpisode],
+    ) -> str:
+        """
+        Формирует полный текст промпта на основе расчитанных эпизодов.
+        """
         lines: List[str] = []
 
         lines.append("=== АСТРОЛОГИЧЕСКИЙ КОНТЕКСТ ===")
@@ -1549,14 +1584,16 @@ class HoroscopeCalculator:
         lines.append("Используй транзитные темы как основу прогноза.")
         lines.append("Точные даты бери только из поля 'Точные даты UTC'.")
         lines.append("Не придумывай дополнительные транзиты или даты.")
-        lines.append("Если у транзита несколько точных проходов, рассматривай их как один повторяющийся тематический процесс.")
-        lines.append("Ретроградный проход не считать новым независимым жизненным сюжетом: он является частью того же transit episode.")
+        lines.append(
+            "Если у транзита несколько точных проходов, рассматривай их как один повторяющийся тематический процесс.")
+        lines.append(
+            "Ретроградный проход не считать новым независимым жизненным сюжетом: он является частью того же transit episode.")
         lines.append("Score предназначен только для внутреннего ранжирования и не должен объясняться пользователю.")
         lines.append("Для дневного прогноза приоритет — конкретные события текущего дня.")
         lines.append("Для месячного прогноза приоритет — точные даты и периоды повторных проходов.")
-        lines.append("Для годового прогноза приоритет — медленные планеты, станции, повторные проходы и долгосрочные тематические процессы.")
+        lines.append(
+            "Для годового прогноза приоритет — медленные планеты, станции, повторные проходы и долгосрочные тематические процессы.")
 
-        logger.info("=== BUILD CONTEXT END ===")
         return "\n".join(lines)
 
     # ======================================================================

@@ -216,12 +216,12 @@ async def confirm_horoscope(callback: CallbackQuery):
             lang=lang,
             telegram_id=user_id,
             coords=None,
-            emulation_mode=emulation
+            emulation_mode=emulation,
+            gemini_service=_gemini_service  # передаём сервис
         )
 
-        # 3. Получаем контекст (уже готовый промпт для LLM) с преобразованным period_type
         context = calc.build_context(
-            period_type=period_type,  # "day", "month" или "year"
+            period_type=period_type,
             period_start_utc=start_utc,
             period_end_utc=end_utc,
             max_display=12
