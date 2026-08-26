@@ -172,6 +172,9 @@ async def confirm_horoscope(callback: CallbackQuery):
     await callback.message.delete()
 
     period = callback.data.split("_")[2]  # "today", "month", "year"
+    # Преобразуем для нового API
+    period_type = "day" if period == "today" else period  # "day", "month", "year"
+
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
@@ -213,12 +216,12 @@ async def confirm_horoscope(callback: CallbackQuery):
             lang=lang,
             telegram_id=user_id,
             coords=None,
-            emulation_mode=emulation  # пока не используется внутри, но оставляем для совместимости
+            emulation_mode=emulation
         )
 
-        # 3. Получаем контекст (уже готовый промпт для LLM)
+        # 3. Получаем контекст (уже готовый промпт для LLM) с преобразованным period_type
         context = calc.build_context(
-            period_type=period,
+            period_type=period_type,  # "day", "month" или "year"
             period_start_utc=start_utc,
             period_end_utc=end_utc,
             max_display=12
