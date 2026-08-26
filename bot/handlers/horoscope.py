@@ -1,7 +1,7 @@
 # bot/handlers/horoscope.py
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from aiogram import Router, F
@@ -131,12 +131,47 @@ async def select_horoscope_period(callback: CallbackQuery, state: FSMContext):
 
 # ====================== ГЕНЕРАЦИЯ ГОРОСКОПА ======================
 
+def compute_period_bounds(period: str, target_date: datetime, timezone_offset: int = 3):
+    """
+    Вычисляет начало и конец периода в UTC.
+    """
+    target_date = target_date.astimezone(timezone.utc) if target_date.tzinfo else target_date.replace(tzinfo=timezone.utc)
+
+    if period == "today":
+        # Учитываем часовой пояс пользователя
+        user_tz = timezone(timedelta(hours=timezone_offset))
+        local_now = target_date.astimezone(user_tz)
+        local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        local_end = local_start + timedelta(days=1)
+        start_utc = local_start.astimezone(timezone.utc)
+        end_utc = local_end.astimezone(timezone.utc)
+        return start_utc, end_utc
+
+    elif period == "month":
+        year, month = target_date.year, target_date.month
+        start = datetime(year, month, 1, tzinfo=timezone.utc)
+        if month == 12:
+            end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+        return start, end
+
+    elif period == "year":
+        year = target_date.year
+        start = datetime(year, 1, 1, tzinfo=timezone.utc)
+        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        return start, end
+
+    else:
+        raise ValueError(f"Unsupported period: {period}")
+
+
 @router.callback_query(F.data.startswith("confirm_horoscope_"))
 async def confirm_horoscope(callback: CallbackQuery):
     await callback.answer()
     await callback.message.delete()
 
-    period = callback.data.split("_")[2]  # today, month, year
+    period = callback.data.split("_")[2]  # "today", "month", "year"
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
     user_data = await get_user_data(user_id)
@@ -167,58 +202,41 @@ async def confirm_horoscope(callback: CallbackQuery):
     status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
 
     try:
-        # 1. Создаём калькулятор
+        # 1. Вычисляем границы периода
+        target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        timezone_offset = user_data.get('timezone_offset', 3)
+        start_utc, end_utc = compute_period_bounds(period, target_date, timezone_offset)
+
+        # 2. Создаём калькулятор
         calc = HoroscopeCalculator(
             user_data=user_data,
             lang=lang,
             telegram_id=user_id,
             coords=None,
-            emulation_mode=emulation
+            emulation_mode=emulation  # пока не используется внутри, но оставляем для совместимости
         )
 
-        # 2. Целевая дата (UTC)
-        target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        # 3. Получаем контекст (уже готовый промпт для LLM)
+        context = calc.build_context(
+            period_type=period,
+            period_start_utc=start_utc,
+            period_end_utc=end_utc,
+            max_display=12
+        )
 
-        # 3. Строим контекст
-        context = calc.build_context(period=period, target_date=target_date)
-        #qa_report = calc.get_qa_report()
-        #logger.info("=== QA REPORT ===\n%s", qa_report)
-
-        # 4. Загружаем шаблон промпта
-        template = await load_prompt_template('prompt_horoscope.txt')
-        if not template:
-            await callback.message.answer("❌ Шаблон промпта не найден.")
-            return
-
-        # 5. Языковая инструкция
-        if lang == 'en':
-            language_instruction = "IMPORTANT: Respond in English only."
-        else:
-            language_instruction = "ВАЖНО: Отвечай только на русском языке."
-
-        # 6. Период в текстовом виде
-        period_name = "день" if period == 'today' else "месяц" if period == 'month' else "год"
-
-        # 7. Подставляем в шаблон
-        prompt = template.replace('{language_instruction}', language_instruction)
-        prompt = prompt.replace('{period}', period_name)
-        prompt = prompt.replace('{context}', context)
-
-        # 8. Если включён режим эмуляции – показываем диагностику и промпт
+        # 4. Если режим эмуляции – показываем QA-отчёт
         if emulation:
-            #qa_report = calc.get_qa_report()
-            #logger.info(f"QA-отчёт:\n{qa_report}")
-            final_text = (
-                f"🔍 РЕЖИМ ЭМУЛЯЦИИ\n\n"
-                #f"--- QA ОТЧЁТ ---\n{qa_report}\n\n"
-                f"--- ПРОМПТ ---\n{prompt}"
-            )
+            qa_report = calc.get_qa_report()
+            if qa_report:
+                final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ\n\n{qa_report}"
+            else:
+                final_text = "🔍 Режим эмуляции, но отчёт недоступен."
         else:
-            # Реальный запрос к Gemini
-            result_text = _gemini_service.send_raw_prompt(prompt)
+            # Реальный запрос к Gemini – отправляем готовый контекст
+            result_text = _gemini_service.send_raw_prompt(context)
             final_text = result_text
 
-        # 9. Сохраняем в архив
+        # 5. Сохраняем в архив
         await save_message_to_archive(user_id, 'horoscope', final_text)
         if not is_subscribed:
             await mark_feature_used_db(user_id, 'horoscope')
