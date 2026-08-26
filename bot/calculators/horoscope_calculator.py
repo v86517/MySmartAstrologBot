@@ -622,21 +622,40 @@ class HoroscopeCalculator:
         logger.info("Всего получено: %d", len(aspects))
 
         for idx, aspect in enumerate(aspects):
+            # Логируем полную информацию о сыром аспекте до проверок
+            p1 = get_attr_safe(aspect, "p1_name")
+            p2 = get_attr_safe(aspect, "p2_name")
+            asp_type = get_attr_safe(aspect, "aspect")
+            orb = to_float(get_attr_safe(aspect, "orbit"))
+            movement = get_attr_safe(aspect, "aspect_movement")
+            p1_owner = get_attr_safe(aspect, "p1_owner")
+            p2_owner = get_attr_safe(aspect, "p2_owner")
+
+            # Начальный лог
+            logger.info(
+                "[RAW ASPECT %02d] %s -> %s | aspect=%s orb=%.3f movement=%s | owner1=%s owner2=%s",
+                idx, p1, p2, asp_type, orb if orb is not None else 0.0, movement, p1_owner, p2_owner
+            )
+
+            # Проверка owner и принадлежности к планетам
             pair = self._identify_transit_and_natal(aspect, transit_subject)
             if not pair:
+                logger.info("  -> ОТБРОШЕН: не удалось определить transit/natal пару")
                 continue
 
             transit_body, natal_target_raw = pair
-            source_aspect = normalize_name(get_attr_safe(aspect, "aspect"))
+            source_aspect = normalize_name(asp_type)
             if source_aspect not in MAJOR_ASPECTS:
+                logger.info("  -> ОТБРОШЕН: non-major aspect (%s)", source_aspect)
                 continue
 
-            orb = to_float(get_attr_safe(aspect, "orbit"))
-            if orb is None:
+            if orb is None or orb > 10.0:  # если орб слишком большой – тоже отбрасываем
+                logger.info("  -> ОТБРОШЕН: orb=None или >10.0")
                 continue
 
-            movement = str(get_attr_safe(aspect, "aspect_movement", default=""))
-            phase = normalize_phase(movement)
+            # Здесь создаём событие, как раньше...
+            movement_str = str(movement or "")
+            phase = normalize_phase(movement_str)
 
             natal_target, aspect_type = self._normalize_angle_target(natal_target_raw, source_aspect)
 
@@ -644,6 +663,7 @@ class HoroscopeCalculator:
             transit_data = extract_point_dict(transit_subject, transit_body)
 
             if not natal_data or not transit_data:
+                logger.info("  -> ОТБРОШЕН: нет данных для transit=%s или natal=%s", transit_body, natal_target)
                 continue
 
             transit_lon = (to_float(transit_data.get("abs_pos"), 0.0) or 0.0) % 360.0
@@ -665,23 +685,13 @@ class HoroscopeCalculator:
                 is_retrograde=bool(transit_data.get("retrograde", False)),
                 transit_speed=to_float(transit_data.get("speed"), 0.0) or 0.0,
                 source_aspect=source_aspect,
-                source_movement=movement,
+                source_movement=movement_str,
             )
             events.append(event)
+            logger.info("  -> ПРИНЯТ: %s -> %s | aspect=%s orb=%.3f phase=%s",
+                        transit_body, natal_target, aspect_type, orb, phase)
 
-            logger.info(
-                "[RAW %02d] %s -> %s | aspect=%s (orig=%s) orb=%.3f phase=%s movement=%s",
-                idx,
-                event.transit_body,
-                event.natal_target,
-                event.aspect,
-                event.source_aspect,
-                event.orb,
-                event.phase,
-                event.source_movement,
-            )
-
-        logger.info("[RAW] Итого: %d событий", len(events))
+        logger.info("[RAW] Итого принято: %d из %d", len(events), len(aspects))
         self.raw_events = events
         return events
 
@@ -1172,17 +1182,86 @@ class HoroscopeCalculator:
         return "\n".join(lines)
 
     def _format_llm_context(
-        self,
-        target_date: datetime,
-        period: str,
-        days_range: int,
+            self,
+            target_date: datetime,
+            period: str,
+            days_range: int,
     ) -> str:
+        # ======================================================================
+        # ВЫВОД ДАННЫХ, КОТОРЫЕ ИДУТ В ПРОМПТ (структурированный лог)
+        # ======================================================================
+        logger.info("=== ДАННЫЕ ИДУТ В ПРОМПТ ===")
+        logger.info("Дата прогноза: %s", target_date.strftime('%d.%m.%Y'))
+        logger.info("Период: %s", period)
+
+        # --- Натальные планеты ---
+        logger.info("--- НАТАЛЬНЫЕ ПЛАНЕТЫ ---")
+        for planet in (
+                "sun", "moon", "mercury", "venus", "mars",
+                "jupiter", "saturn", "uranus", "neptune", "pluto",
+        ):
+            data = self.natal_planets.get(planet)
+            if not data:
+                continue
+            sign = data.get("sign", "")
+            position = to_float(data.get("position"), 0.0) or 0.0
+            house = data.get("house", "")
+            retrograde = bool(data.get("retrograde", False))
+            retro = " ретроградный" if retrograde else ""
+            logger.info(
+                "  %s: %s %.2f°, %s дом%s",
+                PLANET_RU.get(planet, planet),
+                sign,
+                position,
+                house,
+                retro,
+            )
+
+        # --- Натальные углы ---
+        logger.info("--- НАТАЛЬНЫЕ УГЛЫ ---")
+        for angle in ("ascendant", "medium_coeli", "descendant", "imum_coeli"):
+            data = self.natal_angles.get(angle)
+            if not data:
+                continue
+            sign = data.get("sign", "")
+            position = to_float(data.get("position"), 0.0) or 0.0
+            logger.info(
+                "  %s: %s %.2f°",
+                TARGET_RU.get(angle, angle),
+                sign,
+                position,
+            )
+
+        # --- Финальные транзиты ---
+        logger.info("--- ФИНАЛЬНЫЕ ТРАНЗИТЫ (всего %d) ---", len(self.final_events))
+        for idx, event in enumerate(self.final_events, start=1):
+            transit_planet = PLANET_RU.get(event.transit_body, event.transit_body)
+            aspect = ASPECT_RU.get(event.aspect, event.aspect)
+            target = TARGET_RU.get(event.natal_target, event.natal_target)
+            phase = PHASE_RU.get(event.phase, event.phase)
+            retro = "да" if event.is_retrograde else "нет"
+            logger.info(
+                "[%02d] %s %s %s | орб=%.3f | фаза=%s | транзитный дом=%s | натальный дом=%s | ретроградность=%s | score=%.3f | reason=%s",
+                idx,
+                transit_planet,
+                aspect,
+                target,
+                event.orb,
+                phase,
+                event.transit_house,
+                event.natal_target_house,
+                retro,
+                event.score,
+                event.reason,
+            )
+
+        # ======================================================================
+        # ФОРМИРОВАНИЕ ТЕКСТА ДЛЯ LLM (без изменений)
+        # ======================================================================
         lines: List[str] = []
 
         lines.append("=== АСТРОЛОГИЧЕСКИЙ КОНТЕКСТ ===")
-        lines.append(
-            f"Дата прогноза: {target_date.strftime('%d.%m.%Y')}"
-        )
+        lines.append(f"Дата прогноза: {target_date.strftime('%d.%m.%Y')}")
         lines.append(f"Период: {period}")
         lines.append("")
 
@@ -1193,40 +1272,33 @@ class HoroscopeCalculator:
         lines.append("=== НАТАЛЬНЫЕ ДАННЫЕ ===")
 
         for angle in (
-            "ascendant",
-            "medium_coeli",
-            "descendant",
-            "imum_coeli",
+                "ascendant",
+                "medium_coeli",
+                "descendant",
+                "imum_coeli",
         ):
             data = self.natal_angles.get(angle)
-
             if not data:
                 continue
-
             sign = data.get("sign", "")
             position = to_float(data.get("position"), 0.0) or 0.0
-
             lines.append(
                 f"{TARGET_RU.get(angle, angle)}: "
                 f"{sign} {position:.2f}°"
             )
 
         for planet in (
-            "sun", "moon", "mercury", "venus", "mars",
-            "jupiter", "saturn", "uranus", "neptune", "pluto",
+                "sun", "moon", "mercury", "venus", "mars",
+                "jupiter", "saturn", "uranus", "neptune", "pluto",
         ):
             data = self.natal_planets.get(planet)
-
             if not data:
                 continue
-
             sign = data.get("sign", "")
             position = to_float(data.get("position"), 0.0) or 0.0
             house = data.get("house", "")
             retrograde = bool(data.get("retrograde", False))
-
             retro = " ретроградный" if retrograde else ""
-
             lines.append(
                 f"{PLANET_RU.get(planet, planet)}: "
                 f"{sign} {position:.2f}°, "
@@ -1242,33 +1314,13 @@ class HoroscopeCalculator:
         lines.append("=== ГЛАВНЫЕ ТРАНЗИТЫ ===")
 
         if not self.final_events:
-            lines.append(
-                "Нет транзитов, прошедших порог значимости."
-            )
+            lines.append("Нет транзитов, прошедших порог значимости.")
         else:
-            for index, event in enumerate(
-                self.final_events,
-                start=1,
-            ):
-                phase = PHASE_RU.get(
-                    event.phase,
-                    event.phase,
-                )
-
-                aspect = ASPECT_RU.get(
-                    event.aspect,
-                    event.aspect,
-                )
-
-                transit_planet = PLANET_RU.get(
-                    event.transit_body,
-                    event.transit_body,
-                )
-
-                target = TARGET_RU.get(
-                    event.natal_target,
-                    event.natal_target,
-                )
+            for index, event in enumerate(self.final_events, start=1):
+                phase = PHASE_RU.get(event.phase, event.phase)
+                aspect = ASPECT_RU.get(event.aspect, event.aspect)
+                transit_planet = PLANET_RU.get(event.transit_body, event.transit_body)
+                target = TARGET_RU.get(event.natal_target, event.natal_target)
 
                 lines.append(
                     f"{index}. "
@@ -1279,25 +1331,12 @@ class HoroscopeCalculator:
                 )
 
                 if event.transit_house:
-                    lines.append(
-                        f"   Транзитная планета: "
-                        f"{event.transit_house} дом."
-                    )
-
+                    lines.append(f"   Транзитная планета: {event.transit_house} дом.")
                 if event.natal_target_house:
-                    lines.append(
-                        f"   Натальная точка: "
-                        f"{event.natal_target_house} дом."
-                    )
-
+                    lines.append(f"   Натальная точка: {event.natal_target_house} дом.")
                 if event.is_retrograde:
-                    lines.append(
-                        "   Транзитная планета ретроградна."
-                    )
-
-                lines.append(
-                    f"   Причина отбора: {event.reason}."
-                )
+                    lines.append("   Транзитная планета ретроградна.")
+                lines.append(f"   Причина отбора: {event.reason}.")
 
         lines.append("")
 
@@ -1310,12 +1349,7 @@ class HoroscopeCalculator:
         if not self.background_events:
             lines.append("Нет.")
         else:
-            # Для LLM достаточно краткого списка.
-            # Не передаём все 38 событий без необходимости.
-            background_sorted = self._rank_events(
-                self.background_events
-            )
-
+            background_sorted = self._rank_events(self.background_events)
             for event in background_sorted[:10]:
                 lines.append(
                     f"- "
@@ -1326,7 +1360,6 @@ class HoroscopeCalculator:
                     f"фаза {PHASE_RU.get(event.phase, event.phase)}; "
                     f"причина: {event.reason}."
                 )
-
             if len(background_sorted) > 10:
                 lines.append(
                     f"... ещё {len(background_sorted) - 10} "
@@ -1340,12 +1373,8 @@ class HoroscopeCalculator:
         # ------------------------------------------------------------------
 
         lines.append("=== ИНСТРУКЦИЯ ДЛЯ ИНТЕРПРЕТАТОРА ===")
-        lines.append(
-            "Используй главные транзиты как основной материал прогноза."
-        )
-        lines.append(
-            "Не придумывай транзиты, которых нет в данных."
-        )
+        lines.append("Используй главные транзиты как основной материал прогноза.")
+        lines.append("Не придумывай транзиты, которых нет в данных.")
         lines.append(
             "Score используется для ранжирования, а не как астрологическое "
             "значение, которое нужно объяснять пользователю."
@@ -1359,9 +1388,9 @@ class HoroscopeCalculator:
             "расходящегося при прочих равных."
         )
 
-        logger.info("=== КОНЕЧНЫЙ ПРОМПТ ===")
-        logger.info("\n%s", "\n".join(lines))
-
+        # ======================================================================
+        # Возвращаем текст без логирования промпта
+        # ======================================================================
         return "\n".join(lines)
 
     # ----------------------------------------------------------------------
