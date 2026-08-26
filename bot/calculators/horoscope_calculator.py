@@ -288,96 +288,203 @@ class EventPhase(str, Enum):
 @dataclass(frozen=True)
 class EngineConfig:
     """
-    Centralized production configuration.
+    Production configuration for TransitWindowEngine.
 
-    Do not scatter these constants through the engine.
+    Основной принцип:
+        coarse scan -> detect candidate -> refine -> exact hit
+
+    Sampling используется только для обнаружения кандидатов.
+    Точная дата аспекта НЕ зависит от coarse step.
+
+    Поэтому можно существенно увеличить шаг sampling без потери
+    точности exact-hit.
     """
 
-    # -----------------------------
-    # Aspect detection
-    # -----------------------------
+    # ================================================================
+    # ASPECT DETECTION
+    # ================================================================
 
     aspect_orbs: Mapping[str, float] = field(
         default_factory=lambda: dict(ASPECT_ORBS)
     )
 
-    # Exact means numerical minimum <= this value.
+    # Аспект считается exact, если distance <= tolerance.
     exact_tolerance_deg: float = 0.005
 
-    # Time precision of exact hit.
+    # Максимальная допустимая ошибка exact timestamp.
     exact_tolerance_seconds: float = 30.0
 
-    # Root finding.
+    # Root solver.
     root_tolerance_seconds: float = 30.0
 
-    # -----------------------------
-    # Sampling
-    # -----------------------------
+    # ================================================================
+    # COARSE SAMPLING
+    # ================================================================
+    #
+    # Эти значения используются для обычного поиска окон.
+    #
+    # НЕ пытайся получать exact hit напрямую этими шагами.
+    # После обнаружения crossing/window запускается refinement.
+    #
 
-    day_step_minutes: int = 15
-    month_step_hours: int = 3
-    year_step_hours: int = 12
+    # DAY
+    day_step_minutes: int = 30
 
-    # Minimum sampling for fast planets.
-    fast_planet_step_minutes: int = 30
+    # MONTH
+    month_step_hours: int = 6
 
-    # Maximum step for outer planets.
-    slow_planet_step_hours: int = 24
+    # YEAR
+    year_step_hours: int = 24
 
-    # -----------------------------
-    # Boundary search
-    # -----------------------------
+    # ================================================================
+    # PLANET-SPECIFIC SAMPLING
+    # ================================================================
+    #
+    # Это НЕ минимальный шаг для каждого расчёта.
+    #
+    # Он используется только как safety cap:
+    #
+    # effective_step =
+    #     min(period_step, planet_cap)
+    #
+    # Но для slow planets периодический step обычно уже достаточно
+    # мал, поэтому они практически всегда считают один раз на coarse step.
+    #
 
-    boundary_search_days_fast: float = 10.0
-    boundary_search_days_slow: float = 900.0
+    fast_planet_step_minutes: int = 60
 
-    # -----------------------------
-    # Retrograde
-    # -----------------------------
+    slow_planet_step_hours: int = 48
 
-    retrograde_coarse_hours: int = 24
-    retrograde_mid_hours: int = 6
+    # ================================================================
+    # ADAPTIVE SAMPLING
+    # ================================================================
+    #
+    # На длинных периодах быстрые планеты могут генерировать огромное
+    # количество событий. Поэтому sampling должен зависеть от типа
+    # прогноза.
+    #
+
+    # Для дневного прогноза:
+    #   Sun/Mercury/Venus/Mars -> 30 min
+    #
+    # Для месяца:
+    #   быстрые -> 6 h
+    #
+    # Для года:
+    #   быстрые -> 24 h
+    #
+    # Exact hit после обнаружения всё равно уточняется.
+    #
+
+    day_fast_step_minutes: int = 30
+    month_fast_step_hours: int = 6
+    year_fast_step_hours: int = 24
+
+    day_slow_step_hours: int = 6
+    month_slow_step_hours: int = 12
+    year_slow_step_hours: int = 48
+
+    # ================================================================
+    # BOUNDARY SEARCH
+    # ================================================================
+
+    # Fast planets:
+    # аспект может быстро войти/выйти из orb.
+    boundary_search_days_fast: float = 7.0
+
+    # Slow planets:
+    # широкое окно для поиска соседних exact hits.
+    boundary_search_days_slow: float = 365.0
+
+    # Максимальная глубина расширения поиска.
+    boundary_search_max_iterations: int = 20
+
+    # ================================================================
+    # RETROGRADE DETECTION
+    # ================================================================
+    #
+    # Важно:
+    #
+    # 1. coarse
+    # 2. mid
+    # 3. final
+    #
+    # Но НЕ нужно делать final-resolution scan по всему периоду.
+    # Final scan выполняется только возле обнаруженного station window.
+    #
+
+    retrograde_coarse_hours: int = 48
+
+    retrograde_mid_hours: int = 12
+
     retrograde_final_seconds: int = 60
 
+    # Скорость в градусах/сутки.
     retrograde_speed_epsilon: float = 0.00001
 
-    # -----------------------------
-    # Event classification
-    # -----------------------------
+    # Минимальный интервал вокруг потенциальной станции.
+    retrograde_refine_hours: int = 72
+
+    # ================================================================
+    # EVENT CLASSIFICATION
+    # ================================================================
 
     foreground_max_orb: float = 3.0
+
     very_tight_orb: float = 0.5
+
     slow_planet_tight_orb: float = 1.5
+
     fast_planet_tight_orb: float = 1.5
+
     angle_applying_orb: float = 2.5
 
-    # -----------------------------
-    # Forecast limits
-    # -----------------------------
+    # ================================================================
+    # FORECAST LIMITS
+    # ================================================================
 
-    max_events_per_period: int = 1000
-    max_events_per_theme: int = 10
+    max_events_per_period: int = 500
+
+    max_events_per_theme: int = 8
 
     max_final_events_day: int = 12
-    max_final_events_month: int = 25
-    max_final_events_year: int = 40
 
-    # -----------------------------
-    # Ranking
-    # -----------------------------
+    max_final_events_month: int = 20
+
+    max_final_events_year: int = 30
+
+    # ================================================================
+    # RANKING
+    # ================================================================
 
     applying_bonus: float = 1.5
+
     separating_bonus: float = 0.15
+
     angle_bonus: float = 2.5
+
     personal_target_bonus: float = 1.0
+
     retrograde_bonus: float = 0.5
+
     repeated_hit_bonus: float = 1.25
 
-    # -----------------------------
-    # Safety
-    # -----------------------------
+    # ================================================================
+    # SAFETY
+    # ================================================================
 
     max_scan_days: int = 5000
+
+    # Защита от случайного взрыва количества sampling points.
+    max_sampling_points_day: int = 200
+
+    max_sampling_points_month: int = 200
+
+    max_sampling_points_year: int = 400
+
+    # ================================================================
+    # DERIVED SETTINGS
+    # ================================================================
 
     @property
     def max_final_events(self) -> int:
@@ -387,9 +494,127 @@ class EngineConfig:
             self.max_final_events_year,
         )
 
+    def period_step_seconds(self, period_type: str) -> int:
+        """
+        Основной coarse step для конкретного типа прогноза.
+        """
+
+        if period_type == "day":
+            return self.day_step_minutes * 60
+
+        if period_type == "month":
+            return self.month_step_hours * 3600
+
+        if period_type == "year":
+            return self.year_step_hours * 3600
+
+        raise ValueError(
+            f"Unsupported period_type: {period_type!r}"
+        )
+
+    def planet_step_seconds(
+        self,
+        period_type: str,
+        planet: str,
+    ) -> int:
+        """
+        Возвращает effective coarse sampling step.
+
+        Приоритет:
+
+            period step
+                ↓
+            planet safety cap
+                ↓
+            effective step
+
+        На длинных периодах не заставляем быстрые планеты
+        считаться с дневным/получасовым разрешением.
+        """
+
+        planet = planet.lower()
+
+        fast_planets = {
+            "sun",
+            "moon",
+            "mercury",
+            "venus",
+            "mars",
+        }
+
+        slow_planets = {
+            "jupiter",
+            "saturn",
+            "uranus",
+            "neptune",
+            "pluto",
+        }
+
+        # ------------------------------------------------------------
+        # DAY
+        # ------------------------------------------------------------
+
+        if period_type == "day":
+
+            if planet in fast_planets:
+                return self.day_fast_step_minutes * 60
+
+            if planet in slow_planets:
+                return self.day_slow_step_hours * 3600
+
+            return self.day_step_minutes * 60
+
+        # ------------------------------------------------------------
+        # MONTH
+        # ------------------------------------------------------------
+
+        if period_type == "month":
+
+            if planet in fast_planets:
+                return self.month_fast_step_hours * 3600
+
+            if planet in slow_planets:
+                return self.month_slow_step_hours * 3600
+
+            return self.month_step_hours * 3600
+
+        # ------------------------------------------------------------
+        # YEAR
+        # ------------------------------------------------------------
+
+        if period_type == "year":
+
+            if planet in fast_planets:
+                return self.year_fast_step_hours * 3600
+
+            if planet in slow_planets:
+                return self.year_slow_step_hours * 3600
+
+            return self.year_step_hours * 3600
+
+        raise ValueError(
+            f"Unsupported period_type: {period_type!r}"
+        )
+
+    def max_sampling_points(
+        self,
+        period_type: str,
+    ) -> int:
+        if period_type == "day":
+            return self.max_sampling_points_day
+
+        if period_type == "month":
+            return self.max_sampling_points_month
+
+        if period_type == "year":
+            return self.max_sampling_points_year
+
+        raise ValueError(
+            f"Unsupported period_type: {period_type!r}"
+        )
+
 
 DEFAULT_CONFIG = EngineConfig()
-
 
 # ============================================================================
 # PERIOD
