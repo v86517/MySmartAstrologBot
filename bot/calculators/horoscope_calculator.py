@@ -1205,13 +1205,18 @@ class HoroscopeCalculator:
         for planet in planets:
             if planet == "moon":
                 continue
-            self._detect_retrograde_for_planet(planet, period)
+            windows = self._detect_retrograde_for_planet(planet, period)
+            if windows:
+                logger.info("[RETROGRADE] %s: %d station(s) found", planet, len(windows))
+            else:
+                logger.debug("[RETROGRADE] %s: no stations", planet)
 
     # ======================================================================
     # DEDUPLICATION
     # ======================================================================
 
     def _deduplicate_events(self, events: Sequence[TransitEvent]) -> List[TransitEvent]:
+        logger.info("[DEDUP] Input events: %d", len(events))
         grouped: Dict[Tuple[str, str, str], List[TransitEvent]] = defaultdict(list)
         for event in events:
             grouped[event.semantic_key].append(event)
@@ -1226,10 +1231,10 @@ class HoroscopeCalculator:
                     continue
                 previous = unique[-1]
                 if (
-                    event.exact_utc
-                    and previous.exact_utc
-                    and abs((event.exact_utc - previous.exact_utc).total_seconds())
-                    <= self.config.exact_tolerance_seconds
+                        event.exact_utc
+                        and previous.exact_utc
+                        and abs((event.exact_utc - previous.exact_utc).total_seconds())
+                        <= self.config.exact_tolerance_seconds
                 ):
                     if event.score > previous.score:
                         unique[-1] = event
@@ -1238,6 +1243,8 @@ class HoroscopeCalculator:
             for index, event in enumerate(unique, start=1):
                 event.hit_index = index
             result.extend(unique)
+
+        logger.info("[DEDUP] Output events: %d (removed %d duplicates)", len(result), len(events) - len(result))
         return result
 
     # ======================================================================
@@ -1264,6 +1271,7 @@ class HoroscopeCalculator:
     # ======================================================================
 
     def _aggregate_themes(self, events: Sequence[TransitEvent]) -> List[TransitEpisode]:
+        logger.info("[AGGREGATE] Input events: %d", len(events))
         grouped: Dict[Tuple[str, str, str], List[TransitEvent]] = defaultdict(list)
         for event in events:
             grouped[event.semantic_key].append(event)
@@ -1287,7 +1295,8 @@ class HoroscopeCalculator:
             if episode.hit_count > 1:
                 episode.max_score += self.config.repeated_hit_bonus * min(episode.hit_count - 1, 3)
             episodes.append(episode)
-        self.episodes = episodes
+
+        logger.info("[AGGREGATE] Episodes created: %d", len(episodes))
         return episodes
 
     # ======================================================================
@@ -1298,20 +1307,27 @@ class HoroscopeCalculator:
         return round(episode.max_score, 3)
 
     def _rank_episodes(self, episodes: Sequence[TransitEpisode]) -> List[TransitEpisode]:
-        return sorted(
+        logger.info("[RANK] Ranking %d episodes...", len(episodes))
+        ranked = sorted(
             episodes,
             key=lambda e: (self._episode_score(e), e.hit_count, e.retrograde_hits),
             reverse=True,
         )
+        if ranked:
+            logger.info("[RANK] Top episode: %s (score=%.2f, hits=%d)",
+                        ranked[0].display_name,
+                        self._episode_score(ranked[0]),
+                        ranked[0].hit_count)
+        return ranked
 
     # ======================================================================
     # FINAL PIPELINE
     # ======================================================================
 
     def calculate(
-        self,
-        period: ForecastPeriod,
-        max_display: Optional[int] = None,
+            self,
+            period: ForecastPeriod,
+            max_display: Optional[int] = None,
     ) -> List[TransitEpisode]:
         self._validate_period(period)
 
@@ -1330,24 +1346,30 @@ class HoroscopeCalculator:
         })
 
         logger.info("=== TRANSIT ENGINE START ===")
-        logger.info(
-            "period=%s start=%s end=%s",
-            period.period_type,
-            datetime_key(period.start_utc),
-            datetime_key(period.end_utc),
-        )
+        logger.info("period=%s start=%s end=%s",
+                    period.period_type,
+                    datetime_key(period.start_utc),
+                    datetime_key(period.end_utc))
 
         planets = self._planets_for_period(period.period_type)
-        logger.info("planets=%s", ",".join(planets))
+        logger.info("[PLANETS] %s", ",".join(planets))
 
+        # --------------------------------------------------------------
         # PASS A — transit candidate detection
+        # --------------------------------------------------------------
+        logger.info("[STEP 1] Detecting candidate windows...")
         candidates = self._detect_candidate_windows(period, planets)
+        logger.info("[STEP 1] Candidate windows found: %d", len(candidates))
 
+        # --------------------------------------------------------------
         # PASS B — exact dates
+        # --------------------------------------------------------------
+        logger.info("[STEP 2] Resolving exact hits...")
         events: List[TransitEvent] = []
+        resolved_count = 0
         for planet, target, aspect, start, end in candidates:
             if len(events) >= self.config.max_events_per_period:
-                logger.warning("Event safety limit reached.")
+                logger.warning("[STEP 2] Event safety limit reached.")
                 break
             event = self._resolve_candidate(planet, target, aspect, start, end, period)
             if event is None:
@@ -1356,31 +1378,51 @@ class HoroscopeCalculator:
                 if not (period.start_utc <= event.exact_utc <= period.end_utc):
                     continue
             events.append(event)
+            resolved_count += 1
+
+        logger.info("[STEP 2] Exact hits resolved: %d (before dedup)", resolved_count)
 
         events = self._deduplicate_events(events)
         self.stats["exact_hits"] = len(events)
+        logger.info("[STEP 2] After dedup: %d events", len(events))
 
+        # --------------------------------------------------------------
         # PASS C — retrograde
+        # --------------------------------------------------------------
+        logger.info("[STEP 3] Detecting retrograde stations...")
         self._detect_retrogrades(period, planets)
+        retrograde_count = sum(len(windows) for windows in self.retrograde_windows.values())
+        logger.info("[STEP 3] Retrograde stations found: %d", retrograde_count)
+
         self._annotate_retrograde(events)
 
+        # --------------------------------------------------------------
         # CLASSIFY again after retrograde metadata
+        # --------------------------------------------------------------
+        logger.info("[STEP 4] Re-classifying events after retrograde annotation...")
         for event in events:
             self._classify_event(event)
+        logger.info("[STEP 4] Classification complete.")
 
         self.events = events
 
+        # --------------------------------------------------------------
         # THEMATIC AGGREGATION
+        # --------------------------------------------------------------
+        logger.info("[STEP 5] Aggregating themes...")
         episodes = self._aggregate_themes(events)
+        logger.info("[STEP 5] Thematic episodes created: %d", len(episodes))
+
+        logger.info("[STEP 6] Ranking episodes...")
         ranked = self._rank_episodes(episodes)
 
-        # Применяем max_display если передан, иначе из конфига
         if max_display is not None:
             limit = max_display
         else:
             limit = self.config.max_final_events(period.period_type)
 
         final = ranked[:limit]
+        logger.info("[STEP 6] Final episodes selected: %d (limit=%d)", len(final), limit)
 
         logger.info(
             "=== TRANSIT ENGINE END ==="
@@ -1401,25 +1443,28 @@ class HoroscopeCalculator:
     # ======================================================================
 
     def build_context(
-        self,
-        period_type: str,
-        period_start_utc: datetime,
-        period_end_utc: datetime,
-        max_display: int = 12,
+            self,
+            period_type: str,
+            period_start_utc: datetime,
+            period_end_utc: datetime,
+            max_display: int = 12,
     ) -> str:
-        """
-        Возвращает готовый текст для LLM.
-        Если включён emulation_mode, возвращает QA-отчёт.
-        """
+        logger.info("=== BUILD CONTEXT START ===")
+        logger.info("period_type=%s start=%s end=%s max_display=%d",
+                    period_type,
+                    period_start_utc.isoformat(),
+                    period_end_utc.isoformat(),
+                    max_display)
+
+        if self.emulation_mode:
+            logger.info("Emulation mode enabled, returning QA report.")
+            return self.get_qa_report()
+
         period = ForecastPeriod(
             period_type=period_type,
             start_utc=ensure_utc(period_start_utc),
             end_utc=ensure_utc(period_end_utc),
         )
-
-        if self.emulation_mode:
-            # Вместо нормального контекста возвращаем QA-отчёт
-            return self.get_qa_report()
 
         episodes = self.calculate(period, max_display=max_display)
 
@@ -1511,6 +1556,7 @@ class HoroscopeCalculator:
         lines.append("Для месячного прогноза приоритет — точные даты и периоды повторных проходов.")
         lines.append("Для годового прогноза приоритет — медленные планеты, станции, повторные проходы и долгосрочные тематические процессы.")
 
+        logger.info("=== BUILD CONTEXT END ===")
         return "\n".join(lines)
 
     # ======================================================================
