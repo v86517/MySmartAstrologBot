@@ -212,18 +212,20 @@ class NatalContextBuilder:
         # --- АСПЕКТЫ ---
         aspects_raw = []
         try:
-            factory = AspectsFactory.single_chart_aspects(self.subject)
+            # Извлекаем модель субъекта
+            subject_model = (
+                self.subject.model()
+                if callable(self.subject.model)
+                else self.subject.model
+            )
+            factory = AspectsFactory.single_chart_aspects(subject_model)
             if factory and hasattr(factory, 'aspects'):
                 aspects_raw = factory.aspects
+            logger.info(f"AspectsFactory: получено {len(aspects_raw)} натальных аспектов")
         except Exception as e:
-            logger.warning(f"AspectsFactory не сработал: {e}, пробуем NatalAspects")
-            try:
-                from kerykeion import NatalAspects
-                na = NatalAspects(self.subject)
-                if hasattr(na, 'relevant_aspects'):
-                    aspects_raw = na.relevant_aspects
-            except Exception as e2:
-                logger.warning(f"NatalAspects тоже не сработал: {e2}")
+            logger.exception(f"Ошибка AspectsFactory: {e}")
+            # Убираем fallback на NatalAspects – это устаревший механизм
+            raise
 
         self._aspects = self._filter_aspects(aspects_raw)
 
