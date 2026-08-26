@@ -172,8 +172,7 @@ async def confirm_horoscope(callback: CallbackQuery):
     await callback.message.delete()
 
     period = callback.data.split("_")[2]  # "today", "month", "year"
-    # Преобразуем для нового API
-    period_type = "day" if period == "today" else period  # "day", "month", "year"
+    period_type = "day" if period == "today" else period
 
     user_id = callback.from_user.id
     lang = await get_user_language(user_id)
@@ -205,41 +204,27 @@ async def confirm_horoscope(callback: CallbackQuery):
     status_msg = await callback.message.answer(await get_text(user_id, 'horoscope_status_planets'))
 
     try:
-        # 1. Вычисляем границы периода
         target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         timezone_offset = user_data.get('timezone_offset', 3)
         start_utc, end_utc = compute_period_bounds(period, target_date, timezone_offset)
 
-        # 2. Создаём калькулятор
         calc = HoroscopeCalculator(
             user_data=user_data,
             lang=lang,
             telegram_id=user_id,
             coords=None,
             emulation_mode=emulation,
-            gemini_service=_gemini_service  # передаём сервис
+            gemini_service=_gemini_service
         )
 
-        context = calc.build_context(
+        # build_context уже обрабатывает эмуляцию – возвращает промпт или ответ Gemini
+        final_text = calc.build_context(
             period_type=period_type,
             period_start_utc=start_utc,
             period_end_utc=end_utc,
             max_display=12
         )
 
-        # 4. Если режим эмуляции – показываем QA-отчёт
-        if emulation:
-            qa_report = calc.get_qa_report()
-            if qa_report:
-                final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ\n\n{qa_report}"
-            else:
-                final_text = "🔍 Режим эмуляции, но отчёт недоступен."
-        else:
-            # Реальный запрос к Gemini – отправляем готовый контекст
-            result_text = _gemini_service.send_raw_prompt(context)
-            final_text = result_text
-
-        # 5. Сохраняем в архив
         await save_message_to_archive(user_id, 'horoscope', final_text)
         if not is_subscribed:
             await mark_feature_used_db(user_id, 'horoscope')
