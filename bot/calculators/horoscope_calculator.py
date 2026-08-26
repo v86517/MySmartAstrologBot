@@ -629,18 +629,18 @@ class HoroscopeCalculator:
         return subject
 
     def _extract_transit_planet(
-        self,
-        subject: AstrologicalSubject,
-        planet: str,
+            self,
+            subject: AstrologicalSubject,
+            planet: str,
     ) -> Optional[PlanetSnapshot]:
         key = (
             datetime_key(
                 datetime(
-                    subject.utc_year,
-                    subject.utc_month,
-                    subject.utc_day,
-                    subject.utc_hour,
-                    subject.utc_minute,
+                    subject.year,
+                    subject.month,
+                    subject.day,
+                    subject.hour,
+                    subject.minute,
                     tzinfo=timezone.utc,
                 )
             ),
@@ -662,11 +662,11 @@ class HoroscopeCalculator:
         snapshot = PlanetSnapshot(
             timestamp=ensure_utc(
                 datetime(
-                    subject.utc_year,
-                    subject.utc_month,
-                    subject.utc_day,
-                    subject.utc_hour,
-                    subject.utc_minute,
+                    subject.year,
+                    subject.month,
+                    subject.day,
+                    subject.hour,
+                    subject.minute,
                     tzinfo=timezone.utc,
                 )
             ),
