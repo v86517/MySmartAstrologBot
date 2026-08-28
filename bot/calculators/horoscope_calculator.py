@@ -1565,7 +1565,7 @@ class HoroscopeCalculator:
                 natal_target=first.natal_target,
                 aspect=first.aspect,
                 theme=first.theme,
-                first_start_utx=min((e.start_utc for e in group if e.start_utc is not None), default=None),
+                first_start_utc=min((e.start_utc for e in group if e.start_utc is not None), default=None),
                 last_end_utc=max((e.end_utc for e in group if e.end_utc is not None), default=None),
                 exact_hits=exact_hits,
                 nearest_approaches=nearest_approaches,
