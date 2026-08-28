@@ -545,11 +545,16 @@ class HoroscopeCalculator:
         if model is None:
             model = subject
         if hasattr(model, "model_dump"):
-            return model.model_dump()
-        if hasattr(model, "dict"):
-            return model.dict()
-        raw = getattr(model, "__dict__", {})
-        return raw if isinstance(raw, dict) else {}
+            data = model.model_dump()
+        elif hasattr(model, "dict"):
+            data = model.dict()
+        else:
+            data = getattr(model, "__dict__", {})
+
+        # Логируем ключи один раз (при первом вызове)
+        if not self._snapshot_cache:
+            logger.info("[MODEL KEYS] First model keys: %s", list(data.keys())[:30])
+        return data
 
     def _point_dict(self, subject: AstrologicalSubject, name: str) -> Optional[Dict[str, Any]]:
         data = self._get_model_dict(subject)
@@ -563,9 +568,10 @@ class HoroscopeCalculator:
                 if name in ("uranus", "saturn", "jupiter", "neptune", "pluto"):
                     logger.warning("[POINT_DICT] Planet %s not found. Available keys: %s", name, list(data.keys())[:20])
                 return None
-        # Если value найдено, проверим его содержимое
+        # Диагностика для Урана
+        if name == "uranus" or alt_name == "Uranus":
+            logger.info("[POINT_DICT] uranus data: %s", value)
         if isinstance(value, dict):
-            # Выведем долготу, если она есть
             abs_pos = to_float(value.get("abs_pos"))
             logger.info("[POINT_DICT] %s: abs_pos=%s", name, abs_pos)
             return value
@@ -659,7 +665,12 @@ class HoroscopeCalculator:
         )
         key = (datetime_key(snapshot_time), planet)
 
-        cached = self._planet_snapshot_cache.get(key)
+        # Временное отключение кеша для Урана
+        if planet == "uranus":
+            cached = None
+        else:
+            cached = self._planet_snapshot_cache.get(key)
+
         if cached is not None:
             logger.info("[EXTRACT] CACHE HIT for %s at %s: lon=%.4f", planet, snapshot_time.isoformat(),
                         cached.longitude)
