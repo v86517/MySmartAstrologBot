@@ -64,15 +64,15 @@ def get_compatibility_keyboard(lang: str = 'ru'):
     return builder.as_markup()
 
 
-def get_confirm_keyboard(lang: str = 'ru'):
-    """Кнопки подтверждения данных"""
-    builder = InlineKeyboardBuilder()
-    texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['kb_confirm'], callback_data="confirm_data")
-    builder.button(text=texts['kb_edit'], callback_data="edit_person1")
-    builder.button(text=texts['kb_cancel'], callback_data="cancel")
-    builder.adjust(1)
-    return builder.as_markup()
+# def get_confirm_keyboard(lang: str = 'ru'):
+#     """Кнопки подтверждения данных"""
+#     builder = InlineKeyboardBuilder()
+#     texts = TEXTS.get(lang, TEXTS['ru'])
+#     builder.button(text=texts['kb_confirm'], callback_data="confirm_data")
+#     builder.button(text=texts['kb_edit'], callback_data="edit_person1")
+#     builder.button(text=texts['kb_cancel'], callback_data="cancel")
+#     builder.adjust(1)
+#     return builder.as_markup()
 
 
 # def get_continue_keyboard(lang: str = 'ru'):
@@ -127,14 +127,14 @@ def get_numerology_confirm_keyboard(lang: str = 'ru'):
     return builder.as_markup()
 
 
-def get_numerology_use_data_keyboard(lang: str = 'ru'):
-    builder = InlineKeyboardBuilder()
-    texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['kb_use_my_data'], callback_data="numerology_use_my_data")
-    builder.button(text=texts['kb_fill_new'], callback_data="numerology_fill_new_data")
-    builder.button(text=texts['kb_cancel'], callback_data="cancel")
-    builder.adjust(1)
-    return builder.as_markup()
+# def get_numerology_use_data_keyboard(lang: str = 'ru'):
+#     builder = InlineKeyboardBuilder()
+#     texts = TEXTS.get(lang, TEXTS['ru'])
+#     builder.button(text=texts['kb_use_my_data'], callback_data="numerology_use_my_data")
+#     builder.button(text=texts['kb_fill_new'], callback_data="numerology_fill_new_data")
+#     builder.button(text=texts['kb_cancel'], callback_data="cancel")
+#     builder.adjust(1)
+#     return builder.as_markup()
 
 
 def get_astrology_payment_keyboard(lang: str = 'ru'):
@@ -156,14 +156,14 @@ def get_astrology_confirm_keyboard(lang: str = 'ru'):
     return builder.as_markup()
 
 
-def get_astrology_use_data_keyboard(lang: str = 'ru'):
-    builder = InlineKeyboardBuilder()
-    texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['kb_use_my_data'], callback_data="astrology_use_my_data")
-    builder.button(text=texts['kb_fill_new'], callback_data="astrology_fill_new_data")
-    builder.button(text=texts['kb_cancel'], callback_data="cancel")
-    builder.adjust(1)
-    return builder.as_markup()
+# def get_astrology_use_data_keyboard(lang: str = 'ru'):
+#     builder = InlineKeyboardBuilder()
+#     texts = TEXTS.get(lang, TEXTS['ru'])
+#     builder.button(text=texts['kb_use_my_data'], callback_data="astrology_use_my_data")
+#     builder.button(text=texts['kb_fill_new'], callback_data="astrology_fill_new_data")
+#     builder.button(text=texts['kb_cancel'], callback_data="cancel")
+#     builder.adjust(1)
+#     return builder.as_markup()
 
 
 def get_expert_keyboard(lang: str = 'ru'):
@@ -193,13 +193,13 @@ def get_subscription_active_keyboard(lang: str = 'ru'):
     return builder.as_markup()
 
 
-def get_save_data_keyboard(lang: str = 'ru'):
-    builder = InlineKeyboardBuilder()
-    texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['kb_save'], callback_data="save_data")
-    builder.button(text=texts['kb_dont_save'], callback_data="dont_save_data")
-    builder.adjust(1)
-    return builder.as_markup()
+# def get_save_data_keyboard(lang: str = 'ru'):
+#     builder = InlineKeyboardBuilder()
+#     texts = TEXTS.get(lang, TEXTS['ru'])
+#     builder.button(text=texts['kb_save'], callback_data="save_data")
+#     builder.button(text=texts['kb_dont_save'], callback_data="dont_save_data")
+#     builder.adjust(1)
+#     return builder.as_markup()
 
 
 def get_archive_keyboard(messages, lang: str = 'ru'):
@@ -246,13 +246,13 @@ def get_profile_keyboard(lang: str = 'ru'):
     return builder.as_markup()
 
 
-def get_support_keyboard(support_url: str, lang: str = 'ru'):
-    builder = InlineKeyboardBuilder()
-    texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['kb_write_support'], url=support_url)
-    builder.button(text=texts['kb_cancel'], callback_data="back_to_profile")
-    builder.adjust(1)
-    return builder.as_markup()
+# def get_support_keyboard(support_url: str, lang: str = 'ru'):
+#     builder = InlineKeyboardBuilder()
+#     texts = TEXTS.get(lang, TEXTS['ru'])
+#     builder.button(text=texts['kb_write_support'], url=support_url)
+#     builder.button(text=texts['kb_cancel'], callback_data="back_to_profile")
+#     builder.adjust(1)
+#     return builder.as_markup()
 
 
 def get_payment_url_keyboard(url: str, lang: str = 'ru'):
@@ -282,19 +282,19 @@ def get_timezone_keyboard(lang: str = 'ru'):
     return builder.as_markup()
 
 
-def get_after_timezone_keyboard(lang: str = 'ru'):
-    builder = InlineKeyboardBuilder()
-    texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['kb_main_menu'], callback_data="main_menu")
-    builder.adjust(1)
-    return builder.as_markup()
+# def get_after_timezone_keyboard(lang: str = 'ru'):
+#     builder = InlineKeyboardBuilder()
+#     texts = TEXTS.get(lang, TEXTS['ru'])
+#     builder.button(text=texts['kb_main_menu'], callback_data="main_menu")
+#     builder.adjust(1)
+#     return builder.as_markup()
 
 
-def get_after_save_keyboard(lang: str = 'ru'):
-    builder = InlineKeyboardBuilder()
-    texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['kb_cancel'], callback_data="main_menu")
-    return builder.as_markup()
+# def get_after_save_keyboard(lang: str = 'ru'):
+#     builder = InlineKeyboardBuilder()
+#     texts = TEXTS.get(lang, TEXTS['ru'])
+#     builder.button(text=texts['kb_cancel'], callback_data="main_menu")
+#     return builder.as_markup()
 
 
 def get_subscription_promo_keyboard(lang: str = 'ru'):
@@ -304,13 +304,13 @@ def get_subscription_promo_keyboard(lang: str = 'ru'):
     return builder.as_markup()
 
 
-def get_subscription_payment_keyboard(url: str, lang: str = 'ru'):
-    builder = InlineKeyboardBuilder()
-    texts = TEXTS.get(lang, TEXTS['ru'])
-    builder.button(text=texts['kb_go_pay'], url=url)
-    #builder.button(text=texts['kb_cancel'], callback_data="close_subscription")
-    builder.adjust(1)
-    return builder.as_markup()
+# def get_subscription_payment_keyboard(url: str, lang: str = 'ru'):
+#     builder = InlineKeyboardBuilder()
+#     texts = TEXTS.get(lang, TEXTS['ru'])
+#     builder.button(text=texts['kb_go_pay'], url=url)
+#     #builder.button(text=texts['kb_cancel'], callback_data="close_subscription")
+#     builder.adjust(1)
+#     return builder.as_markup()
 
 
 def get_fill_profile_keyboard(lang: str = 'ru'):

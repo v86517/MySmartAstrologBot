@@ -1,5 +1,3 @@
-# bot/calculators/horoscope_calculator.py
-
 from __future__ import annotations
 
 import logging
@@ -107,7 +105,8 @@ ASPECT_WEIGHT = {
     "sextile": 0.75,
 }
 
-PLANET_WEIGHT = {
+# Базовые веса планет (используются как основа, переопределяются в PERIOD_PLANET_WEIGHTS)
+BASE_PLANET_WEIGHT = {
     "pluto": 10.0,
     "neptune": 9.0,
     "uranus": 9.0,
@@ -118,6 +117,46 @@ PLANET_WEIGHT = {
     "mercury": 5.0,
     "sun": 5.0,
     "moon": 3.0,
+}
+
+# Веса планет для каждого периода
+PERIOD_PLANET_WEIGHTS = {
+    "day": {
+        "moon": 10.0,
+        "sun": 9.0,
+        "mercury": 8.0,
+        "venus": 8.0,
+        "mars": 8.0,
+        "jupiter": 6.0,
+        "saturn": 5.0,
+        "uranus": 5.0,
+        "neptune": 5.0,
+        "pluto": 5.0,
+    },
+    "month": {
+        "moon": 7.0,
+        "sun": 7.0,
+        "mercury": 6.0,
+        "venus": 6.0,
+        "mars": 6.0,
+        "jupiter": 8.0,
+        "saturn": 8.0,
+        "uranus": 8.0,
+        "neptune": 8.0,
+        "pluto": 8.0,
+    },
+    "year": {
+        "moon": 3.0,
+        "sun": 5.0,
+        "mercury": 4.0,
+        "venus": 4.0,
+        "mars": 5.0,
+        "jupiter": 8.0,
+        "saturn": 9.0,
+        "uranus": 9.0,
+        "neptune": 9.0,
+        "pluto": 10.0,
+    },
 }
 
 TARGET_WEIGHT = {
@@ -303,7 +342,7 @@ class EngineConfig:
     max_events_per_period: int = 500
     max_events_per_theme: int = 8
 
-    max_final_events_day: int = 12
+    max_final_events_day: int = 15
     max_final_events_month: int = 20
     max_final_events_year: int = 30
 
@@ -315,6 +354,23 @@ class EngineConfig:
     personal_target_bonus: float = 1.0
     retrograde_bonus: float = 0.5
     repeated_hit_bonus: float = 1.25
+
+    # Пороги орбов для фильтрации по периодам
+    day_exact_orb_limit: float = 1.0
+    day_moon_orb_limit: float = 5.0
+    day_fast_orb_limit: float = 3.0
+    day_slow_orb_limit: float = 5.0
+    day_score_threshold: float = 10.0
+
+    month_exact_orb_limit: float = 1.0
+    month_fast_orb_limit: float = 2.0
+    month_slow_orb_limit: float = 6.0
+    month_score_threshold: float = 12.0
+
+    year_exact_orb_limit: float = 0.5
+    year_fast_orb_limit: float = 1.0
+    year_slow_orb_limit: float = 8.0
+    year_score_threshold: float = 10.0
 
     log_snapshots: bool = False
 
@@ -1014,11 +1070,11 @@ class HoroscopeCalculator:
             transit_speed=transit.speed,
             theme=theme,
         )
-        self._classify_event(event)
+        # Классифицируем с учётом периода (передаём позже)
         return event
 
     # ======================================================================
-    # CLASSIFICATION
+    # SCORING & CLASSIFICATION
     # ======================================================================
 
     @staticmethod
@@ -1035,11 +1091,18 @@ class HoroscopeCalculator:
             return 0.35
         return 0.0
 
-    def _score(self, event: TransitEvent) -> float:
-        score = PLANET_WEIGHT.get(event.transit_body, 0.0)
-        score += TARGET_WEIGHT.get(event.natal_target, 0.0) * 0.35
-        score += ASPECT_WEIGHT.get(event.aspect, 0.0) * 3.0
-        score += self._orb_strength(event.orb_at_exact) * 5.0
+    def _score(self, event: TransitEvent, period_type: str) -> float:
+        """Вычисляет скор с учётом периода."""
+        # Берём веса планет в зависимости от периода
+        planet_weights = PERIOD_PLANET_WEIGHTS.get(period_type, BASE_PLANET_WEIGHT)
+        planet_weight = planet_weights.get(event.transit_body, 0.0)
+        target_weight = TARGET_WEIGHT.get(event.natal_target, 0.0) * 0.35
+        aspect_weight = ASPECT_WEIGHT.get(event.aspect, 0.0) * 3.0
+        orb_factor = self._orb_strength(event.orb_at_exact) * 5.0
+
+        score = planet_weight + target_weight + aspect_weight + orb_factor
+
+        # Бонусы
         if event.natal_target in ANGLE_TARGETS:
             score += self.config.angle_bonus
         if event.natal_target in PERSONAL_TARGETS:
@@ -1050,10 +1113,14 @@ class HoroscopeCalculator:
             score += self.config.separating_bonus
         if event.is_retrograde:
             score += self.config.retrograde_bonus
+
         return round(score, 3)
 
-    def _classify_event(self, event: TransitEvent) -> None:
-        event.score = self._score(event)
+    def _classify_event(self, event: TransitEvent, period_type: str) -> None:
+        """Классифицирует событие с учётом периода (FOREGROUND/BACKGROUND)."""
+        event.score = self._score(event, period_type)
+
+        # Логика классификации может быть адаптирована, но пока оставляем как было
         if event.orb_at_exact > self.config.foreground_max_orb:
             event.activity = "BACKGROUND"
             event.reason = "orb_too_wide"
@@ -1086,6 +1153,134 @@ class HoroscopeCalculator:
 
         event.activity = "BACKGROUND"
         event.reason = "ordinary_background"
+
+    # ======================================================================
+    # FILTERING FOR FINAL SELECTION (PER PERIOD)
+    # ======================================================================
+
+    def _select_final_events(self, events: List[TransitEvent], period_type: str) -> List[TransitEvent]:
+        """Отбирает события для финального вывода в зависимости от периода."""
+        if period_type == "day":
+            return self._filter_day_events(events)
+        elif period_type == "month":
+            return self._filter_month_events(events)
+        elif period_type == "year":
+            return self._filter_year_events(events)
+        else:
+            return events
+
+    def _filter_day_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
+        selected = []
+        # 1. Все аспекты с орбом <= day_exact_orb_limit (по умолчанию 1.0°)
+        exact_limit = self.config.day_exact_orb_limit
+        selected.extend([e for e in events if e.orb_at_exact <= exact_limit])
+
+        # 2. Аспекты Луны с орбом <= day_moon_orb_limit (5.0°)
+        moon_limit = self.config.day_moon_orb_limit
+        moon_aspects = [e for e in events if e.transit_body == "moon" and e.orb_at_exact <= moon_limit]
+        selected.extend(moon_aspects)
+
+        # 3. Аспекты быстрых планет (кроме Луны) с орбом <= day_fast_orb_limit (3.0°)
+        fast_limit = self.config.day_fast_orb_limit
+        fast_except_moon = [p for p in FAST_PLANETS if p != "moon"]
+        fast_aspects = [e for e in events if e.transit_body in fast_except_moon and e.orb_at_exact <= fast_limit]
+        selected.extend(fast_aspects)
+
+        # 4. Аспекты медленных планет с орбом <= day_slow_orb_limit (5.0°) и скором > day_score_threshold (10.0)
+        slow_limit = self.config.day_slow_orb_limit
+        score_threshold = self.config.day_score_threshold
+        slow_aspects = [
+            e for e in events
+            if e.transit_body in SLOW_PLANETS
+            and e.orb_at_exact <= slow_limit
+            and e.score > score_threshold
+        ]
+        selected.extend(slow_aspects)
+
+        # Дедупликация по семантическому ключу (оставляем лучший скор)
+        unique = {}
+        for e in selected:
+            key = e.semantic_key
+            if key not in unique or e.score > unique[key].score:
+                unique[key] = e
+        selected = list(unique.values())
+
+        # Сортируем по скору
+        selected.sort(key=lambda e: e.score, reverse=True)
+
+        # Ограничиваем max_final_events_day (15)
+        limit = self.config.max_final_events_day
+        return selected[:limit]
+
+    def _filter_month_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
+        selected = []
+        # Точные аспекты (month_exact_orb_limit = 1.0)
+        exact_limit = self.config.month_exact_orb_limit
+        selected.extend([e for e in events if e.orb_at_exact <= exact_limit])
+
+        # Быстрые планеты (кроме Луны) с орбом <= month_fast_orb_limit (2.0)
+        fast_limit = self.config.month_fast_orb_limit
+        fast_except_moon = [p for p in FAST_PLANETS if p != "moon"]
+        fast_aspects = [e for e in events if e.transit_body in fast_except_moon and e.orb_at_exact <= fast_limit]
+        selected.extend(fast_aspects)
+
+        # Медленные планеты с орбом <= month_slow_orb_limit (6.0) и скором > month_score_threshold (12.0)
+        slow_limit = self.config.month_slow_orb_limit
+        score_threshold = self.config.month_score_threshold
+        slow_aspects = [
+            e for e in events
+            if e.transit_body in SLOW_PLANETS
+            and e.orb_at_exact <= slow_limit
+            and e.score > score_threshold
+        ]
+        selected.extend(slow_aspects)
+
+        # Дедупликация
+        unique = {}
+        for e in selected:
+            key = e.semantic_key
+            if key not in unique or e.score > unique[key].score:
+                unique[key] = e
+        selected = list(unique.values())
+
+        selected.sort(key=lambda e: e.score, reverse=True)
+        limit = self.config.max_final_events_month
+        return selected[:limit]
+
+    def _filter_year_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
+        selected = []
+        # Точные аспекты (year_exact_orb_limit = 0.5)
+        exact_limit = self.config.year_exact_orb_limit
+        selected.extend([e for e in events if e.orb_at_exact <= exact_limit])
+
+        # Быстрые планеты (кроме Луны) с орбом <= year_fast_orb_limit (1.0)
+        fast_limit = self.config.year_fast_orb_limit
+        fast_except_moon = [p for p in FAST_PLANETS if p != "moon"]
+        fast_aspects = [e for e in events if e.transit_body in fast_except_moon and e.orb_at_exact <= fast_limit]
+        selected.extend(fast_aspects)
+
+        # Медленные планеты с орбом <= year_slow_orb_limit (8.0) и скором > year_score_threshold (10.0)
+        slow_limit = self.config.year_slow_orb_limit
+        score_threshold = self.config.year_score_threshold
+        slow_aspects = [
+            e for e in events
+            if e.transit_body in SLOW_PLANETS
+            and e.orb_at_exact <= slow_limit
+            and e.score > score_threshold
+        ]
+        selected.extend(slow_aspects)
+
+        # Дедупликация
+        unique = {}
+        for e in selected:
+            key = e.semantic_key
+            if key not in unique or e.score > unique[key].score:
+                unique[key] = e
+        selected = list(unique.values())
+
+        selected.sort(key=lambda e: e.score, reverse=True)
+        limit = self.config.max_final_events_year
+        return selected[:limit]
 
     # ======================================================================
     # EXACT TRANSIT PIPELINE
@@ -1297,8 +1492,7 @@ class HoroscopeCalculator:
             if event.exact_utc is None:
                 continue
             event.is_retrograde = self._is_retrograde_at(event.transit_body, event.exact_utc)
-            if event.is_retrograde:
-                event.score = round(event.score + self.config.retrograde_bonus, 3)
+            # Скор уже пересчитан в _score с учётом ретроградности
 
     # ======================================================================
     # THEMATIC AGGREGATION
@@ -1431,23 +1625,30 @@ class HoroscopeCalculator:
         self._annotate_retrograde(events)
 
         # --------------------------------------------------------------
-        # CLASSIFY again after retrograde metadata
+        # CLASSIFY and SCORE with period-specific weights
         # --------------------------------------------------------------
-        logger.info("[STEP 4] Re-classifying events after retrograde annotation...")
+        logger.info("[STEP 4] Classifying events with period-specific weights...")
         for event in events:
-            self._classify_event(event)
+            self._classify_event(event, period.period_type)
         logger.info("[STEP 4] Classification complete.")
 
         self.events = events
 
         # --------------------------------------------------------------
-        # THEMATIC AGGREGATION
+        # FILTER EVENTS FOR FINAL SELECTION PER PERIOD
         # --------------------------------------------------------------
-        logger.info("[STEP 5] Aggregating themes...")
-        episodes = self._aggregate_themes(events)
-        logger.info("[STEP 5] Thematic episodes created: %d", len(episodes))
+        logger.info("[STEP 5] Filtering events for final selection...")
+        filtered_events = self._select_final_events(events, period.period_type)
+        logger.info("[STEP 5] Filtered events: %d (from %d)", len(filtered_events), len(events))
 
-        logger.info("[STEP 6] Ranking episodes...")
+        # --------------------------------------------------------------
+        # THEMATIC AGGREGATION on filtered events
+        # --------------------------------------------------------------
+        logger.info("[STEP 6] Aggregating themes from filtered events...")
+        episodes = self._aggregate_themes(filtered_events)
+        logger.info("[STEP 6] Thematic episodes created: %d", len(episodes))
+
+        logger.info("[STEP 7] Ranking episodes...")
         ranked = self._rank_episodes(episodes)
 
         if max_display is not None:
@@ -1456,7 +1657,7 @@ class HoroscopeCalculator:
             limit = self.config.max_final_events(period.period_type)
 
         final = ranked[:limit]
-        logger.info("[STEP 6] Final episodes selected: %d (limit=%d)", len(final), limit)
+        logger.info("[STEP 7] Final episodes selected: %d (limit=%d)", len(final), limit)
 
         logger.info(
             "=== TRANSIT ENGINE END ==="

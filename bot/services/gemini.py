@@ -105,15 +105,15 @@ class GeminiService:
             prompt_data['language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь прогноз должен быть на русском."
         return self.generate_from_prompt(prompt_data, 'prompt_horoscope.txt', lang)
 
-    def generate_compatibility_from_prompt(self, person1: Dict[str, Any], person2: Dict[str, Any], lang: str = 'ru') -> str:
-        from bot.calculators.compatibility_calculator import CompatibilityCalculator
-        calculator = CompatibilityCalculator(person1, person2)
-        prompt_data = calculator.get_prompt_data()
-        if lang == 'en':
-            prompt_data['language_instruction'] = "IMPORTANT: Respond in English only. All your analysis must be in English."
-        else:
-            prompt_data['language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь анализ должен быть на русском."
-        return self.generate_from_prompt(prompt_data, 'prompt_connect.txt', lang)
+    # def generate_compatibility_from_prompt(self, person1: Dict[str, Any], person2: Dict[str, Any], lang: str = 'ru') -> str:
+    #     from bot.calculators.compatibility_calculator import CompatibilityCalculator
+    #     calculator = CompatibilityCalculator(person1, person2)
+    #     prompt_data = calculator.get_prompt_data()
+    #     if lang == 'en':
+    #         prompt_data['language_instruction'] = "IMPORTANT: Respond in English only. All your analysis must be in English."
+    #     else:
+    #         prompt_data['language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь анализ должен быть на русском."
+    #     return self.generate_from_prompt(prompt_data, 'prompt_connect.txt', lang)
 
     def generate_numerology(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
         calc = NatalCalculator(
@@ -150,291 +150,291 @@ class GeminiService:
             prompt_data['language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь анализ должен быть на русском."
         return self.generate_from_prompt(prompt_data, 'prompt_numerology.txt', lang)
 
-    def generate_astrology(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
-        from bot.calculators.astrology_calculator import AstrologyCalculator
-        calculator = AstrologyCalculator(user_data)
-        prompt = calculator.build_prompt(lang)
-        return self._send_prompt(prompt, lang)
+    # def generate_astrology(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
+    #     from bot.calculators.astrology_calculator import AstrologyCalculator
+    #     calculator = AstrologyCalculator(user_data)
+    #     prompt = calculator.build_prompt(lang)
+    #     return self._send_prompt(prompt, lang)
 
     def send_raw_prompt(self, prompt: str, lang: str = 'ru') -> str:
         return self._send_prompt(prompt, lang)
 
-    async def generate_astrology_v2(self, user_data: Dict[str, Any], lang: str = 'ru',
-                                    telegram_id: Optional[int] = None) -> Tuple[
-        str, Optional[Tuple[float, float, str]]]:
-        """
-        Генерирует промпт для астрологии (натальной карты) и возвращает текст промпта и координаты (если вычислены).
-        """
-        from bot.db import get_emulation_mode
-        from bot.calculators.astrology_data_builder import AstrologyDataBuilder
-
-        user_id = user_data.get('telegram_id') or user_data.get('user_id') or telegram_id
-        self.user_data = user_data
-        self.lang = lang
-        coords = None
-
-        if user_id:
-            emulation = await get_emulation_mode(user_id)
-            if emulation:
-                builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=user_id)
-                json_data = builder.build()
-                if hasattr(builder.natal_calc, '_calculated_coords'):
-                    coords = builder.natal_calc._calculated_coords
-                prompt = self._build_astrology_prompt(json_data, lang)
-                return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}", coords
-
-        try:
-            builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=user_id)
-            json_data = builder.build()
-            if hasattr(builder.natal_calc, '_calculated_coords'):
-                coords = builder.natal_calc._calculated_coords
-            prompt = self._build_astrology_prompt(json_data, lang)
-            result = self._send_prompt(prompt, lang)
-            return result, coords
-        except Exception as e:
-            logger.error(f"❌ Ошибка в generate_astrology_v2: {e}")
-            logger.error(traceback.format_exc())
-            return f"❌ Произошла ошибка при построении натальной карты: {str(e)}", None
+    # async def generate_astrology_v2(self, user_data: Dict[str, Any], lang: str = 'ru',
+    #                                 telegram_id: Optional[int] = None) -> Tuple[
+    #     str, Optional[Tuple[float, float, str]]]:
+    #     """
+    #     Генерирует промпт для астрологии (натальной карты) и возвращает текст промпта и координаты (если вычислены).
+    #     """
+    #     from bot.db import get_emulation_mode
+    #     from bot.calculators.astrology_data_builder import AstrologyDataBuilder
+    #
+    #     user_id = user_data.get('telegram_id') or user_data.get('user_id') or telegram_id
+    #     self.user_data = user_data
+    #     self.lang = lang
+    #     coords = None
+    #
+    #     if user_id:
+    #         emulation = await get_emulation_mode(user_id)
+    #         if emulation:
+    #             builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=user_id)
+    #             json_data = builder.build()
+    #             if hasattr(builder.natal_calc, '_calculated_coords'):
+    #                 coords = builder.natal_calc._calculated_coords
+    #             prompt = self._build_astrology_prompt(json_data, lang)
+    #             return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}", coords
+    #
+    #     try:
+    #         builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=user_id)
+    #         json_data = builder.build()
+    #         if hasattr(builder.natal_calc, '_calculated_coords'):
+    #             coords = builder.natal_calc._calculated_coords
+    #         prompt = self._build_astrology_prompt(json_data, lang)
+    #         result = self._send_prompt(prompt, lang)
+    #         return result, coords
+    #     except Exception as e:
+    #         logger.error(f"❌ Ошибка в generate_astrology_v2: {e}")
+    #         logger.error(traceback.format_exc())
+    #         return f"❌ Произошла ошибка при построении натальной карты: {str(e)}", None
 
     # ---- НОВЫЕ МЕТОДЫ ДЛЯ ТРАНЗИТОВ И СИНАСТРИИ (по ТЗ) ----
 
     # В bot/services/gemini.py
 
-    async def generate_horoscope_with_data(self, user_id: int, user_data: Dict[str, Any],
-                                           natal_data: Dict[str, Any], transit_data: Dict[str, Any],
-                                           lang: str, period: str = 'today',
-                                           display_date: str = None, start_utc=None, end_utc=None) -> str:
-        from bot.db import get_emulation_mode
-        emulation = await get_emulation_mode(user_id)
-        template = self._load_prompt_template('prompt_horoscope_v2.txt')
-        if not template:
-            logger.error("Шаблон prompt_horoscope_v2.txt не найден, используем старый метод")
-            return self.generate_horoscope(user_data, lang)
+    # async def generate_horoscope_with_data(self, user_id: int, user_data: Dict[str, Any],
+    #                                        natal_data: Dict[str, Any], transit_data: Dict[str, Any],
+    #                                        lang: str, period: str = 'today',
+    #                                        display_date: str = None, start_utc=None, end_utc=None) -> str:
+    #     from bot.db import get_emulation_mode
+    #     emulation = await get_emulation_mode(user_id)
+    #     template = self._load_prompt_template('prompt_horoscope_v2.txt')
+    #     if not template:
+    #         logger.error("Шаблон prompt_horoscope_v2.txt не найден, используем старый метод")
+    #         return self.generate_horoscope(user_data, lang)
+    #
+    #     replacements = self._prepare_horoscope_replacements(
+    #         user_data, natal_data, transit_data, lang, period=period, display_date=display_date, start_utc=start_utc, end_utc=end_utc)
+    #     if lang == 'en':
+    #         replacements[
+    #             'language_instruction'] = "IMPORTANT: Respond in English only. All your output must be in English."
+    #     else:
+    #         replacements[
+    #             'language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь твой ответ должен быть на русском."
+    #
+    #     prompt = self._replace_placeholders(template, replacements)
+    #     if emulation:
+    #         return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+    #     return self._send_prompt(prompt, lang)
 
-        replacements = self._prepare_horoscope_replacements(
-            user_data, natal_data, transit_data, lang, period=period, display_date=display_date, start_utc=start_utc, end_utc=end_utc)
-        if lang == 'en':
-            replacements[
-                'language_instruction'] = "IMPORTANT: Respond in English only. All your output must be in English."
-        else:
-            replacements[
-                'language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь твой ответ должен быть на русском."
-
-        prompt = self._replace_placeholders(template, replacements)
-        if emulation:
-            return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
-        return self._send_prompt(prompt, lang)
-
-    async def generate_compatibility_with_data(self, user_id: int, user_data_a: Dict[str, Any],
-                                               user_data_b: Dict[str, Any],
-                                               natal1: Dict[str, Any], natal2: Dict[str, Any],
-                                               synastry_data: Dict[str, Any],
-                                               lang: str) -> str:
-        """Генерирует анализ совместимости с поддержкой эмуляции."""
-        from bot.db import get_emulation_mode
-        emulation = await get_emulation_mode(user_id)
-        template = self._load_prompt_template('prompt_connect_v2.txt')
-        if not template:
-            logger.error("Шаблон prompt_connect_v2.txt не найден, используем старый метод")
-            return self.generate_compatibility_from_prompt(user_data_a, user_data_b, lang)
-
-        replacements = self._prepare_compatibility_replacements(user_data_a, user_data_b,
-                                                                natal1, natal2, synastry_data, lang)
-        if lang == 'en':
-            replacements[
-                'language_instruction'] = "IMPORTANT: Respond in English only. All your output must be in English."
-        else:
-            replacements[
-                'language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь твой ответ должен быть на русском."
-
-        prompt = self._replace_placeholders(template, replacements)
-        if emulation:
-            return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
-        return self._send_prompt(prompt, lang)
+    # async def generate_compatibility_with_data(self, user_id: int, user_data_a: Dict[str, Any],
+    #                                            user_data_b: Dict[str, Any],
+    #                                            natal1: Dict[str, Any], natal2: Dict[str, Any],
+    #                                            synastry_data: Dict[str, Any],
+    #                                            lang: str) -> str:
+    #     """Генерирует анализ совместимости с поддержкой эмуляции."""
+    #     from bot.db import get_emulation_mode
+    #     emulation = await get_emulation_mode(user_id)
+    #     template = self._load_prompt_template('prompt_connect_v2.txt')
+    #     if not template:
+    #         logger.error("Шаблон prompt_connect_v2.txt не найден, используем старый метод")
+    #         return self.generate_compatibility_from_prompt(user_data_a, user_data_b, lang)
+    #
+    #     replacements = self._prepare_compatibility_replacements(user_data_a, user_data_b,
+    #                                                             natal1, natal2, synastry_data, lang)
+    #     if lang == 'en':
+    #         replacements[
+    #             'language_instruction'] = "IMPORTANT: Respond in English only. All your output must be in English."
+    #     else:
+    #         replacements[
+    #             'language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь твой ответ должен быть на русском."
+    #
+    #     prompt = self._replace_placeholders(template, replacements)
+    #     if emulation:
+    #         return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+    #     return self._send_prompt(prompt, lang)
 
     # ---- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ПОДГОТОВКИ ЗАМЕН ----
 
-    def _prepare_horoscope_replacements(self, user_data: Dict, natal_data: Dict, transit_data: Dict,
-                                        lang: str, period: str = 'today',
-                                        display_date: str = None, start_utc=None, end_utc=None) -> Dict[str, str]:
-        from datetime import datetime
-        from bot.utils.zodiac import get_zodiac_sign_localized
+    # def _prepare_horoscope_replacements(self, user_data: Dict, natal_data: Dict, transit_data: Dict,
+    #                                     lang: str, period: str = 'today',
+    #                                     display_date: str = None, start_utc=None, end_utc=None) -> Dict[str, str]:
+    #     from datetime import datetime
+    #     from bot.utils.zodiac import get_zodiac_sign_localized
+    #
+    #     # Базовые данные
+    #     name = user_data.get('name', 'Пользователь')
+    #     gender = user_data.get('gender', 'M')
+    #     if lang == 'ru':
+    #         gender_text = "Мужской" if gender == 'M' else "Женский" if gender == 'F' else "Не указан"
+    #     else:
+    #         gender_text = "Male" if gender == 'M' else "Female" if gender == 'F' else "Not specified"
+    #     birth_date = user_data.get('birth_date', 'не указана')
+    #     birth_time = user_data.get('birth_time', 'не указано')
+    #     birth_place = user_data.get('birth_place', 'не указано')
+    #
+    #     # Формируем строку периода
+    #     if period == 'today':
+    #         if start_utc and end_utc:
+    #             period_str = f"с {start_utc.strftime('%Y-%m-%d %H:%M')} по {end_utc.strftime('%Y-%m-%d %H:%M')} UTC"
+    #         else:
+    #             period_str = f"на {display_date or datetime.now().strftime('%d.%m.%Y')}"
+    #     elif period == 'month':
+    #         if start_utc and end_utc:
+    #             period_str = f"с {start_utc.strftime('%Y-%m-%d')} по {end_utc.strftime('%Y-%m-%d')} UTC"
+    #         else:
+    #             period_str = "на текущий месяц"
+    #     else:  # year
+    #         if start_utc and end_utc:
+    #             period_str = f"с {start_utc.strftime('%Y-%m-%d')} по {end_utc.strftime('%Y-%m-%d')} UTC"
+    #         else:
+    #             period_str = "на текущий год"
+    #
+    #     # Натальные секции
+    #     natal = natal_data.get('natal', {})
+    #     planets = natal.get('planets', [])
+    #     # Формируем таблицу планет (без колонки Вес, можно убрать)
+    #     planets_table = self._format_planets_table(planets, include_weight=False)  # добавим параметр
+    #     angles = natal.get('angles', {})
+    #     angles_str = f"ASC: {angles.get('ASC', 0):.2f}°, MC: {angles.get('MC', 0):.2f}°, DSC: {angles.get('DSC', 0):.2f}°, IC: {angles.get('IC', 0):.2f}°"
+    #
+    #     # Натальные аспекты с орбисом <= 3°
+    #     aspects = natal.get('aspects', [])
+    #     natal_aspects_filtered = [a for a in aspects if a.get('orb', 10) <= 3.0]
+    #     natal_aspects_str = self._format_aspects(natal_aspects_filtered)
+    #
+    #     # Транзитные секции (получаем из transit_data, но фильтруем по дате)
+    #     transit_planets = transit_data.get('transit_planets', [])
+    #     transit_planets_str = self._format_transit_planets(transit_planets)
+    #
+    #     # Фильтруем транзитные аспекты по дате, если есть start_utc/end_utc
+    #     transit_aspects = transit_data.get('transit_aspects', [])
+    #     if start_utc and end_utc:
+    #         filtered_aspects = []
+    #         for a in transit_aspects:
+    #             exact_date = a.get('exact_date')
+    #             if exact_date:
+    #                 try:
+    #                     dt = datetime.strptime(exact_date, '%Y-%m-%d')
+    #                     if start_utc.date() <= dt.date() <= end_utc.date():
+    #                         filtered_aspects.append(a)
+    #                 except:
+    #                     pass
+    #             else:
+    #                 # Если точной даты нет, можно включить, если аспект имеет маленький орбис, но для фильтрации по периоду лучше не включать
+    #                 # Для сегодня можно включить все, для месяца/года – лучше не включать без даты.
+    #                 # Для простоты включим все (можно настроить позже)
+    #                 filtered_aspects.append(a)
+    #         transit_aspects = filtered_aspects
+    #     transit_aspects_str = self._format_transit_aspects(transit_aspects)
+    #
+    #     # Аспекты к углам
+    #     transit_angle_aspects = transit_data.get('transit_angle_aspects', [])
+    #     if start_utc and end_utc:
+    #         filtered_angle = []
+    #         for a in transit_angle_aspects:
+    #             exact_date = a.get('exact_date')
+    #             if exact_date:
+    #                 try:
+    #                     dt = datetime.strptime(exact_date, '%Y-%m-%d')
+    #                     if start_utc.date() <= dt.date() <= end_utc.date():
+    #                         filtered_angle.append(a)
+    #                 except:
+    #                     pass
+    #             else:
+    #                 filtered_angle.append(a)
+    #         transit_angle_aspects = filtered_angle
+    #     transit_angle_aspects_str = self._format_transit_angle_aspects(transit_angle_aspects)
+    #
+    #     # Активные периоды (фильтруем по пересечению)
+    #     active_periods = transit_data.get('active_periods', [])
+    #     if start_utc and end_utc:
+    #         filtered_periods = []
+    #         for p in active_periods:
+    #             try:
+    #                 start_dt = datetime.strptime(p['start'], '%Y-%m-%d')
+    #                 end_dt = datetime.strptime(p['end'], '%Y-%m-%d')
+    #                 # Проверяем пересечение
+    #                 if not (end_dt < start_utc or start_dt > end_utc):
+    #                     filtered_periods.append(p)
+    #             except:
+    #                 pass
+    #         active_periods = filtered_periods
+    #     active_periods_str = self._format_active_periods(active_periods)
+    #
+    #     # Убираем ненужные разделы: метаданные, управители, темы, проходы, ингрессии, станции, timeline, сводные темы.
+    #
+    #     replacements = {
+    #         "person_name": name,
+    #         "person_gender": gender_text,
+    #         "birth_date": birth_date,
+    #         "birth_time": birth_time,
+    #         "birth_place": birth_place,
+    #         "period": period_str,
+    #         "planets_table": planets_table,
+    #         "angles": angles_str,
+    #         "natal_aspects_list": natal_aspects_str,
+    #         "transit_planets": transit_planets_str,
+    #         "transit_aspects_list": transit_aspects_str,
+    #         "transit_angle_aspects_list": transit_angle_aspects_str,
+    #         "transit_passes": self._format_transit_passes(transit_data.get('transit_passes', [])),
+    #         "transit_ingresses": self._format_transit_ingresses(transit_data.get('transit_ingresses', [])),
+    #         "transit_stations": self._format_transit_stations(transit_data.get('transit_stations', [])),
+    #         "active_periods": self._format_active_periods(transit_data.get('active_periods', [])),
+    #         "language_instruction": "",  # добавим позже отдельно
+    #     }
+    #     return replacements
 
-        # Базовые данные
-        name = user_data.get('name', 'Пользователь')
-        gender = user_data.get('gender', 'M')
-        if lang == 'ru':
-            gender_text = "Мужской" if gender == 'M' else "Женский" if gender == 'F' else "Не указан"
-        else:
-            gender_text = "Male" if gender == 'M' else "Female" if gender == 'F' else "Not specified"
-        birth_date = user_data.get('birth_date', 'не указана')
-        birth_time = user_data.get('birth_time', 'не указано')
-        birth_place = user_data.get('birth_place', 'не указано')
-
-        # Формируем строку периода
-        if period == 'today':
-            if start_utc and end_utc:
-                period_str = f"с {start_utc.strftime('%Y-%m-%d %H:%M')} по {end_utc.strftime('%Y-%m-%d %H:%M')} UTC"
-            else:
-                period_str = f"на {display_date or datetime.now().strftime('%d.%m.%Y')}"
-        elif period == 'month':
-            if start_utc and end_utc:
-                period_str = f"с {start_utc.strftime('%Y-%m-%d')} по {end_utc.strftime('%Y-%m-%d')} UTC"
-            else:
-                period_str = "на текущий месяц"
-        else:  # year
-            if start_utc and end_utc:
-                period_str = f"с {start_utc.strftime('%Y-%m-%d')} по {end_utc.strftime('%Y-%m-%d')} UTC"
-            else:
-                period_str = "на текущий год"
-
-        # Натальные секции
-        natal = natal_data.get('natal', {})
-        planets = natal.get('planets', [])
-        # Формируем таблицу планет (без колонки Вес, можно убрать)
-        planets_table = self._format_planets_table(planets, include_weight=False)  # добавим параметр
-        angles = natal.get('angles', {})
-        angles_str = f"ASC: {angles.get('ASC', 0):.2f}°, MC: {angles.get('MC', 0):.2f}°, DSC: {angles.get('DSC', 0):.2f}°, IC: {angles.get('IC', 0):.2f}°"
-
-        # Натальные аспекты с орбисом <= 3°
-        aspects = natal.get('aspects', [])
-        natal_aspects_filtered = [a for a in aspects if a.get('orb', 10) <= 3.0]
-        natal_aspects_str = self._format_aspects(natal_aspects_filtered)
-
-        # Транзитные секции (получаем из transit_data, но фильтруем по дате)
-        transit_planets = transit_data.get('transit_planets', [])
-        transit_planets_str = self._format_transit_planets(transit_planets)
-
-        # Фильтруем транзитные аспекты по дате, если есть start_utc/end_utc
-        transit_aspects = transit_data.get('transit_aspects', [])
-        if start_utc and end_utc:
-            filtered_aspects = []
-            for a in transit_aspects:
-                exact_date = a.get('exact_date')
-                if exact_date:
-                    try:
-                        dt = datetime.strptime(exact_date, '%Y-%m-%d')
-                        if start_utc.date() <= dt.date() <= end_utc.date():
-                            filtered_aspects.append(a)
-                    except:
-                        pass
-                else:
-                    # Если точной даты нет, можно включить, если аспект имеет маленький орбис, но для фильтрации по периоду лучше не включать
-                    # Для сегодня можно включить все, для месяца/года – лучше не включать без даты.
-                    # Для простоты включим все (можно настроить позже)
-                    filtered_aspects.append(a)
-            transit_aspects = filtered_aspects
-        transit_aspects_str = self._format_transit_aspects(transit_aspects)
-
-        # Аспекты к углам
-        transit_angle_aspects = transit_data.get('transit_angle_aspects', [])
-        if start_utc and end_utc:
-            filtered_angle = []
-            for a in transit_angle_aspects:
-                exact_date = a.get('exact_date')
-                if exact_date:
-                    try:
-                        dt = datetime.strptime(exact_date, '%Y-%m-%d')
-                        if start_utc.date() <= dt.date() <= end_utc.date():
-                            filtered_angle.append(a)
-                    except:
-                        pass
-                else:
-                    filtered_angle.append(a)
-            transit_angle_aspects = filtered_angle
-        transit_angle_aspects_str = self._format_transit_angle_aspects(transit_angle_aspects)
-
-        # Активные периоды (фильтруем по пересечению)
-        active_periods = transit_data.get('active_periods', [])
-        if start_utc and end_utc:
-            filtered_periods = []
-            for p in active_periods:
-                try:
-                    start_dt = datetime.strptime(p['start'], '%Y-%m-%d')
-                    end_dt = datetime.strptime(p['end'], '%Y-%m-%d')
-                    # Проверяем пересечение
-                    if not (end_dt < start_utc or start_dt > end_utc):
-                        filtered_periods.append(p)
-                except:
-                    pass
-            active_periods = filtered_periods
-        active_periods_str = self._format_active_periods(active_periods)
-
-        # Убираем ненужные разделы: метаданные, управители, темы, проходы, ингрессии, станции, timeline, сводные темы.
-
-        replacements = {
-            "person_name": name,
-            "person_gender": gender_text,
-            "birth_date": birth_date,
-            "birth_time": birth_time,
-            "birth_place": birth_place,
-            "period": period_str,
-            "planets_table": planets_table,
-            "angles": angles_str,
-            "natal_aspects_list": natal_aspects_str,
-            "transit_planets": transit_planets_str,
-            "transit_aspects_list": transit_aspects_str,
-            "transit_angle_aspects_list": transit_angle_aspects_str,
-            "transit_passes": self._format_transit_passes(transit_data.get('transit_passes', [])),
-            "transit_ingresses": self._format_transit_ingresses(transit_data.get('transit_ingresses', [])),
-            "transit_stations": self._format_transit_stations(transit_data.get('transit_stations', [])),
-            "active_periods": self._format_active_periods(transit_data.get('active_periods', [])),
-            "language_instruction": "",  # добавим позже отдельно
-        }
-        return replacements
-
-    def _prepare_compatibility_replacements(self, user_data_a: Dict, user_data_b: Dict,
-                                            natal1: Dict, natal2: Dict, synastry_data: Dict, lang: str) -> Dict[
-        str, str]:
-        """Подготавливает замены для промпта совместимости."""
-        # Базовые данные людей
-        name_a = user_data_a.get('name', 'Человек A')
-        name_b = user_data_b.get('name', 'Человек B')
-
-        # Натальные данные человека A
-        natal_a = natal1.get('natal', {})
-        planets_a = self._format_planets_table(natal_a.get('planets', []))
-        cusps_a = self._format_cusps(natal_a.get('houses', []))
-        house_rulers_a = self._format_house_rulers(natal_a.get('house_rulers', []))
-        aspects_a = self._format_aspects(natal_a.get('aspects', []))
-        themes_a = self._format_themes(natal1.get('themes', {}))  # <-- ИСПРАВЛЕНО
-
-        # Натальные данные человека B
-        natal_b = natal2.get('natal', {})
-        planets_b = self._format_planets_table(natal_b.get('planets', []))
-        cusps_b = self._format_cusps(natal_b.get('houses', []))
-        house_rulers_b = self._format_house_rulers(natal_b.get('house_rulers', []))
-        aspects_b = self._format_aspects(natal_b.get('aspects', []))
-        themes_b = self._format_themes(natal2.get('themes', {}))  # <-- ИСПРАВЛЕНО
-
-        # Синастрические данные
-        syn_aspects_a_to_b = self._format_synastry_aspects(synastry_data.get('synastry_aspects_a_to_b', []))
-        syn_aspects_b_to_a = self._format_synastry_aspects(synastry_data.get('synastry_aspects_b_to_a', []))
-        planets_in_houses = self._format_planets_in_houses(synastry_data.get('planets_in_houses', {}))
-        syn_angle_aspects = self._format_synastry_angle_aspects(synastry_data.get('synastry_angle_aspects', []))
-        mutual_receptions = self._format_mutual_receptions(synastry_data.get('mutual_receptions', []))
-        comp_themes = self._format_synastry_themes(synastry_data.get('compatibility_themes', {}))
-
-        return {
-            "person_a_name": name_a,
-            "person_b_name": name_b,
-            "person_a_planets": planets_a,
-            "person_a_cusps": cusps_a,
-            "person_a_house_rulers": house_rulers_a,
-            "person_a_aspects": aspects_a,
-            "person_a_themes": themes_a,
-            "person_b_planets": planets_b,
-            "person_b_cusps": cusps_b,
-            "person_b_house_rulers": house_rulers_b,
-            "person_b_aspects": aspects_b,
-            "person_b_themes": themes_b,
-            "synastry_aspects_a_to_b": syn_aspects_a_to_b,
-            "synastry_aspects_b_to_a": syn_aspects_b_to_a,
-            "planets_in_houses": planets_in_houses,
-            "synastry_angle_aspects": syn_angle_aspects,
-            "mutual_receptions": mutual_receptions,
-            "compatibility_themes": comp_themes,
-        }
+    # def _prepare_compatibility_replacements(self, user_data_a: Dict, user_data_b: Dict,
+    #                                         natal1: Dict, natal2: Dict, synastry_data: Dict, lang: str) -> Dict[
+    #     str, str]:
+    #     """Подготавливает замены для промпта совместимости."""
+    #     # Базовые данные людей
+    #     name_a = user_data_a.get('name', 'Человек A')
+    #     name_b = user_data_b.get('name', 'Человек B')
+    #
+    #     # Натальные данные человека A
+    #     natal_a = natal1.get('natal', {})
+    #     planets_a = self._format_planets_table(natal_a.get('planets', []))
+    #     cusps_a = self._format_cusps(natal_a.get('houses', []))
+    #     house_rulers_a = self._format_house_rulers(natal_a.get('house_rulers', []))
+    #     aspects_a = self._format_aspects(natal_a.get('aspects', []))
+    #     themes_a = self._format_themes(natal1.get('themes', {}))  # <-- ИСПРАВЛЕНО
+    #
+    #     # Натальные данные человека B
+    #     natal_b = natal2.get('natal', {})
+    #     planets_b = self._format_planets_table(natal_b.get('planets', []))
+    #     cusps_b = self._format_cusps(natal_b.get('houses', []))
+    #     house_rulers_b = self._format_house_rulers(natal_b.get('house_rulers', []))
+    #     aspects_b = self._format_aspects(natal_b.get('aspects', []))
+    #     themes_b = self._format_themes(natal2.get('themes', {}))  # <-- ИСПРАВЛЕНО
+    #
+    #     # Синастрические данные
+    #     syn_aspects_a_to_b = self._format_synastry_aspects(synastry_data.get('synastry_aspects_a_to_b', []))
+    #     syn_aspects_b_to_a = self._format_synastry_aspects(synastry_data.get('synastry_aspects_b_to_a', []))
+    #     planets_in_houses = self._format_planets_in_houses(synastry_data.get('planets_in_houses', {}))
+    #     syn_angle_aspects = self._format_synastry_angle_aspects(synastry_data.get('synastry_angle_aspects', []))
+    #     mutual_receptions = self._format_mutual_receptions(synastry_data.get('mutual_receptions', []))
+    #     comp_themes = self._format_synastry_themes(synastry_data.get('compatibility_themes', {}))
+    #
+    #     return {
+    #         "person_a_name": name_a,
+    #         "person_b_name": name_b,
+    #         "person_a_planets": planets_a,
+    #         "person_a_cusps": cusps_a,
+    #         "person_a_house_rulers": house_rulers_a,
+    #         "person_a_aspects": aspects_a,
+    #         "person_a_themes": themes_a,
+    #         "person_b_planets": planets_b,
+    #         "person_b_cusps": cusps_b,
+    #         "person_b_house_rulers": house_rulers_b,
+    #         "person_b_aspects": aspects_b,
+    #         "person_b_themes": themes_b,
+    #         "synastry_aspects_a_to_b": syn_aspects_a_to_b,
+    #         "synastry_aspects_b_to_a": syn_aspects_b_to_a,
+    #         "planets_in_houses": planets_in_houses,
+    #         "synastry_angle_aspects": syn_angle_aspects,
+    #         "mutual_receptions": mutual_receptions,
+    #         "compatibility_themes": comp_themes,
+    #     }
 
     # ---- ФОРМАТТЕРЫ ДЛЯ РАЗЛИЧНЫХ СЕКЦИЙ (для промптов) ----
 
@@ -738,228 +738,228 @@ class GeminiService:
         prompt = prompt.replace('{language_instruction}', language_instruction)
         return prompt
 
-    def get_astrology_display_data(self, user_data: Dict[str, Any], lang: str, is_admin: bool = False, telegram_id: Optional[int] = None) -> Dict[str, str]:
-        """
-        Возвращает basic и full данные для отображения пользователю и администратору.
-        basic — всегда, full — только для администратора.
-        """
-        import logging
-        import pytz
-        from datetime import datetime
-        from bot.locales import TEXTS
-        from bot.calculators.astrology_data_builder import AstrologyDataBuilder
+    # def get_astrology_display_data(self, user_data: Dict[str, Any], lang: str, is_admin: bool = False, telegram_id: Optional[int] = None) -> Dict[str, str]:
+    #     """
+    #     Возвращает basic и full данные для отображения пользователю и администратору.
+    #     basic — всегда, full — только для администратора.
+    #     """
+    #     import logging
+    #     import pytz
+    #     from datetime import datetime
+    #     from bot.locales import TEXTS
+    #     from bot.calculators.astrology_data_builder import AstrologyDataBuilder
+    #
+    #     logger = logging.getLogger(__name__)
+    #     try:
+    #         texts = TEXTS.get(lang, TEXTS['ru'])
+    #
+    #         # Создаём билдер БЕЗ ТРАНЗИТОВ (для натальной карты они не нужны)
+    #         builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=telegram_id)
+    #         data = builder.build()
+    #         natal = data.get('natal', {})
+    #         planets = natal.get('planets', [])
+    #         houses = natal.get('houses', [])
+    #         angles = natal.get('angles', {})
+    #         metadata = data.get('metadata', {})
+    #         location = metadata.get('location', {})
+    #         lat = location.get('lat', 0.0)
+    #         lng = location.get('lng', 0.0)
+    #         timezone = metadata.get('timezone', '')
+    #         utc_datetime = metadata.get('utc_datetime', '')
+    #         birth_date = user_data.get('birth_date', '')
+    #         birth_time = user_data.get('birth_time', '00:00')
+    #         local_time = f"{birth_date} {birth_time}" if birth_date else 'Unknown'
+    #
+    #         # Солнце, Луна, Асцендент
+    #         sun = next((p for p in planets if p.get('name') == 'Sun'), {})
+    #         moon = next((p for p in planets if p.get('name') == 'Moon'), {})
+    #         asc_deg = angles.get('ASC', 0.0)
+    #         asc_sign = houses[0].get('sign', 'Unknown') if houses else 'Unknown'
+    #         if asc_sign == 'Unknown' and asc_deg != 0.0:
+    #             sign_degrees = [
+    #                 (0, 'Ari'), (30, 'Tau'), (60, 'Gem'), (90, 'Can'),
+    #                 (120, 'Leo'), (150, 'Vir'), (180, 'Lib'), (210, 'Sco'),
+    #                 (240, 'Sag'), (270, 'Cap'), (300, 'Aqu'), (330, 'Pis')
+    #             ]
+    #             for deg, sign in sign_degrees:
+    #                 if asc_deg >= deg and asc_deg < deg + 30:
+    #                     asc_sign = sign
+    #                     break
+    #             if asc_sign == 'Unknown':
+    #                 asc_sign = 'Unknown'
+    #
+    #         gender = user_data.get('gender', 'M')
+    #         if lang == 'en':
+    #             gender_display = "Male" if gender == 'M' else "Female" if gender == 'F' else "Not specified"
+    #         else:
+    #             gender_display = "Мужской" if gender == 'M' else "Женский" if gender == 'F' else "Не указан"
+    #
+    #         # Формируем basic параметры
+    #         if lang == 'en':
+    #             basic_params = (
+    #                 f"🌙 Your astrological analysis\n\n"
+    #                 f"━━━━━━━━━━━━━━━━━━━━━\n"
+    #                 f"{texts.get('astro_name', '👤 Name')}: {user_data.get('name', '')}\n"
+    #                 f"{texts.get('astro_gender', '⚥ Gender')}: {gender_display}\n"
+    #                 f"{texts.get('astro_local_time', '📅 Local time')}: {local_time}\n"
+    #                 f"{texts.get('astro_timezone', '🕒 Timezone')}: {timezone or 'Unknown'}\n"
+    #                 f"{texts.get('astro_utc_time', '🕒 UTC time')}: {utc_datetime or 'Unknown'}\n"
+    #                 f"{texts.get('astro_place', '📍 Place')}: {user_data.get('birth_place', '')}\n"
+    #                 f"{texts.get('astro_coordinates', '🌐 Coordinates')}: {lat:.4f}, {lng:.4f}\n"
+    #                 f"━━━━━━━━━━━━━━━━━━━━━\n"
+    #                 f"{texts.get('astro_sun', '☀️ Sun')}: {sun.get('sign', 'Unknown')}\n"
+    #                 f"{texts.get('astro_moon', '🌙 Moon')}: {moon.get('sign', 'Unknown')}\n"
+    #                 f"{texts.get('astro_ascendant', '⬆️ Ascendant')}: {asc_sign}"
+    #             )
+    #         else:
+    #             basic_params = (
+    #                 f"🌙 Ваш астрологический разбор\n\n"
+    #                 f"━━━━━━━━━━━━━━━━━━━━━\n"
+    #                 f"{texts.get('astro_name', '👤 Имя')}: {user_data.get('name', '')}\n"
+    #                 f"{texts.get('astro_gender', '⚥ Пол')}: {gender_display}\n"
+    #                 f"{texts.get('astro_local_time', '📅 Локальное время')}: {local_time}\n"
+    #                 f"{texts.get('astro_timezone', '🕒 Часовой пояс')}: {timezone or 'Unknown'}\n"
+    #                 f"{texts.get('astro_utc_time', '🕒 Время UTC')}: {utc_datetime or 'Unknown'}\n"
+    #                 f"{texts.get('astro_place', '📍 Место')}: {user_data.get('birth_place', '')}\n"
+    #                 f"{texts.get('astro_coordinates', '🌐 Координаты')}: {lat:.4f}, {lng:.4f}\n"
+    #                 f"━━━━━━━━━━━━━━━━━━━━━\n"
+    #                 f"{texts.get('astro_sun', '☀️ Солнце')}: {sun.get('sign', 'Неизвестно')}\n"
+    #                 f"{texts.get('astro_moon', '🌙 Луна')}: {moon.get('sign', 'Неизвестно')}\n"
+    #                 f"{texts.get('astro_ascendant', '⬆️ Асцендент')}: {asc_sign}"
+    #             )
+    #
+    #         # Полные параметры для администратора
+    #         full_params = ""
+    #         if is_admin:
+    #             # Используем данные из data для построения полного блока
+    #             # Это тот же код, что был в format_full_astrology_parameters, но с учётом структуры данных
+    #             from bot.utils.formatters import format_full_astrology_parameters
+    #             full_params = format_full_astrology_parameters(data, transit_data=None, lang=lang)
+    #
+    #         return {'basic': basic_params, 'full': full_params}
+    #
+    #     except Exception as e:
+    #         logger.error(f"❌ Ошибка в get_astrology_display_data: {e}", exc_info=True)
+    #         return {'basic': f"❌ Ошибка при формировании данных: {e}", 'full': ""}
 
-        logger = logging.getLogger(__name__)
-        try:
-            texts = TEXTS.get(lang, TEXTS['ru'])
+    # async def generate_horoscope_with_context(self, user_id: int, context: str, lang: str,
+    #                                           period: str = 'today', display_date: str = '') -> str:
+    #     from bot.db import get_emulation_mode
+    #     emulation = await get_emulation_mode(user_id)
+    #     template = self._load_prompt_template('prompt_horoscope_v3.txt')
+    #     if not template:
+    #         logger.error("Шаблон prompt_horoscope_v3.txt не найден")
+    #         return "❌ Ошибка: шаблон для гороскопа не найден."
+    #
+    #     period_name = "день" if period == 'today' else "месяц" if period == 'month' else "год"
+    #     replacements = {
+    #         "context": context,
+    #         "period": period_name
+    #     }
+    #     if lang == 'en':
+    #         replacements[
+    #             'language_instruction'] = "IMPORTANT: Respond in English only. All your output must be in English."
+    #     else:
+    #         replacements[
+    #             'language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь твой ответ должен быть на русском."
+    #
+    #     prompt = self._replace_placeholders(template, replacements)
+    #     if emulation:
+    #         return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+    #     return self._send_prompt(prompt, lang)
 
-            # Создаём билдер БЕЗ ТРАНЗИТОВ (для натальной карты они не нужны)
-            builder = AstrologyDataBuilder(user_data, lang, include_transits=False, telegram_id=telegram_id)
-            data = builder.build()
-            natal = data.get('natal', {})
-            planets = natal.get('planets', [])
-            houses = natal.get('houses', [])
-            angles = natal.get('angles', {})
-            metadata = data.get('metadata', {})
-            location = metadata.get('location', {})
-            lat = location.get('lat', 0.0)
-            lng = location.get('lng', 0.0)
-            timezone = metadata.get('timezone', '')
-            utc_datetime = metadata.get('utc_datetime', '')
-            birth_date = user_data.get('birth_date', '')
-            birth_time = user_data.get('birth_time', '00:00')
-            local_time = f"{birth_date} {birth_time}" if birth_date else 'Unknown'
-
-            # Солнце, Луна, Асцендент
-            sun = next((p for p in planets if p.get('name') == 'Sun'), {})
-            moon = next((p for p in planets if p.get('name') == 'Moon'), {})
-            asc_deg = angles.get('ASC', 0.0)
-            asc_sign = houses[0].get('sign', 'Unknown') if houses else 'Unknown'
-            if asc_sign == 'Unknown' and asc_deg != 0.0:
-                sign_degrees = [
-                    (0, 'Ari'), (30, 'Tau'), (60, 'Gem'), (90, 'Can'),
-                    (120, 'Leo'), (150, 'Vir'), (180, 'Lib'), (210, 'Sco'),
-                    (240, 'Sag'), (270, 'Cap'), (300, 'Aqu'), (330, 'Pis')
-                ]
-                for deg, sign in sign_degrees:
-                    if asc_deg >= deg and asc_deg < deg + 30:
-                        asc_sign = sign
-                        break
-                if asc_sign == 'Unknown':
-                    asc_sign = 'Unknown'
-
-            gender = user_data.get('gender', 'M')
-            if lang == 'en':
-                gender_display = "Male" if gender == 'M' else "Female" if gender == 'F' else "Not specified"
-            else:
-                gender_display = "Мужской" if gender == 'M' else "Женский" if gender == 'F' else "Не указан"
-
-            # Формируем basic параметры
-            if lang == 'en':
-                basic_params = (
-                    f"🌙 Your astrological analysis\n\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"{texts.get('astro_name', '👤 Name')}: {user_data.get('name', '')}\n"
-                    f"{texts.get('astro_gender', '⚥ Gender')}: {gender_display}\n"
-                    f"{texts.get('astro_local_time', '📅 Local time')}: {local_time}\n"
-                    f"{texts.get('astro_timezone', '🕒 Timezone')}: {timezone or 'Unknown'}\n"
-                    f"{texts.get('astro_utc_time', '🕒 UTC time')}: {utc_datetime or 'Unknown'}\n"
-                    f"{texts.get('astro_place', '📍 Place')}: {user_data.get('birth_place', '')}\n"
-                    f"{texts.get('astro_coordinates', '🌐 Coordinates')}: {lat:.4f}, {lng:.4f}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"{texts.get('astro_sun', '☀️ Sun')}: {sun.get('sign', 'Unknown')}\n"
-                    f"{texts.get('astro_moon', '🌙 Moon')}: {moon.get('sign', 'Unknown')}\n"
-                    f"{texts.get('astro_ascendant', '⬆️ Ascendant')}: {asc_sign}"
-                )
-            else:
-                basic_params = (
-                    f"🌙 Ваш астрологический разбор\n\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"{texts.get('astro_name', '👤 Имя')}: {user_data.get('name', '')}\n"
-                    f"{texts.get('astro_gender', '⚥ Пол')}: {gender_display}\n"
-                    f"{texts.get('astro_local_time', '📅 Локальное время')}: {local_time}\n"
-                    f"{texts.get('astro_timezone', '🕒 Часовой пояс')}: {timezone or 'Unknown'}\n"
-                    f"{texts.get('astro_utc_time', '🕒 Время UTC')}: {utc_datetime or 'Unknown'}\n"
-                    f"{texts.get('astro_place', '📍 Место')}: {user_data.get('birth_place', '')}\n"
-                    f"{texts.get('astro_coordinates', '🌐 Координаты')}: {lat:.4f}, {lng:.4f}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"{texts.get('astro_sun', '☀️ Солнце')}: {sun.get('sign', 'Неизвестно')}\n"
-                    f"{texts.get('astro_moon', '🌙 Луна')}: {moon.get('sign', 'Неизвестно')}\n"
-                    f"{texts.get('astro_ascendant', '⬆️ Асцендент')}: {asc_sign}"
-                )
-
-            # Полные параметры для администратора
-            full_params = ""
-            if is_admin:
-                # Используем данные из data для построения полного блока
-                # Это тот же код, что был в format_full_astrology_parameters, но с учётом структуры данных
-                from bot.utils.formatters import format_full_astrology_parameters
-                full_params = format_full_astrology_parameters(data, transit_data=None, lang=lang)
-
-            return {'basic': basic_params, 'full': full_params}
-
-        except Exception as e:
-            logger.error(f"❌ Ошибка в get_astrology_display_data: {e}", exc_info=True)
-            return {'basic': f"❌ Ошибка при формировании данных: {e}", 'full': ""}
-
-    async def generate_horoscope_with_context(self, user_id: int, context: str, lang: str,
-                                              period: str = 'today', display_date: str = '') -> str:
-        from bot.db import get_emulation_mode
-        emulation = await get_emulation_mode(user_id)
-        template = self._load_prompt_template('prompt_horoscope_v3.txt')
-        if not template:
-            logger.error("Шаблон prompt_horoscope_v3.txt не найден")
-            return "❌ Ошибка: шаблон для гороскопа не найден."
-
-        period_name = "день" if period == 'today' else "месяц" if period == 'month' else "год"
-        replacements = {
-            "context": context,
-            "period": period_name
-        }
-        if lang == 'en':
-            replacements[
-                'language_instruction'] = "IMPORTANT: Respond in English only. All your output must be in English."
-        else:
-            replacements[
-                'language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь твой ответ должен быть на русском."
-
-        prompt = self._replace_placeholders(template, replacements)
-        if emulation:
-            return f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
-        return self._send_prompt(prompt, lang)
-
-    def _prepare_astrology_replacements(self, json_data: Dict[str, Any], lang: str) -> Dict[str, str]:
-        """Подготавливает замены для промпта астрологии (натальной карты)."""
-        from datetime import datetime
-        from bot.utils.zodiac import get_zodiac_sign_localized
-
-        # Извлекаем данные
-        natal = json_data.get('natal', {})
-        metadata = json_data.get('metadata', {})
-        user_data = self.user_data or {}
-
-        name = user_data.get('name', 'Человек')
-        gender = user_data.get('gender', 'M')
-        if lang == 'ru':
-            gender_text = "Мужчина" if gender == 'M' else "Женщина" if gender == 'F' else "Не указан"
-        else:
-            gender_text = "Male" if gender == 'M' else "Female" if gender == 'F' else "Not specified"
-        birth_date = user_data.get('birth_date', 'не указана')
-        birth_time = user_data.get('birth_time', 'не указано')
-        birth_place = user_data.get('birth_place', 'не указано')
-        analysis_date = datetime.now().strftime('%d.%m.%Y')
-
-        # Натальные секции
-        planets = natal.get('planets', [])
-        houses = natal.get('houses', [])
-        rulers = natal.get('house_rulers', [])
-        aspects = natal.get('aspects', [])
-        themes = json_data.get('themes', {})
-        angles = natal.get('angles', {})
-
-        # Форматирование
-        planets_table = self._format_planets_table(planets)
-        cusps_str = self._format_cusps(houses)
-        house_rulers_str = self._format_house_rulers(rulers)
-        natal_aspects_str = self._format_aspects(aspects)
-        themes_str = self._format_themes(themes)
-        angles_str = (
-            f"ASC: {angles.get('ASC', 0):.2f}°, "
-            f"MC: {angles.get('MC', 0):.2f}°, "
-            f"DSC: {angles.get('DSC', 0):.2f}°, "
-            f"IC: {angles.get('IC', 0):.2f}°"
-        ) if angles else "Нет данных об углах."
-
-        # Метаданные
-        settings = metadata.get('settings', {})
-        metadata_settings = (
-            f"Зодиак: {settings.get('zodiac', 'tropical')}\n"
-            f"Система домов: {settings.get('house_system', 'Placidus')}\n"
-            f"Эфемериды: {settings.get('ephemeris', 'kerykeion')}\n"
-            f"Лунный узел: {settings.get('lunar_node', 'true')}\n"
-            f"Система координат: {settings.get('coordinate_system', 'geocentric')}\n"
-            f"Тип прогрессий: {settings.get('progression_type', 'secondary')}\n"
-            f"Орбы аспектов: {settings.get('aspect_orb', {})}"
-        )
-
-        # Дополнительные блоки (транзиты, прогрессии, медицинские показатели)
-        transits = json_data.get('transits', {})
-        transit_aspects = transits.get('aspects', [])
-        transit_aspects_str = self._format_transit_aspects(transit_aspects)
-
-        progressions = json_data.get('progressions', {})
-        progression_aspects = progressions.get('aspects', [])
-        progression_aspects_str = self._format_transit_aspects(progression_aspects)  # используем тот же форматтер
-
-        # Медицинские показатели (заглушка, можно дополнить)
-        health_indicators_str = "6-й дом (здоровье) и 8-й дом (кризисы) — см. натальные дома."
-
-        # Астрокартография (заглушка)
-        astrocartography_str = "Астрокартографические линии: см. натальную карту."
-
-        # Языковая инструкция добавляется в _build_astrology_prompt отдельно
-
-        replacements = {
-            "person_name": name,
-            "person_gender": gender_text,
-            "birth_date": birth_date,
-            "birth_time": birth_time,
-            "birth_place": birth_place,
-            "analysis_date": analysis_date,
-            "metadata_settings": metadata_settings,
-            "planets_table": planets_table,
-            "angles": angles_str,
-            "cusps": cusps_str,
-            "house_rulers_list": house_rulers_str,
-            "natal_aspects_list": natal_aspects_str,
-            "themes_with_evidence": themes_str,
-            "transit_aspects_list": transit_aspects_str,
-            "progression_aspects_list": progression_aspects_str,
-            "health_indicators_list": health_indicators_str,
-            "astrocartography_lines": astrocartography_str,
-            "extra_info": "",
-            "pronoun": "он" if gender == 'M' else "она",
-            "possessive": "его" if gender == 'M' else "её",
-        }
-
-        return replacements
+    # def _prepare_astrology_replacements(self, json_data: Dict[str, Any], lang: str) -> Dict[str, str]:
+    #     """Подготавливает замены для промпта астрологии (натальной карты)."""
+    #     from datetime import datetime
+    #     from bot.utils.zodiac import get_zodiac_sign_localized
+    #
+    #     # Извлекаем данные
+    #     natal = json_data.get('natal', {})
+    #     metadata = json_data.get('metadata', {})
+    #     user_data = self.user_data or {}
+    #
+    #     name = user_data.get('name', 'Человек')
+    #     gender = user_data.get('gender', 'M')
+    #     if lang == 'ru':
+    #         gender_text = "Мужчина" if gender == 'M' else "Женщина" if gender == 'F' else "Не указан"
+    #     else:
+    #         gender_text = "Male" if gender == 'M' else "Female" if gender == 'F' else "Not specified"
+    #     birth_date = user_data.get('birth_date', 'не указана')
+    #     birth_time = user_data.get('birth_time', 'не указано')
+    #     birth_place = user_data.get('birth_place', 'не указано')
+    #     analysis_date = datetime.now().strftime('%d.%m.%Y')
+    #
+    #     # Натальные секции
+    #     planets = natal.get('planets', [])
+    #     houses = natal.get('houses', [])
+    #     rulers = natal.get('house_rulers', [])
+    #     aspects = natal.get('aspects', [])
+    #     themes = json_data.get('themes', {})
+    #     angles = natal.get('angles', {})
+    #
+    #     # Форматирование
+    #     planets_table = self._format_planets_table(planets)
+    #     cusps_str = self._format_cusps(houses)
+    #     house_rulers_str = self._format_house_rulers(rulers)
+    #     natal_aspects_str = self._format_aspects(aspects)
+    #     themes_str = self._format_themes(themes)
+    #     angles_str = (
+    #         f"ASC: {angles.get('ASC', 0):.2f}°, "
+    #         f"MC: {angles.get('MC', 0):.2f}°, "
+    #         f"DSC: {angles.get('DSC', 0):.2f}°, "
+    #         f"IC: {angles.get('IC', 0):.2f}°"
+    #     ) if angles else "Нет данных об углах."
+    #
+    #     # Метаданные
+    #     settings = metadata.get('settings', {})
+    #     metadata_settings = (
+    #         f"Зодиак: {settings.get('zodiac', 'tropical')}\n"
+    #         f"Система домов: {settings.get('house_system', 'Placidus')}\n"
+    #         f"Эфемериды: {settings.get('ephemeris', 'kerykeion')}\n"
+    #         f"Лунный узел: {settings.get('lunar_node', 'true')}\n"
+    #         f"Система координат: {settings.get('coordinate_system', 'geocentric')}\n"
+    #         f"Тип прогрессий: {settings.get('progression_type', 'secondary')}\n"
+    #         f"Орбы аспектов: {settings.get('aspect_orb', {})}"
+    #     )
+    #
+    #     # Дополнительные блоки (транзиты, прогрессии, медицинские показатели)
+    #     transits = json_data.get('transits', {})
+    #     transit_aspects = transits.get('aspects', [])
+    #     transit_aspects_str = self._format_transit_aspects(transit_aspects)
+    #
+    #     progressions = json_data.get('progressions', {})
+    #     progression_aspects = progressions.get('aspects', [])
+    #     progression_aspects_str = self._format_transit_aspects(progression_aspects)  # используем тот же форматтер
+    #
+    #     # Медицинские показатели (заглушка, можно дополнить)
+    #     health_indicators_str = "6-й дом (здоровье) и 8-й дом (кризисы) — см. натальные дома."
+    #
+    #     # Астрокартография (заглушка)
+    #     astrocartography_str = "Астрокартографические линии: см. натальную карту."
+    #
+    #     # Языковая инструкция добавляется в _build_astrology_prompt отдельно
+    #
+    #     replacements = {
+    #         "person_name": name,
+    #         "person_gender": gender_text,
+    #         "birth_date": birth_date,
+    #         "birth_time": birth_time,
+    #         "birth_place": birth_place,
+    #         "analysis_date": analysis_date,
+    #         "metadata_settings": metadata_settings,
+    #         "planets_table": planets_table,
+    #         "angles": angles_str,
+    #         "cusps": cusps_str,
+    #         "house_rulers_list": house_rulers_str,
+    #         "natal_aspects_list": natal_aspects_str,
+    #         "themes_with_evidence": themes_str,
+    #         "transit_aspects_list": transit_aspects_str,
+    #         "progression_aspects_list": progression_aspects_str,
+    #         "health_indicators_list": health_indicators_str,
+    #         "astrocartography_lines": astrocartography_str,
+    #         "extra_info": "",
+    #         "pronoun": "он" if gender == 'M' else "она",
+    #         "possessive": "его" if gender == 'M' else "её",
+    #     }
+    #
+    #     return replacements

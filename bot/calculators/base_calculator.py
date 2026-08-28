@@ -80,15 +80,15 @@ class BaseCalculator:
         if sign in mutable: return "Мутабельный"
         return "Неизвестно"
 
-    @staticmethod
-    def moon_phase_percent(target_date: str) -> float:
-        """Рассчитывает процент освещенности Луны (0-100%)."""
-        known_new_moon = datetime.datetime(2000, 1, 6, 18, 14)
-        target = datetime.datetime.strptime(target_date, '%d.%m.%Y')
-        days_diff = (target - known_new_moon).days
-        lunar_cycle = 29.530587981
-        phase = (days_diff % lunar_cycle) / lunar_cycle
-        return round(phase * 100, 1)
+    # @staticmethod
+    # def moon_phase_percent(target_date: str) -> float:
+    #     """Рассчитывает процент освещенности Луны (0-100%)."""
+    #     known_new_moon = datetime.datetime(2000, 1, 6, 18, 14)
+    #     target = datetime.datetime.strptime(target_date, '%d.%m.%Y')
+    #     days_diff = (target - known_new_moon).days
+    #     lunar_cycle = 29.530587981
+    #     phase = (days_diff % lunar_cycle) / lunar_cycle
+    #     return round(phase * 100, 1)
 
     @staticmethod
     def week_day_name(date_str: str) -> str:
@@ -97,18 +97,18 @@ class BaseCalculator:
         dt = datetime.datetime.strptime(date_str, '%d.%m.%Y')
         return days[dt.weekday()]
 
-    @staticmethod
-    def days_until_birthday(birth_date: str, target_date: str) -> int:
-        """Считает дни до ближайшего дня рождения."""
-        b_day, b_month, _ = map(int, birth_date.split('.'))
-        target = datetime.datetime.strptime(target_date, '%d.%m.%Y')
-
-        next_birthday = datetime.datetime(target.year, b_month, b_day)
-        if next_birthday < target:
-            next_birthday = datetime.datetime(target.year + 1, b_month, b_day)
-
-        delta = next_birthday - target
-        return delta.days
+    # @staticmethod
+    # def days_until_birthday(birth_date: str, target_date: str) -> int:
+    #     """Считает дни до ближайшего дня рождения."""
+    #     b_day, b_month, _ = map(int, birth_date.split('.'))
+    #     target = datetime.datetime.strptime(target_date, '%d.%m.%Y')
+    #
+    #     next_birthday = datetime.datetime(target.year, b_month, b_day)
+    #     if next_birthday < target:
+    #         next_birthday = datetime.datetime(target.year + 1, b_month, b_day)
+    #
+    #     delta = next_birthday - target
+    #     return delta.days
 
     @staticmethod
     def calculate_age(birth_date: str, target_date: str) -> int:
@@ -128,13 +128,13 @@ class BaseCalculator:
         total = day + month + year
         return BaseCalculator.reduce_to_single(total)
 
-    @staticmethod
-    def calculate_personal_day_number(birth_date: str, target_date: str) -> int:
-        """Вычисляет число персонального дня."""
-        b_day, b_month, _ = map(int, birth_date.split('.'))
-        t_day, t_month, t_year = map(int, target_date.split('.'))
-        total = b_day + b_month + t_day + t_month + t_year
-        return BaseCalculator.reduce_to_single(total)
+    # @staticmethod
+    # def calculate_personal_day_number(birth_date: str, target_date: str) -> int:
+    #     """Вычисляет число персонального дня."""
+    #     b_day, b_month, _ = map(int, birth_date.split('.'))
+    #     t_day, t_month, t_year = map(int, target_date.split('.'))
+    #     total = b_day + b_month + t_day + t_month + t_year
+    #     return BaseCalculator.reduce_to_single(total)
 
     @staticmethod
     def calculate_personal_year(birth_date: str, target_date: str) -> int:
@@ -164,46 +164,46 @@ class BaseCalculator:
             'sz': sz,
         }
 
-    @staticmethod
-    def calculate_transit_arcan(birth_date: str, target_date: str) -> int:
-        """Вычисляет транзитный аркан на сегодня."""
-        b_year = int(birth_date.split('.')[2])
-        t_day, t_month, t_year = map(int, target_date.split('.'))
+    # @staticmethod
+    # def calculate_transit_arcan(birth_date: str, target_date: str) -> int:
+    #     """Вычисляет транзитный аркан на сегодня."""
+    #     b_year = int(birth_date.split('.')[2])
+    #     t_day, t_month, t_year = map(int, target_date.split('.'))
+    #
+    #     arcan_birth_year = BaseCalculator.get_arcan(sum(int(d) for d in str(b_year)))
+    #     arcan_target_day = BaseCalculator.get_arcan(t_day)
+    #     arcan_target_month = BaseCalculator.get_arcan(t_month)
+    #     arcan_target_year = BaseCalculator.get_arcan(sum(int(d) for d in str(t_year)))
+    #
+    #     total = arcan_birth_year + arcan_target_day + arcan_target_month + arcan_target_year
+    #     return BaseCalculator.get_arcan(total)
 
-        arcan_birth_year = BaseCalculator.get_arcan(sum(int(d) for d in str(b_year)))
-        arcan_target_day = BaseCalculator.get_arcan(t_day)
-        arcan_target_month = BaseCalculator.get_arcan(t_month)
-        arcan_target_year = BaseCalculator.get_arcan(sum(int(d) for d in str(t_year)))
+    # @staticmethod
+    # def get_lunar_day(target_date: str) -> int:
+    #     """Вычисляет лунный день (1-30)."""
+    #     known_new_moon = datetime.datetime(2000, 1, 6, 18, 14)
+    #     target = datetime.datetime.strptime(target_date, '%d.%m.%Y')
+    #     days_diff = (target - known_new_moon).days
+    #     lunar_cycle = 29.530587981
+    #     lunar_day = int((days_diff % lunar_cycle) + 1)
+    #     return lunar_day if lunar_day <= 30 else 30
 
-        total = arcan_birth_year + arcan_target_day + arcan_target_month + arcan_target_year
-        return BaseCalculator.get_arcan(total)
+    # @staticmethod
+    # def calculate_compatibility_number(date1: str, date2: str) -> int:
+    #     """Вычисляет число совместимости двух дат."""
+    #     total1 = sum(map(int, date1.split('.')))
+    #     total2 = sum(map(int, date2.split('.')))
+    #     total = total1 + total2
+    #     return BaseCalculator.reduce_to_single(total)
 
-    @staticmethod
-    def get_lunar_day(target_date: str) -> int:
-        """Вычисляет лунный день (1-30)."""
-        known_new_moon = datetime.datetime(2000, 1, 6, 18, 14)
-        target = datetime.datetime.strptime(target_date, '%d.%m.%Y')
-        days_diff = (target - known_new_moon).days
-        lunar_cycle = 29.530587981
-        lunar_day = int((days_diff % lunar_cycle) + 1)
-        return lunar_day if lunar_day <= 30 else 30
-
-    @staticmethod
-    def calculate_compatibility_number(date1: str, date2: str) -> int:
-        """Вычисляет число совместимости двух дат."""
-        total1 = sum(map(int, date1.split('.')))
-        total2 = sum(map(int, date2.split('.')))
-        total = total1 + total2
-        return BaseCalculator.reduce_to_single(total)
-
-    @staticmethod
-    def calculate_compatibility_arcan(date1: str, date2: str) -> int:
-        """Вычисляет аркан совместимости."""
-        day1, month1, year1 = map(int, date1.split('.'))
-        day2, month2, year2 = map(int, date2.split('.'))
-
-        total = day1 + month1 + year1 + day2 + month2 + year2
-        return BaseCalculator.get_arcan(total)
+    # @staticmethod
+    # def calculate_compatibility_arcan(date1: str, date2: str) -> int:
+    #     """Вычисляет аркан совместимости."""
+    #     day1, month1, year1 = map(int, date1.split('.'))
+    #     day2, month2, year2 = map(int, date2.split('.'))
+    #
+    #     total = day1 + month1 + year1 + day2 + month2 + year2
+    #     return BaseCalculator.get_arcan(total)
 
     @staticmethod
     def calculate_full_matrix(birth_date: str) -> Dict[str, int]:
