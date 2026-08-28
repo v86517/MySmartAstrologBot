@@ -11,10 +11,7 @@ from kerykeion import AstrologicalSubject
 
 from bot.calculators.astrology_calculator import AstrologyCalculator
 
-# Настройка логирования: оставляем только важное
 logger = logging.getLogger(__name__)
-# Отключаем избыточные логи по умолчанию
-logging.getLogger("bot.calculators.horoscope_calculator").setLevel(logging.INFO)
 
 
 # ============================================================================
@@ -434,21 +431,19 @@ class PlanetSnapshot:
 
 @dataclass
 class TransitEvent:
+    # Обязательные поля (без дефолта)
     transit_body: str
     natal_target: str
     aspect: str
     aspect_angle: float
     start_utc: Optional[datetime]
-    exact_utc: Optional[datetime]          # точный пик, если найден внутри периода (орб ≈ 0)
+    exact_utc: Optional[datetime]
     end_utc: Optional[datetime]
-    orb_at_exact: float                    # орб в точном пике (≈0, если найден)
-    nearest_utc: Optional[datetime]        # всегда есть – ближайшая точка в периоде
-    nearest_orb: float                     # орб в ближайшей точке
-    exact_hit_outside: bool = False        # True если точный пик вне периода
-    exact_direction: Optional[str] = None  # "before" или "after"
+    orb_at_exact: float
     phase: str
     transit_longitude: float
     natal_longitude: float
+    # Поля с дефолтными значениями
     transit_house: Any = None
     natal_house: Any = None
     is_retrograde: bool = False
@@ -458,6 +453,11 @@ class TransitEvent:
     reason: str = ""
     hit_index: int = 1
     theme: str = ""
+    # Новые поля для корректной семантики
+    nearest_utc: Optional[datetime] = None
+    nearest_orb: float = 999.0
+    exact_hit_outside: bool = False
+    exact_direction: Optional[str] = None  # "before" или "after"
 
     @property
     def unique_key(self) -> str:
@@ -478,19 +478,21 @@ class TransitEvent:
 
 @dataclass
 class TransitEpisode:
+    # Обязательные поля
     transit_body: str
     natal_target: str
     aspect: str
     theme: str
     first_start_utc: Optional[datetime]
     last_end_utc: Optional[datetime]
-    exact_hits: List[datetime] = field(default_factory=list)          # только точные пики внутри периода
-    nearest_approaches: List[Tuple[datetime, float]] = field(default_factory=list)  # (время, орб) для всех проходов
+    # Поля с дефолтом
+    exact_hits: List[datetime] = field(default_factory=list)
+    nearest_approaches: List[Tuple[datetime, float]] = field(default_factory=list)
     max_score: float = 0.0
     hit_count: int = 0
     retrograde_hits: int = 0
-    phase: str = ""         # преобладающая фаза (applying/separating) на основе точных пиков или направления
-    min_orb: float = 0.0    # минимальный орб среди всех ближайших точек
+    phase: str = ""
+    min_orb: float = 0.0
 
     @property
     def semantic_key(self) -> Tuple[str, str, str]:
@@ -617,29 +619,35 @@ class HoroscopeCalculator:
         else:
             data = getattr(model, "__dict__", {})
 
-        # Логируем ключи один раз (при первом вызове) — убираем подробный лог
+        # Логируем ключи один раз (при первом вызове)
         if not self._snapshot_cache:
-            logger.debug("[MODEL KEYS] First model keys: %s", list(data.keys())[:30])
+            logger.info("[MODEL KEYS] First model keys: %s", list(data.keys())[:30])
         return data
 
     def _point_dict(self, subject: AstrologicalSubject, name: str) -> Optional[Dict[str, Any]]:
         data = self._get_model_dict(subject)
+        # Сначала ищем с заглавной буквы (например, "Uranus")
         alt_name = name.capitalize()
         value = data.get(alt_name)
         if value is not None:
-            logger.debug("[POINT_DICT] Found '%s' using capitalized key '%s'", name, alt_name)
+            logger.info("[POINT_DICT] Found '%s' using capitalized key '%s'", name, alt_name)
         else:
+            # Если не найдено, ищем в нижнем регистре
             value = data.get(name)
             if value is None:
                 if name in ("uranus", "saturn", "jupiter", "neptune", "pluto"):
-                    logger.debug("[POINT_DICT] Planet %s not found. Available keys: %s", name, list(data.keys())[:20])
+                    logger.warning("[POINT_DICT] Planet %s not found. Available keys: %s", name, list(data.keys())[:20])
                 return None
+        # Диагностика для Урана
+        if name == "uranus" or alt_name == "Uranus":
+            logger.info("[POINT_DICT] uranus data: %s", value)
         if isinstance(value, dict):
             abs_pos = to_float(value.get("abs_pos"))
-            logger.debug("[POINT_DICT] %s: abs_pos=%s", name, abs_pos)
+            logger.info("[POINT_DICT] %s: abs_pos=%s", name, abs_pos)
             return value
+        # Если value — объект
         abs_pos = to_float(get_attr_safe(value, "abs_pos"))
-        logger.debug("[POINT_DICT] %s (object): abs_pos=%s", name, abs_pos)
+        logger.info("[POINT_DICT] %s (object): abs_pos=%s", name, abs_pos)
         return {
             "abs_pos": to_float(get_attr_safe(value, "abs_pos")),
             "position": to_float(get_attr_safe(value, "position")),
@@ -696,10 +704,10 @@ class HoroscopeCalculator:
         cached = self._snapshot_cache.get(key)
         if cached is not None:
             self.stats["snapshot_cache_hits"] += 1
-            logger.debug("[SNAPSHOT] CACHE HIT for %s", key)
+            logger.info("[SNAPSHOT] CACHE HIT for %s, lat=%s lng=%s", key, self.lat, self.lng)
             return cached
 
-        logger.debug("[SNAPSHOT] CREATING NEW subject for %s", key)
+        logger.info("[SNAPSHOT] CREATING NEW subject for %s, lat=%s lng=%s", key, self.lat, self.lng)
         subject = AstrologicalSubject(
             name="Transit",
             year=timestamp.year,
@@ -727,14 +735,14 @@ class HoroscopeCalculator:
         )
         key = (datetime_key(snapshot_time), planet)
 
-        # Временное отключение кеша для Урана (можно убрать после исправления)
+        # Временное отключение кеша для Урана
         if planet == "uranus":
             cached = None
         else:
             cached = self._planet_snapshot_cache.get(key)
 
         if cached is not None:
-            logger.debug("[EXTRACT] CACHE HIT for %s at %s: lon=%.4f", planet, snapshot_time.isoformat(),
+            logger.info("[EXTRACT] CACHE HIT for %s at %s: lon=%.4f", planet, snapshot_time.isoformat(),
                         cached.longitude)
             return cached
 
@@ -751,7 +759,7 @@ class HoroscopeCalculator:
         speed = to_float(data.get("speed"), 0.0) or 0.0
         retrograde = bool(data.get("retrograde", False))
 
-        logger.debug(
+        logger.info(
             "[EXTRACT] NEW data for %s at %s: lon=%.4f (speed=%.4f, retro=%s)",
             planet,
             snapshot_time.isoformat(),
@@ -855,6 +863,7 @@ class HoroscopeCalculator:
                         previous_time, previous_orb, _, _ = previous_state
                         max_orb = self.config.aspect_orbs[aspect]
 
+                        # Если оба орба внутри — это кандидат
                         if previous_orb <= max_orb and orb <= max_orb:
                             candidates.append(
                                 (planet, target, aspect, previous_time, timestamp)
@@ -862,6 +871,7 @@ class HoroscopeCalculator:
 
                         previous[key] = (timestamp, orb, aspect, transit.longitude)
 
+                    # Удаляем старые ключи, если аспект исчез
                     for old_key in list(previous):
                         if old_key[:2] == (planet, target):
                             if old_key not in current_keys:
@@ -869,7 +879,9 @@ class HoroscopeCalculator:
 
         candidates = self._merge_candidate_windows(candidates)
         self.stats["candidate_windows"] = len(candidates)
-        logger.info("[CANDIDATES] windows=%d", len(candidates))
+        logger.info("[CANDIDATES] windows=%d snapshots=%d",
+                    len(candidates),
+                    self.stats["snapshot_created"])
         return candidates
 
     def _merge_candidate_windows(
@@ -901,43 +913,8 @@ class HoroscopeCalculator:
         return result
 
     # ======================================================================
-    # ROOT FINDER (поиск минимума и проверка exact)
+    # ROOT / EXACT
     # ======================================================================
-
-    def _refine_nearest_point(
-        self,
-        planet: str,
-        target: str,
-        aspect: str,
-        start: datetime,
-        end: datetime,
-    ) -> Tuple[datetime, float]:
-        """
-        Находит точку минимального орба в заданном интервале методом золотого сечения.
-        Возвращает (время, орб).
-        """
-        tolerance = timedelta(seconds=self.config.root_tolerance_seconds)
-        left, right = start, end
-        phi = (1.0 + math.sqrt(5.0)) / 2.0
-
-        # Функция для вычисления орба в момент времени
-        def orb_at(t: datetime) -> float:
-            return abs(self._aspect_function(t, planet, target, aspect))
-
-        while right - left > tolerance:
-            span = (right - left).total_seconds()
-            x1 = right - timedelta(seconds=span / phi)
-            x2 = left + timedelta(seconds=span / phi)
-            f1 = orb_at(x1)
-            f2 = orb_at(x2)
-            if f1 < f2:
-                right = x2
-            else:
-                left = x1
-
-        result_time = midpoint(left, right)
-        result_orb = orb_at(result_time)
-        return result_time, result_orb
 
     def _aspect_function(
         self,
@@ -958,41 +935,91 @@ class HoroscopeCalculator:
         target_angle = MAJOR_ASPECT_ANGLES[aspect]
         return distance - target_angle
 
-    def _determine_exact_status(
+    def _refine_exact_hit(
         self,
         planet: str,
         target: str,
         aspect: str,
         start: datetime,
         end: datetime,
-        period_start: datetime,
-        period_end: datetime,
-    ) -> Tuple[Optional[datetime], float, bool, Optional[str]]:
-        """
-        Определяет, есть ли точный пик внутри периода, и возвращает:
-        - exact_time (если найден) или None
-        - орб в ближайшей точке (всегда)
-        - exact_hit_outside (True/False)
-        - exact_direction ("before"/"after" если пик вне периода)
-        """
-        # Находим ближайшую точку в окне
-        nearest_time, nearest_orb = self._refine_nearest_point(planet, target, aspect, start, end)
+    ) -> Optional[datetime]:
+        start = ensure_utc(start)
+        end = ensure_utc(end)
+        if end <= start:
+            return None
 
-        # Проверяем, является ли она точной
-        if nearest_orb <= self.config.exact_tolerance_deg:
-            # Точный пик внутри периода
-            return nearest_time, nearest_orb, False, None
+        tolerance = timedelta(seconds=self.config.root_tolerance_seconds)
+        left, right = start, end
+        phi = (1.0 + math.sqrt(5.0)) / 2.0
 
-        # Точного пика внутри окна нет. Определяем направление
-        # Проверяем орб на границах окна (или на period_start/end)
-        orb_start = abs(self._aspect_function(period_start, planet, target, aspect))
-        orb_end = abs(self._aspect_function(period_end, planet, target, aspect))
+        while right - left > tolerance:
+            span = (right - left).total_seconds()
+            x1 = right - timedelta(seconds=span / phi)
+            x2 = left + timedelta(seconds=span / phi)
+            f1 = abs(self._aspect_function(x1, planet, target, aspect))
+            f2 = abs(self._aspect_function(x2, planet, target, aspect))
+            if f1 < f2:
+                right = x2
+            else:
+                left = x1
 
-        # Сравниваем: если орб на start < орб на end, то минимум в начале – значит пик был до периода
-        if orb_start < orb_end:
-            return None, nearest_orb, True, "before"
-        else:
-            return None, nearest_orb, True, "after"
+        result = midpoint(left, right)
+        orb = abs(self._aspect_function(result, planet, target, aspect))
+        max_orb = self.config.aspect_orbs[aspect]
+        if orb > max_orb:
+            return None
+        return result
+
+    # ======================================================================
+    # BOUNDARY SEARCH
+    # ======================================================================
+
+    def _boundary_radius(self, planet: str) -> timedelta:
+        if planet in SLOW_PLANETS:
+            return timedelta(days=self.config.boundary_search_days_slow)
+        return timedelta(hours=self.config.boundary_search_hours_fast)
+
+    def _find_boundary(
+        self,
+        planet: str,
+        target: str,
+        aspect: str,
+        center: datetime,
+        direction: int,
+        period: ForecastPeriod,
+    ) -> Optional[datetime]:
+        radius = self._boundary_radius(planet)
+        boundary = center + direction * radius
+        boundary = max(period.start_utc, min(boundary, period.end_utc))
+        if boundary == center:
+            return None
+
+        center_orb = abs(self._aspect_function(center, planet, target, aspect))
+        boundary_orb = abs(self._aspect_function(boundary, planet, target, aspect))
+        max_orb = self.config.aspect_orbs[aspect]
+
+        if center_orb <= max_orb and boundary_orb <= max_orb:
+            return boundary
+        if center_orb > max_orb and boundary_orb > max_orb:
+            return None
+
+        left, right = min(center, boundary), max(center, boundary)
+        for _ in range(50):
+            if right - left <= timedelta(seconds=self.config.root_tolerance_seconds):
+                break
+            mid = midpoint(left, right)
+            orb = abs(self._aspect_function(mid, planet, target, aspect))
+            if orb <= max_orb:
+                if direction < 0:
+                    left = mid
+                else:
+                    right = mid
+            else:
+                if direction < 0:
+                    right = mid
+                else:
+                    left = mid
+        return left if direction < 0 else right
 
     # ======================================================================
     # EVENT CONSTRUCTION
@@ -1013,25 +1040,86 @@ class HoroscopeCalculator:
             return "separating"
         return "exact"
 
+    def _determine_exact_status(self, event: TransitEvent, period: ForecastPeriod) -> None:
+        """
+        Определяет, является ли ближайшая точка точным пиком, и если нет,
+        то определяет направление пика (до или после периода).
+        Заполняет поля nearest_utc, nearest_orb, exact_hit_outside, exact_direction.
+        """
+        # Используем уже найденный exact_utc и orb_at_exact
+        if event.exact_utc is not None:
+            # Проверяем, действительно ли орб <= tolerance
+            if event.orb_at_exact <= self.config.exact_tolerance_deg:
+                # Точный пик внутри периода
+                event.nearest_utc = event.exact_utc
+                event.nearest_orb = event.orb_at_exact
+                event.exact_hit_outside = False
+                event.exact_direction = None
+                logger.info(f"[EXACT] Found exact hit: {event.display_name} at {event.exact_utc} with orb {event.orb_at_exact:.4f}°")
+                return
+            else:
+                # exact_utc задан, но орб > tolerance - скорее всего это clamping
+                # Сбрасываем exact_utc, будем определять как активный без пика
+                event.exact_utc = None
+
+        # Если точного пика нет внутри периода, ищем ближайшую точку и направление
+        # Используем сохранённые start_utc и end_utc границы окна (уже есть в event)
+        # Если окно не сохранено, используем границы периода
+        start = event.start_utc if event.start_utc is not None else period.start_utc
+        end = event.end_utc if event.end_utc is not None else period.end_utc
+
+        # Находим минимум орба внутри окна (используем refine)
+        t_min = self._refine_exact_hit(event.transit_body, event.natal_target, event.aspect, start, end)
+        if t_min is None:
+            # Если refine не сработал, используем середину окна
+            t_min = start + (end - start) / 2
+        orb_min = abs(self._aspect_function(t_min, event.transit_body, event.natal_target, event.aspect))
+
+        event.nearest_utc = t_min
+        event.nearest_orb = orb_min
+        event.exact_hit_outside = True
+
+        # Определяем направление: сравниваем орб на левой и правой границе окна
+        try:
+            orb_start = abs(self._aspect_function(start, event.transit_body, event.natal_target, event.aspect))
+            orb_end = abs(self._aspect_function(end, event.transit_body, event.natal_target, event.aspect))
+        except Exception:
+            orb_start = orb_min
+            orb_end = orb_min
+
+        if orb_start < orb_end:
+            # Орб уменьшается к концу → пик будет после периода
+            event.exact_direction = "after"
+        elif orb_start > orb_end:
+            # Орб увеличивается → пик был до периода
+            event.exact_direction = "before"
+        else:
+            # Если неопределённо, смотрим на производную в середине
+            mid = start + (end - start) / 2
+            try:
+                before = mid - timedelta(minutes=30)
+                after = mid + timedelta(minutes=30)
+                orb_before = abs(self._aspect_function(before, event.transit_body, event.natal_target, event.aspect))
+                orb_after = abs(self._aspect_function(after, event.transit_body, event.natal_target, event.aspect))
+                if orb_before < orb_after:
+                    event.exact_direction = "after"
+                else:
+                    event.exact_direction = "before"
+            except Exception:
+                event.exact_direction = "unknown"
+
+        logger.info(f"[EXACT] No exact hit in period, peak {event.exact_direction} period: {event.display_name}, nearest orb {orb_min:.4f}°")
+
     def _build_event(
         self,
         planet: str,
         target: str,
         aspect: str,
+        exact: datetime,
         start: Optional[datetime],
         end: Optional[datetime],
-        period_start: datetime,
-        period_end: datetime,
     ) -> Optional[TransitEvent]:
-        if start is None or end is None:
-            return None
-
-        # Находим ближайшую точку и определяем статус exact
-        exact_time, nearest_orb, exact_outside, exact_dir = self._determine_exact_status(
-            planet, target, aspect, start, end, period_start, period_end
-        )
-
-        subject = self._snapshot(period_start)  # используем начало периода для получения позиций
+        subject = self._snapshot(exact)
         transit = self._extract_transit_planet(subject, planet)
         natal = self._natal_points.get(target)
         if transit is None or natal is None:
@@ -1040,20 +1128,8 @@ class HoroscopeCalculator:
         if natal_longitude is None:
             return None
 
-        # Если exact_time найден, используем его для фазы, иначе определяем фазу по направлению
-        if exact_time is not None:
-            phase = self._phase(planet, target, aspect, exact_time)
-            orb_at_exact = 0.0  # или очень мало
-        else:
-            # Если пик вне периода, фаза определяется направлением
-            if exact_dir == "before":
-                phase = "separating"
-            elif exact_dir == "after":
-                phase = "applying"
-            else:
-                phase = "unknown"
-            orb_at_exact = 0.0  # не используется, но оставляем
-
+        orb = abs(self._aspect_function(exact, planet, target, aspect))
+        phase = self._phase(planet, target, aspect, exact)
         theme = THEME_FOR_TARGET.get(target, "general")
 
         event = TransitEvent(
@@ -1062,13 +1138,9 @@ class HoroscopeCalculator:
             aspect=aspect,
             aspect_angle=MAJOR_ASPECT_ANGLES[aspect],
             start_utc=start,
-            exact_utc=exact_time,
+            exact_utc=exact if orb <= self.config.exact_tolerance_deg else None,
             end_utc=end,
-            orb_at_exact=orb_at_exact,
-            nearest_utc=start,  # пока ставим start, позже заполним корректно
-            nearest_orb=nearest_orb,
-            exact_hit_outside=exact_outside,
-            exact_direction=exact_dir,
+            orb_at_exact=orb,
             phase=phase,
             transit_longitude=transit.longitude,
             natal_longitude=natal_longitude,
@@ -1078,13 +1150,6 @@ class HoroscopeCalculator:
             transit_speed=transit.speed,
             theme=theme,
         )
-        # Уточняем nearest_utc – это момент минимального орба в окне (уже нашли)
-        # Можно использовать результат _refine_nearest_point, но мы его не сохранили.
-        # Повторно вызовем _refine_nearest_point, чтобы получить точное время минимума.
-        nearest_time, _ = self._refine_nearest_point(planet, target, aspect, start, end)
-        event.nearest_utc = nearest_time
-        event.nearest_orb = nearest_orb
-
         return event
 
     # ======================================================================
@@ -1106,14 +1171,17 @@ class HoroscopeCalculator:
         return 0.0
 
     def _score(self, event: TransitEvent, period_type: str) -> float:
+        """Вычисляет скор с учётом периода."""
+        # Берём веса планет в зависимости от периода
         planet_weights = PERIOD_PLANET_WEIGHTS.get(period_type, BASE_PLANET_WEIGHT)
         planet_weight = planet_weights.get(event.transit_body, 0.0)
         target_weight = TARGET_WEIGHT.get(event.natal_target, 0.0) * 0.35
         aspect_weight = ASPECT_WEIGHT.get(event.aspect, 0.0) * 3.0
-        orb_factor = self._orb_strength(event.nearest_orb) * 5.0  # используем nearest_orb
+        orb_factor = self._orb_strength(event.orb_at_exact) * 5.0
 
         score = planet_weight + target_weight + aspect_weight + orb_factor
 
+        # Бонусы
         if event.natal_target in ANGLE_TARGETS:
             score += self.config.angle_bonus
         if event.natal_target in PERSONAL_TARGETS:
@@ -1128,16 +1196,17 @@ class HoroscopeCalculator:
         return round(score, 3)
 
     def _classify_event(self, event: TransitEvent, period_type: str) -> None:
+        """Классифицирует событие с учётом периода (FOREGROUND/BACKGROUND)."""
         event.score = self._score(event, period_type)
 
-        if event.nearest_orb > self.config.foreground_max_orb:
+        if event.orb_at_exact > self.config.foreground_max_orb:
             event.activity = "BACKGROUND"
             event.reason = "orb_too_wide"
             return
 
         planet = event.transit_body
         target = event.natal_target
-        orb = event.nearest_orb
+        orb = event.orb_at_exact
 
         if planet in SLOW_PLANETS and target in ANGLE_TARGETS:
             event.activity = "FOREGROUND"
@@ -1180,15 +1249,15 @@ class HoroscopeCalculator:
     def _filter_day_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
         selected = []
         exact_limit = self.config.day_exact_orb_limit
-        selected.extend([e for e in events if e.nearest_orb <= exact_limit])
+        selected.extend([e for e in events if e.orb_at_exact <= exact_limit])
 
         moon_limit = self.config.day_moon_orb_limit
-        moon_aspects = [e for e in events if e.transit_body == "moon" and e.nearest_orb <= moon_limit]
+        moon_aspects = [e for e in events if e.transit_body == "moon" and e.orb_at_exact <= moon_limit]
         selected.extend(moon_aspects)
 
         fast_limit = self.config.day_fast_orb_limit
         fast_except_moon = [p for p in FAST_PLANETS if p != "moon"]
-        fast_aspects = [e for e in events if e.transit_body in fast_except_moon and e.nearest_orb <= fast_limit]
+        fast_aspects = [e for e in events if e.transit_body in fast_except_moon and e.orb_at_exact <= fast_limit]
         selected.extend(fast_aspects)
 
         slow_limit = self.config.day_slow_orb_limit
@@ -1196,7 +1265,7 @@ class HoroscopeCalculator:
         slow_aspects = [
             e for e in events
             if e.transit_body in SLOW_PLANETS
-            and e.nearest_orb <= slow_limit
+            and e.orb_at_exact <= slow_limit
             and e.score > score_threshold
         ]
         selected.extend(slow_aspects)
@@ -1215,11 +1284,11 @@ class HoroscopeCalculator:
     def _filter_month_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
         selected = []
         exact_limit = self.config.month_exact_orb_limit
-        selected.extend([e for e in events if e.nearest_orb <= exact_limit])
+        selected.extend([e for e in events if e.orb_at_exact <= exact_limit])
 
         fast_limit = self.config.month_fast_orb_limit
         fast_except_moon = [p for p in FAST_PLANETS if p != "moon"]
-        fast_aspects = [e for e in events if e.transit_body in fast_except_moon and e.nearest_orb <= fast_limit]
+        fast_aspects = [e for e in events if e.transit_body in fast_except_moon and e.orb_at_exact <= fast_limit]
         selected.extend(fast_aspects)
 
         slow_limit = self.config.month_slow_orb_limit
@@ -1227,7 +1296,7 @@ class HoroscopeCalculator:
         slow_aspects = [
             e for e in events
             if e.transit_body in SLOW_PLANETS
-            and e.nearest_orb <= slow_limit
+            and e.orb_at_exact <= slow_limit
             and e.score > score_threshold
         ]
         selected.extend(slow_aspects)
@@ -1246,11 +1315,11 @@ class HoroscopeCalculator:
     def _filter_year_events(self, events: List[TransitEvent]) -> List[TransitEvent]:
         selected = []
         exact_limit = self.config.year_exact_orb_limit
-        selected.extend([e for e in events if e.nearest_orb <= exact_limit])
+        selected.extend([e for e in events if e.orb_at_exact <= exact_limit])
 
         fast_limit = self.config.year_fast_orb_limit
         fast_except_moon = [p for p in FAST_PLANETS if p != "moon"]
-        fast_aspects = [e for e in events if e.transit_body in fast_except_moon and e.nearest_orb <= fast_limit]
+        fast_aspects = [e for e in events if e.transit_body in fast_except_moon and e.orb_at_exact <= fast_limit]
         selected.extend(fast_aspects)
 
         slow_limit = self.config.year_slow_orb_limit
@@ -1258,7 +1327,7 @@ class HoroscopeCalculator:
         slow_aspects = [
             e for e in events
             if e.transit_body in SLOW_PLANETS
-            and e.nearest_orb <= slow_limit
+            and e.orb_at_exact <= slow_limit
             and e.score > score_threshold
         ]
         selected.extend(slow_aspects)
@@ -1275,7 +1344,7 @@ class HoroscopeCalculator:
         return selected[:limit]
 
     # ======================================================================
-    # RESOLVE CANDIDATE (использует новый _determine_exact_status)
+    # EXACT TRANSIT PIPELINE
     # ======================================================================
 
     def _resolve_candidate(
@@ -1287,17 +1356,22 @@ class HoroscopeCalculator:
         end: datetime,
         period: ForecastPeriod,
     ) -> Optional[TransitEvent]:
-        # Находим границы влияния (используем существующие методы)
-        # Для простоты используем start/end как границы окна, но можно искать точные границы позже.
+        exact = self._refine_exact_hit(planet, target, aspect, start, end)
+        if exact is None:
+            return None
+        boundary_start = self._find_boundary(planet, target, aspect, exact, -1, period)
+        boundary_end = self._find_boundary(planet, target, aspect, exact, +1, period)
         event = self._build_event(
             planet=planet,
             target=target,
             aspect=aspect,
-            start=start,
-            end=end,
-            period_start=period.start_utc,
-            period_end=period.end_utc,
+            exact=exact,
+            start=boundary_start,
+            end=boundary_end,
         )
+        if event is not None:
+            # Определяем статус точного пика
+            self._determine_exact_status(event, period)
         return event
 
     # ======================================================================
@@ -1427,6 +1501,8 @@ class HoroscopeCalculator:
             windows = self._detect_retrograde_for_planet(planet, period)
             if windows:
                 logger.info("[RETROGRADE] %s: %d station(s) found", planet, len(windows))
+            else:
+                logger.debug("[RETROGRADE] %s: no stations", planet)
 
     # ======================================================================
     # DEDUPLICATION
@@ -1440,7 +1516,7 @@ class HoroscopeCalculator:
 
         result: List[TransitEvent] = []
         for _, group in grouped.items():
-            group.sort(key=lambda e: e.nearest_utc or datetime.max.replace(tzinfo=timezone.utc))
+            group.sort(key=lambda e: e.exact_utc or datetime.max.replace(tzinfo=timezone.utc))
             unique: List[TransitEvent] = []
             for event in group:
                 if not unique:
@@ -1448,10 +1524,10 @@ class HoroscopeCalculator:
                     continue
                 previous = unique[-1]
                 if (
-                    event.nearest_utc
-                    and previous.nearest_utc
-                    and abs((event.nearest_utc - previous.nearest_utc).total_seconds())
-                    <= self.config.exact_tolerance_seconds
+                        event.exact_utc
+                        and previous.exact_utc
+                        and abs((event.exact_utc - previous.exact_utc).total_seconds())
+                        <= self.config.exact_tolerance_seconds
                 ):
                     if event.score > previous.score:
                         unique[-1] = event
@@ -1477,9 +1553,9 @@ class HoroscopeCalculator:
 
     def _annotate_retrograde(self, events: Sequence[TransitEvent]) -> None:
         for event in events:
-            if event.nearest_utc is None:
+            if event.exact_utc is None:
                 continue
-            event.is_retrograde = self._is_retrograde_at(event.transit_body, event.nearest_utc)
+            event.is_retrograde = self._is_retrograde_at(event.transit_body, event.exact_utc)
 
     # ======================================================================
     # THEMATIC AGGREGATION
@@ -1493,28 +1569,19 @@ class HoroscopeCalculator:
 
         episodes: List[TransitEpisode] = []
         for key, group in grouped.items():
-            group = sorted(group, key=lambda e: e.nearest_utc or datetime.max.replace(tzinfo=timezone.utc))
+            group = sorted(group, key=lambda e: e.exact_utc or datetime.max.replace(tzinfo=timezone.utc))
             first = group[0]
-            # Собираем точные пики (где exact_utc не None)
+            # Собираем точные пики (только те, где exact_utc не None)
             exact_hits = [e.exact_utc for e in group if e.exact_utc is not None]
-            # Собираем ближайшие подходы (все)
+            # Собираем ближайшие подходы (nearest_utc)
             nearest_approaches = [(e.nearest_utc, e.nearest_orb) for e in group if e.nearest_utc is not None]
-            # Определяем фазу: если есть точные пики, берём фазу первого, иначе по направлению
-            if exact_hits:
-                # Берём фазу из первого события с точным пиком
-                first_exact_event = next(e for e in group if e.exact_utc is not None)
-                phase = first_exact_event.phase
-            else:
-                # Если точных пиков нет, смотрим направление первого события
-                # Если exact_direction == "before", то phase = "separating", иначе "applying"
-                if first.exact_direction == "before":
-                    phase = "separating"
-                elif first.exact_direction == "after":
-                    phase = "applying"
-                else:
-                    phase = "unknown"
-
-            min_orb = min(e.nearest_orb for e in group)
+            min_orb = min(e.nearest_orb for e in group if e.nearest_orb < 999.0) if nearest_approaches else 0.0
+            # Определяем фазу: берём фазу первого события (можно улучшить)
+            phase = first.phase
+            # Максимальный скор
+            max_score = max(e.score for e in group)
+            hit_count = len(group)
+            retrograde_hits = sum(1 for e in group if e.is_retrograde)
 
             episode = TransitEpisode(
                 transit_body=first.transit_body,
@@ -1525,9 +1592,9 @@ class HoroscopeCalculator:
                 last_end_utc=max((e.end_utc for e in group if e.end_utc is not None), default=None),
                 exact_hits=exact_hits,
                 nearest_approaches=nearest_approaches,
-                max_score=max(e.score for e in group),
-                hit_count=len(group),
-                retrograde_hits=sum(1 for e in group if e.is_retrograde),
+                max_score=max_score,
+                hit_count=hit_count,
+                retrograde_hits=retrograde_hits,
                 phase=phase,
                 min_orb=min_orb,
             )
@@ -1560,7 +1627,7 @@ class HoroscopeCalculator:
         return ranked
 
     # ======================================================================
-    # PLANET CATEGORY (для промпта)
+    # PLANET CATEGORY
     # ======================================================================
 
     def _planet_category(self, planet: str) -> str:
@@ -1605,11 +1672,17 @@ class HoroscopeCalculator:
         planets = self._planets_for_period(period.period_type)
         logger.info("[PLANETS] %s", ",".join(planets))
 
+        # --------------------------------------------------------------
+        # PASS A — transit candidate detection
+        # --------------------------------------------------------------
         logger.info("[STEP 1] Detecting candidate windows...")
         candidates = self._detect_candidate_windows(period, planets)
         logger.info("[STEP 1] Candidate windows found: %d", len(candidates))
 
-        logger.info("[STEP 2] Resolving exact hits and nearest approaches...")
+        # --------------------------------------------------------------
+        # PASS B — exact dates
+        # --------------------------------------------------------------
+        logger.info("[STEP 2] Resolving exact hits...")
         events: List[TransitEvent] = []
         resolved_count = 0
         for planet, target, aspect, start, end in candidates:
@@ -1619,15 +1692,23 @@ class HoroscopeCalculator:
             event = self._resolve_candidate(planet, target, aspect, start, end, period)
             if event is None:
                 continue
+            if event.exact_utc is not None:
+                if not (period.start_utc <= event.exact_utc <= period.end_utc):
+                    continue
             events.append(event)
             resolved_count += 1
 
-        logger.info("[STEP 2] Events resolved: %d (before dedup)", resolved_count)
+        logger.info("[STEP 2] Exact hits resolved: %d (before dedup)", resolved_count)
 
         events = self._deduplicate_events(events)
-        self.stats["exact_hits"] = sum(1 for e in events if e.exact_utc is not None)
-        logger.info("[STEP 2] After dedup: %d events, exact hits: %d", len(events), self.stats["exact_hits"])
+        # Подсчитываем реальные точные попадания (где exact_utc не None)
+        real_exact = sum(1 for e in events if e.exact_utc is not None)
+        self.stats["exact_hits"] = real_exact
+        logger.info("[STEP 2] After dedup: %d events, exact hits: %d", len(events), real_exact)
 
+        # --------------------------------------------------------------
+        # PASS C — retrograde
+        # --------------------------------------------------------------
         logger.info("[STEP 3] Detecting retrograde stations...")
         self._detect_retrogrades(period, planets)
         retrograde_count = sum(len(windows) for windows in self.retrograde_windows.values())
@@ -1635,6 +1716,9 @@ class HoroscopeCalculator:
 
         self._annotate_retrograde(events)
 
+        # --------------------------------------------------------------
+        # CLASSIFY and SCORE
+        # --------------------------------------------------------------
         logger.info("[STEP 4] Classifying events with period-specific weights...")
         for event in events:
             self._classify_event(event, period.period_type)
@@ -1642,10 +1726,16 @@ class HoroscopeCalculator:
 
         self.events = events
 
+        # --------------------------------------------------------------
+        # FILTER EVENTS FOR FINAL SELECTION PER PERIOD
+        # --------------------------------------------------------------
         logger.info("[STEP 5] Filtering events for final selection...")
         filtered_events = self._select_final_events(events, period.period_type)
         logger.info("[STEP 5] Filtered events: %d (from %d)", len(filtered_events), len(events))
 
+        # --------------------------------------------------------------
+        # THEMATIC AGGREGATION on filtered events
+        # --------------------------------------------------------------
         logger.info("[STEP 6] Aggregating themes from filtered events...")
         episodes = self._aggregate_themes(filtered_events)
         logger.info("[STEP 6] Thematic episodes created: %d", len(episodes))
@@ -1676,7 +1766,7 @@ class HoroscopeCalculator:
         return final
 
     # ======================================================================
-    # PUBLIC METHODS
+    # BUILD CONTEXT (prompt)
     # ======================================================================
 
     def build_context(
@@ -1724,7 +1814,7 @@ class HoroscopeCalculator:
             period: ForecastPeriod,
             episodes: List[TransitEpisode],
     ) -> str:
-        lines: List[str] = []
+        lines = []
 
         lines.append("=== АСТРОЛОГИЧЕСКИЙ КОНТЕКСТ ===")
         lines.append(f"Тип периода: {period.period_type}")
@@ -1764,41 +1854,39 @@ class HoroscopeCalculator:
                 lines.append(f"   Тема: {episode.theme}")
                 lines.append(f"   Количество точных проходов: {episode.hit_count}")
 
-                # Вывод точных пиков (если есть)
+                # Вывод пиков
                 if episode.exact_hits:
-                    # Первый пик
+                    # Берём первый пик как основной
                     exact_dt = episode.exact_hits[0]
                     exact_str = exact_dt.strftime("%d.%m.%Y %H:%M") + " UTC"
                     lines.append(f"   Точное время пика: {exact_str}")
-                    # Если несколько пиков
                     if len(episode.exact_hits) > 1:
                         all_exact = ", ".join(dt.strftime("%d.%m %H:%M") for dt in episode.exact_hits)
                         lines.append(f"   Все пики: {all_exact} UTC")
                 else:
-                    # Если точных пиков нет, показываем ближайший подход и направление
+                    # Если точных пиков нет, но есть ближайшие подходы
                     if episode.nearest_approaches:
+                        # Показываем ближайший подход
                         nearest_time, nearest_orb = episode.nearest_approaches[0]
-                        # Определяем, был ли пик до или будет после
-                        if episode.phase == "separating":
-                            lines.append(f"   Точный пик: был до начала периода (вне периода)")
-                        elif episode.phase == "applying":
-                            lines.append(f"   Точный пик: ожидается после окончания периода (вне периода)")
-                        else:
-                            lines.append(f"   Точный пик: не достигнут в пределах периода")
-                        lines.append(f"   Ближайшая точка в периоде: {nearest_time.strftime('%d.%m.%Y %H:%M')} UTC")
-                        lines.append(f"   Орб в ближайшей точке: {nearest_orb:.2f}°")
+                        nearest_str = nearest_time.strftime("%d.%m.%Y %H:%M") + " UTC"
+                        # Определяем, был ли пик до или после периода
+                        # Используем направление из первого события (не сохраняется в эпизоде, но можем добавить)
+                        # Для простоты показываем как есть
+                        lines.append(f"   Ближайшая точка в периоде: {nearest_str} (орб {nearest_orb:.2f}°)")
+                        if episode.min_orb > 0:
+                            lines.append(f"   Точный пик вне периода (минимальный орб {episode.min_orb:.2f}° достигнут вне периода)")
 
                 # Фаза
                 phase_ru = PHASE_RU.get(episode.phase, episode.phase)
                 lines.append(f"   Фаза: {phase_ru}")
 
-                # Орб (минимальный)
+                # Орб
                 lines.append(f"   Орб: {episode.min_orb:.2f}°")
 
                 # Тип планеты
                 lines.append(f"   Тип планеты: {planet_category}")
 
-                # Score (для внутреннего использования)
+                # Score
                 lines.append(f"   Priority score: {episode.max_score:.2f}")
                 lines.append("")
 
@@ -1823,17 +1911,17 @@ class HoroscopeCalculator:
         lines.append(f"Snapshot requests: {self.stats['snapshot_requests']}")
         lines.append(f"Snapshot cache hits: {self.stats['snapshot_cache_hits']}")
         lines.append(f"Candidate windows: {self.stats['candidate_windows']}")
-        lines.append(f"Exact hits (inside period): {self.stats['exact_hits']}")
+        lines.append(f"Exact hits: {self.stats['exact_hits']}")
         lines.append(f"Retrograde refinements: {self.stats['retrograde_refinements']}")
         lines.append("")
 
         # LLM INSTRUCTIONS
         lines.append("=== ИНСТРУКЦИЯ ДЛЯ ИНТЕРПРЕТАТОРА ===")
         lines.append("Используй транзитные темы как основу прогноза.")
-        lines.append("Точное время пика показывает момент максимальной концентрации энергии (если он есть в периоде).")
-        lines.append("Если пик вне периода, указана ближайшая точка в периоде и направление движения к пику.")
+        lines.append("Точное время пика показывает момент максимальной концентрации энергии.")
         lines.append("Фаза указывает на динамику процесса: applying – влияние нарастает, exact – кульминация, separating – влияние спадает.")
         lines.append("Тип планеты определяет масштаб: быстрая – кратковременное событие (часы/дни), медленная – долгосрочный процесс (недели/месяцы).")
+        lines.append("Если точный пик вне периода, используй ближайшую точку с орбом для оценки интенсивности.")
         lines.append("Не придумывай дополнительные транзиты или даты.")
         lines.append(
             "Если у транзита несколько точных проходов, рассматривай их как один повторяющийся тематический процесс.")
@@ -1866,7 +1954,7 @@ class HoroscopeCalculator:
             f"Snapshot requests: {self.stats['snapshot_requests']}",
             f"Cache hits: {self.stats['snapshot_cache_hits']}",
             f"Candidate windows: {self.stats['candidate_windows']}",
-            f"Exact hits (inside period): {self.stats['exact_hits']}",
+            f"Exact hits: {self.stats['exact_hits']}",
             f"Retrograde candidates: {self.stats['retrograde_candidates']}",
             f"Retrograde refinements: {self.stats['retrograde_refinements']}",
             f"Events: {len(self.events)}",
@@ -1877,15 +1965,13 @@ class HoroscopeCalculator:
 
         for event in sorted(
             self.events,
-            key=lambda e: e.nearest_utc or datetime.max.replace(tzinfo=timezone.utc),
+            key=lambda e: e.exact_utc or datetime.max.replace(tzinfo=timezone.utc),
         ):
             exact = event.exact_utc.isoformat(timespec="seconds") if event.exact_utc else "N/A"
-            nearest = event.nearest_utc.isoformat(timespec="seconds") if event.nearest_utc else "N/A"
             lines.append(
                 f"{event.display_name} | "
                 f"exact={exact} | "
-                f"nearest={nearest} | "
-                f"orb_nearest={event.nearest_orb:.4f} | "
+                f"orb={event.orb_at_exact:.4f} | "
                 f"phase={event.phase} | "
                 f"retrograde={event.is_retrograde} | "
                 f"score={event.score:.3f}"
