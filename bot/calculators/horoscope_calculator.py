@@ -657,25 +657,11 @@ class HoroscopeCalculator:
 
         data = self._point_dict(subject, planet)
         if not data:
-            # Логируем, если данные отсутствуют
-            logger.warning("[EXTRACT] No data for planet %s at %s", planet, datetime_key(subject))
             return None
 
         longitude = to_float(data.get("abs_pos"))
         if longitude is None:
-            logger.warning("[EXTRACT] No abs_pos for planet %s", planet)
             return None
-
-        # Логируем долготу
-        snapshot_time = datetime(
-            subject.year,
-            subject.month,
-            subject.day,
-            subject.hour,
-            subject.minute,
-            tzinfo=timezone.utc,
-        )
-        logger.info("[EXTRACT] %s at %s: lon=%.4f", planet, datetime_key(subject), longitude)
 
         snapshot = PlanetSnapshot(
             timestamp=ensure_utc(
