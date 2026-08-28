@@ -312,8 +312,9 @@ class EngineConfig:
         default_factory=lambda: dict(DEFAULT_ASPECT_ORBS)
     )
 
-    exact_tolerance_deg: float = 0.005
-    exact_tolerance_seconds: float = 30.0
+    # Увеличиваем точность до 0.05° (3 угловые минуты)
+    exact_tolerance_deg: float = 0.05
+    exact_tolerance_seconds: float = 180.0  # 3 минуты (для дедупликации)
     root_tolerance_seconds: float = 30.0
 
     day_step_minutes: int = 30
@@ -1024,7 +1025,17 @@ class HoroscopeCalculator:
     # ======================================================================
 
     def _phase_from_derivative(self, planet: str, target: str, aspect: str, t: datetime) -> str:
-        """Вычисляет фазу по производной орба в точке t."""
+        """Вычисляет фазу по производной орба в точке t.
+        Если орб меньше или равен exact_tolerance_deg, возвращает "exact".
+        """
+        try:
+            orb = abs(self._aspect_function(t, planet, target, aspect))
+            # Если орб уже в пределах точности – это точный аспект
+            if orb <= self.config.exact_tolerance_deg:
+                return "exact"
+        except Exception:
+            pass
+
         dt = timedelta(minutes=5)
         try:
             orb_before = abs(self._aspect_function(t - dt, planet, target, aspect))
@@ -1056,8 +1067,8 @@ class HoroscopeCalculator:
             t_min = start + (end - start) / 2
         orb_min = abs(self._aspect_function(t_min, event.transit_body, event.natal_target, event.aspect))
 
-        # Проверяем, находится ли минимум на границе
-        boundary_epsilon = timedelta(seconds=60)  # 1 минута
+        # Проверяем, находится ли минимум на границе (увеличиваем epsilon до 120 секунд)
+        boundary_epsilon = timedelta(seconds=120)  # 2 минуты
         if abs((t_min - period.start_utc).total_seconds()) < boundary_epsilon.total_seconds() or \
            abs((t_min - period.end_utc).total_seconds()) < boundary_epsilon.total_seconds():
             event.boundary_limited = True
@@ -1082,7 +1093,7 @@ class HoroscopeCalculator:
         event.nearest_utc = t_min
         event.nearest_orb = orb_min
 
-        # Определяем фазу по производной
+        # Определяем фазу по производной (учитывая, что если orb_min <= tolerance, фаза будет "exact")
         event.phase = self._phase_from_derivative(event.transit_body, event.natal_target, event.aspect, t_min)
 
     def _build_event(
