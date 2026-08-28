@@ -14,7 +14,7 @@ from bot.keyboards.keyboards import (
     get_cancel_keyboard,
     get_astrology_payment_keyboard,
     get_astrology_confirm_keyboard,
-    get_astrology_use_data_keyboard,
+    #get_astrology_use_data_keyboard,
     get_payment_url_keyboard,
     get_main_menu_button,
 )

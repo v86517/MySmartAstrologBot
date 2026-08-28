@@ -6,7 +6,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from bot.utils.helpers import get_text
-from bot.keyboards.keyboards import get_main_menu, get_support_keyboard, get_main_menu_button
+from bot.keyboards.keyboards import get_main_menu#, get_support_keyboard, get_main_menu_button
 from bot.states.states import (
     UserDataStates, CompatibilityStates, NumerologyStates, AstrologyStates,
     HoroscopeStates, SubscriptionStates

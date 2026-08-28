@@ -15,7 +15,7 @@ from bot.keyboards.keyboards import (
     get_cancel_keyboard,
     get_numerology_payment_keyboard,
     get_numerology_confirm_keyboard,
-    get_numerology_use_data_keyboard,
+    #get_numerology_use_data_keyboard,
     get_payment_url_keyboard,
     get_main_menu_button,
 )

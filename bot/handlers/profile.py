@@ -15,7 +15,7 @@ from bot.keyboards.keyboards import (
     get_cancel_keyboard,
     get_fill_profile_keyboard,
     get_timezone_keyboard,
-    get_save_data_keyboard,
+    #get_save_data_keyboard,
     get_main_menu_button,
 )
 from bot.states.states import UserDataStates
