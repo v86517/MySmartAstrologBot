@@ -555,16 +555,15 @@ class HoroscopeCalculator:
         data = self._get_model_dict(subject)
         value = data.get(name)
         if value is None:
+            # Если планета не найдена, вывести все ключи модели для диагностики
+            if name in ("uranus", "saturn"):
+                logger.warning("[POINT_DICT] Planet %s not found in model. Keys: %s", name, list(data.keys())[:20])
             return None
         if isinstance(value, dict):
             return value
         return {
             "abs_pos": to_float(get_attr_safe(value, "abs_pos")),
-            "position": to_float(get_attr_safe(value, "position")),
-            "sign": get_attr_safe(value, "sign"),
-            "house": get_attr_safe(value, "house"),
-            "speed": to_float(get_attr_safe(value, "speed"), 0.0),
-            "retrograde": bool(get_attr_safe(value, "retrograde", False)),
+            # ... остальное
         }
 
     def _extract_natal_points(self) -> Dict[str, Dict[str, Any]]:
@@ -613,8 +612,9 @@ class HoroscopeCalculator:
 
         cached = self._snapshot_cache.get(key)
         if cached is not None:
-            self.stats["snapshot_cache_hits"] += 1
             return cached
+
+        logger.info("[SNAPSHOT] Creating subject for %s at lat=%s lng=%s", key, self.lat, self.lng)
 
         subject = AstrologicalSubject(
             name="Transit",
@@ -630,10 +630,6 @@ class HoroscopeCalculator:
 
         self._snapshot_cache[key] = subject
         self.stats["snapshot_created"] += 1
-
-        if self.config.log_snapshots:
-            logger.info("[SNAPSHOT] created=%s cache=%d", key, len(self._snapshot_cache))
-
         return subject
 
     def _extract_transit_planet(
@@ -661,11 +657,17 @@ class HoroscopeCalculator:
 
         data = self._point_dict(subject, planet)
         if not data:
+            # Логируем, если данные отсутствуют
+            logger.warning("[EXTRACT] No data for planet %s at %s", planet, datetime_key(subject))
             return None
 
         longitude = to_float(data.get("abs_pos"))
         if longitude is None:
+            logger.warning("[EXTRACT] No abs_pos for planet %s", planet)
             return None
+
+        # Логируем долготу
+        logger.info("[EXTRACT] %s at %s: lon=%.4f", planet, datetime_key(subject), longitude)
 
         snapshot = PlanetSnapshot(
             timestamp=ensure_utc(
