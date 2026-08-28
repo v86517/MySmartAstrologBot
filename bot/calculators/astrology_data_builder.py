@@ -7,12 +7,12 @@ import itertools
 from .astrology_calculator import AstrologyCalculator
 from .transit_horoscope_calculator import TransitHoroscopeCalculator
 from .astrology_utils import (
-    get_house_for_longitude,
+    #get_house_for_longitude,
     get_angles,
     find_dispositor,
-    extract_planets_from_subject,
-    extract_houses_from_subject,
-    calculate_aspects_manual,
+    #extract_planets_from_subject,
+    #extract_houses_from_subject,
+    #calculate_aspects_manual,
 )
 
 logger = logging.getLogger(__name__)
