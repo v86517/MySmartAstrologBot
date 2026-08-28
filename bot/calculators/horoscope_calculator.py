@@ -558,13 +558,15 @@ class HoroscopeCalculator:
 
     def _point_dict(self, subject: AstrologicalSubject, name: str) -> Optional[Dict[str, Any]]:
         data = self._get_model_dict(subject)
-        alt_name = name.capitalize()  # определяем сразу
-        value = data.get(name)
-        if value is None:
-            value = data.get(alt_name)
-            if value is not None:
-                logger.info("[POINT_DICT] Found '%s' using capitalized key '%s'", name, alt_name)
-            else:
+        # Сначала ищем с заглавной буквы (например, "Uranus")
+        alt_name = name.capitalize()
+        value = data.get(alt_name)
+        if value is not None:
+            logger.info("[POINT_DICT] Found '%s' using capitalized key '%s'", name, alt_name)
+        else:
+            # Если не найдено, ищем в нижнем регистре
+            value = data.get(name)
+            if value is None:
                 if name in ("uranus", "saturn", "jupiter", "neptune", "pluto"):
                     logger.warning("[POINT_DICT] Planet %s not found. Available keys: %s", name, list(data.keys())[:20])
                 return None
