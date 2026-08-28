@@ -17,11 +17,11 @@ from .astrology_calculator import AstrologyCalculator
 from .timezone_coords import TIMEZONE_COORDS
 from .base_calculator import BaseCalculator
 from .astrology_utils import (
-    calculate_aspects_manual,
+    #calculate_aspects_manual,
     get_aspect_type,
     calculate_score,
     calculate_confidence,
-    get_planet_speed_from_subject,
+    #get_planet_speed_from_subject,
     get_transit_phase,
     estimate_exact_date,
     get_life_areas,
