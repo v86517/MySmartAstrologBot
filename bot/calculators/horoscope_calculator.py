@@ -210,9 +210,9 @@ ASPECT_RU = {
 }
 
 PHASE_RU = {
-    "applying": "сходящийся",
-    "exact": "точный",
-    "separating": "расходящийся",
+    "applying": "сходящийся (влияние нарастает)",
+    "exact": "точный (кульминация)",
+    "separating": "расходящийся (влияние спадает)",
     "stationary": "стационарный",
     "unknown": "не определена",
 }
@@ -481,6 +481,8 @@ class TransitEpisode:
     max_score: float = 0.0
     hit_count: int = 0
     retrograde_hits: int = 0
+    phase: str = ""         # фаза первого события в эпизоде
+    min_orb: float = 0.0    # минимальный орб среди проходов
 
     @property
     def semantic_key(self) -> Tuple[str, str, str]:
@@ -1070,7 +1072,6 @@ class HoroscopeCalculator:
             transit_speed=transit.speed,
             theme=theme,
         )
-        # Классифицируем с учётом периода (передаём позже)
         return event
 
     # ======================================================================
@@ -1508,6 +1509,9 @@ class HoroscopeCalculator:
         for key, group in grouped.items():
             group = sorted(group, key=lambda e: e.exact_utc or datetime.max.replace(tzinfo=timezone.utc))
             first = group[0]
+            # Определяем минимальный орб и фазу первого события
+            min_orb = min(e.orb_at_exact for e in group)
+            phase = first.phase
             episode = TransitEpisode(
                 transit_body=first.transit_body,
                 natal_target=first.natal_target,
@@ -1519,6 +1523,8 @@ class HoroscopeCalculator:
                 max_score=max(e.score for e in group),
                 hit_count=len(group),
                 retrograde_hits=sum(1 for e in group if e.is_retrograde),
+                phase=phase,
+                min_orb=min_orb,
             )
             if episode.hit_count > 1:
                 episode.max_score += self.config.repeated_hit_bonus * min(episode.hit_count - 1, 3)
@@ -1547,6 +1553,19 @@ class HoroscopeCalculator:
                         self._episode_score(ranked[0]),
                         ranked[0].hit_count)
         return ranked
+
+    # ======================================================================
+    # PLANET CATEGORY (для промпта)
+    # ======================================================================
+
+    def _planet_category(self, planet: str) -> str:
+        """Возвращает категорию планеты для промпта."""
+        if planet in FAST_PLANETS:
+            return "быстрая (кратковременное влияние)"
+        elif planet in SLOW_PLANETS:
+            return "медленная (долгосрочное влияние)"
+        else:
+            return "средняя"
 
     # ======================================================================
     # FINAL PIPELINE
@@ -1734,7 +1753,8 @@ class HoroscopeCalculator:
             episodes: List[TransitEpisode],
     ) -> str:
         """
-        Формирует полный текст промпта на основе расчитанных эпизодов.
+        Формирует полный текст промпта на основе рассчитанных эпизодов.
+        Теперь выводит фазу, орб и тип планеты вместо начала/конца влияния.
         """
         lines: List[str] = []
 
@@ -1769,23 +1789,38 @@ class HoroscopeCalculator:
                 planet = PLANET_RU.get(episode.transit_body, episode.transit_body)
                 target = TARGET_RU.get(episode.natal_target, episode.natal_target)
                 aspect = ASPECT_RU.get(episode.aspect, episode.aspect)
+
+                # Определяем категорию планеты
+                planet_category = self._planet_category(episode.transit_body)
+
                 lines.append(f"{index}. {planet} — {aspect} — {target}")
                 lines.append(f"   Тема: {episode.theme}")
                 lines.append(f"   Количество точных проходов: {episode.hit_count}")
 
+                # Точное время пика – берём первый точный проход
                 if episode.exact_hits:
-                    exact_dates = ", ".join(dt.isoformat(timespec="minutes") for dt in episode.exact_hits)
-                    lines.append(f"   Точные даты UTC: {exact_dates}")
+                    exact_dt = episode.exact_hits[0]
+                    exact_str = exact_dt.strftime("%d.%m.%Y %H:%M") + " UTC"
+                    lines.append(f"   Точное время пика: {exact_str}")
 
-                if episode.first_start_utc:
-                    lines.append(f"   Начало влияния UTC: {episode.first_start_utc.isoformat(timespec='minutes')}")
-                if episode.last_end_utc:
-                    lines.append(f"   Конец влияния UTC: {episode.last_end_utc.isoformat(timespec='minutes')}")
+                    # Если несколько проходов, показываем все
+                    if len(episode.exact_hits) > 1:
+                        all_exact = ", ".join(dt.strftime("%d.%m %H:%M") for dt in episode.exact_hits)
+                        lines.append(f"   Все пики: {all_exact} UTC")
 
-                lines.append(f"   Retrograde hits: {episode.retrograde_hits}")
+                # Фаза
+                phase_ru = PHASE_RU.get(episode.phase, episode.phase)
+                lines.append(f"   Фаза: {phase_ru}")
+
+                # Орб
+                lines.append(f"   Орб: {episode.min_orb:.2f}°")
+
+                # Тип планеты
+                lines.append(f"   Тип планеты: {planet_category}")
+
+                # Score (для внутреннего использования)
                 lines.append(f"   Priority score: {episode.max_score:.2f}")
-
-        lines.append("")
+                lines.append("")
 
         # RETROGRADES
         lines.append("=== РЕТРОГРАДНЫЕ СТАНЦИИ ===")
@@ -1815,7 +1850,9 @@ class HoroscopeCalculator:
         # LLM INSTRUCTIONS
         lines.append("=== ИНСТРУКЦИЯ ДЛЯ ИНТЕРПРЕТАТОРА ===")
         lines.append("Используй транзитные темы как основу прогноза.")
-        lines.append("Точные даты бери только из поля 'Точные даты UTC'.")
+        lines.append("Точное время пика показывает момент максимальной концентрации энергии.")
+        lines.append("Фаза указывает на динамику процесса: applying – влияние нарастает, exact – кульминация, separating – влияние спадает.")
+        lines.append("Тип планеты определяет масштаб: быстрая – кратковременное событие (часы/дни), медленная – долгосрочный процесс (недели/месяцы).")
         lines.append("Не придумывай дополнительные транзиты или даты.")
         lines.append(
             "Если у транзита несколько точных проходов, рассматривай их как один повторяющийся тематический процесс.")
