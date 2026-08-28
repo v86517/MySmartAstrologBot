@@ -553,25 +553,25 @@ class HoroscopeCalculator:
 
     def _point_dict(self, subject: AstrologicalSubject, name: str) -> Optional[Dict[str, Any]]:
         data = self._get_model_dict(subject)
-        value = data.get(name)  # сначала ищем как есть (нижний регистр)
-
-        # Если не найдено, пробуем с заглавной буквы (например, "Uranus")
+        value = data.get(name)
         if value is None:
             alt_name = name.capitalize()
             value = data.get(alt_name)
             if value is not None:
-                logger.info("[POINT_DICT] Found planet '%s' using capitalized key '%s'", name, alt_name)
-
-        # Если всё ещё None, логируем предупреждение (только для важных планет)
-        if value is None:
-            if name in ("uranus", "saturn", "jupiter", "neptune", "pluto"):
-                logger.warning("[POINT_DICT] Planet %s not found. Available keys: %s", name, list(data.keys())[:20])
-            return None
-
+                logger.info("[POINT_DICT] Found '%s' using capitalized key '%s'", name, alt_name)
+            else:
+                if name in ("uranus", "saturn", "jupiter", "neptune", "pluto"):
+                    logger.warning("[POINT_DICT] Planet %s not found. Available keys: %s", name, list(data.keys())[:20])
+                return None
+        # Если value найдено, проверим его содержимое
         if isinstance(value, dict):
+            # Выведем долготу, если она есть
+            abs_pos = to_float(value.get("abs_pos"))
+            logger.info("[POINT_DICT] %s: abs_pos=%s", name, abs_pos)
             return value
-
-        # Если value — объект, извлекаем поля
+        # Если value — объект
+        abs_pos = to_float(get_attr_safe(value, "abs_pos"))
+        logger.info("[POINT_DICT] %s (object): abs_pos=%s", name, abs_pos)
         return {
             "abs_pos": to_float(get_attr_safe(value, "abs_pos")),
             "position": to_float(get_attr_safe(value, "position")),
@@ -627,10 +627,11 @@ class HoroscopeCalculator:
 
         cached = self._snapshot_cache.get(key)
         if cached is not None:
+            self.stats["snapshot_cache_hits"] += 1
+            logger.info("[SNAPSHOT] CACHE HIT for %s, lat=%s lng=%s", key, self.lat, self.lng)
             return cached
 
-        logger.info("[SNAPSHOT] Creating subject for %s at lat=%s lng=%s", key, self.lat, self.lng)
-
+        logger.info("[SNAPSHOT] CREATING NEW subject for %s, lat=%s lng=%s", key, self.lat, self.lng)
         subject = AstrologicalSubject(
             name="Transit",
             year=timestamp.year,
@@ -647,12 +648,7 @@ class HoroscopeCalculator:
         self.stats["snapshot_created"] += 1
         return subject
 
-    def _extract_transit_planet(
-            self,
-            subject: AstrologicalSubject,
-            planet: str,
-    ) -> Optional[PlanetSnapshot]:
-        # Создаём ключ кеша
+    def _extract_transit_planet(self, subject: AstrologicalSubject, planet: str) -> Optional[PlanetSnapshot]:
         snapshot_time = datetime(
             subject.year,
             subject.month,
@@ -663,15 +659,12 @@ class HoroscopeCalculator:
         )
         key = (datetime_key(snapshot_time), planet)
 
-        # Проверяем кеш
         cached = self._planet_snapshot_cache.get(key)
         if cached is not None:
-            # Диагностика: выводим долготу из кеша
-            logger.info("[CACHE HIT] %s at %s: lon=%.4f",
-                        planet, snapshot_time.isoformat(), cached.longitude)
+            logger.info("[EXTRACT] CACHE HIT for %s at %s: lon=%.4f", planet, snapshot_time.isoformat(),
+                        cached.longitude)
             return cached
 
-        # Извлекаем данные из модели
         data = self._point_dict(subject, planet)
         if not data:
             logger.warning("[EXTRACT] No data for planet %s at %s", planet, snapshot_time.isoformat())
@@ -682,17 +675,10 @@ class HoroscopeCalculator:
             logger.warning("[EXTRACT] No abs_pos for planet %s", planet)
             return None
 
-        # Диагностика: выводим извлечённую долготу
-        logger.info("[EXTRACT] %s at %s: lon=%.4f", planet, snapshot_time.isoformat(), longitude)
+        logger.info("[EXTRACT] NEW data for %s at %s: lon=%.4f (from dict keys: %s)", planet, snapshot_time.isoformat(),
+                    longitude, list(data.keys()))
 
-        snapshot = PlanetSnapshot(
-            timestamp=snapshot_time,
-            longitude=normalize_longitude(longitude),
-            speed=to_float(data.get("speed"), 0.0) or 0.0,
-            retrograde=bool(data.get("retrograde", False)),
-            house=data.get("house"),
-        )
-
+        snapshot = PlanetSnapshot(...)
         self._planet_snapshot_cache[key] = snapshot
         return snapshot
 
