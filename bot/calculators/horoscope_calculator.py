@@ -553,17 +553,32 @@ class HoroscopeCalculator:
 
     def _point_dict(self, subject: AstrologicalSubject, name: str) -> Optional[Dict[str, Any]]:
         data = self._get_model_dict(subject)
-        value = data.get(name)
+        value = data.get(name)  # сначала ищем как есть (нижний регистр)
+
+        # Если не найдено, пробуем с заглавной буквы (например, "Uranus")
         if value is None:
-            # Если планета не найдена, вывести все ключи модели для диагностики
-            if name in ("uranus", "saturn"):
-                logger.warning("[POINT_DICT] Planet %s not found in model. Keys: %s", name, list(data.keys())[:20])
+            alt_name = name.capitalize()
+            value = data.get(alt_name)
+            if value is not None:
+                logger.info("[POINT_DICT] Found planet '%s' using capitalized key '%s'", name, alt_name)
+
+        # Если всё ещё None, логируем предупреждение (только для важных планет)
+        if value is None:
+            if name in ("uranus", "saturn", "jupiter", "neptune", "pluto"):
+                logger.warning("[POINT_DICT] Planet %s not found. Available keys: %s", name, list(data.keys())[:20])
             return None
+
         if isinstance(value, dict):
             return value
+
+        # Если value — объект, извлекаем поля
         return {
             "abs_pos": to_float(get_attr_safe(value, "abs_pos")),
-            # ... остальное
+            "position": to_float(get_attr_safe(value, "position")),
+            "sign": get_attr_safe(value, "sign"),
+            "house": get_attr_safe(value, "house"),
+            "speed": to_float(get_attr_safe(value, "speed"), 0.0),
+            "retrograde": bool(get_attr_safe(value, "retrograde", False)),
         }
 
     def _extract_natal_points(self) -> Dict[str, Dict[str, Any]]:
@@ -637,43 +652,41 @@ class HoroscopeCalculator:
             subject: AstrologicalSubject,
             planet: str,
     ) -> Optional[PlanetSnapshot]:
-        key = (
-            datetime_key(
-                datetime(
-                    subject.year,
-                    subject.month,
-                    subject.day,
-                    subject.hour,
-                    subject.minute,
-                    tzinfo=timezone.utc,
-                )
-            ),
-            planet,
+        # Создаём ключ кеша
+        snapshot_time = datetime(
+            subject.year,
+            subject.month,
+            subject.day,
+            subject.hour,
+            subject.minute,
+            tzinfo=timezone.utc,
         )
+        key = (datetime_key(snapshot_time), planet)
 
+        # Проверяем кеш
         cached = self._planet_snapshot_cache.get(key)
         if cached is not None:
+            # Диагностика: выводим долготу из кеша
+            logger.info("[CACHE HIT] %s at %s: lon=%.4f",
+                        planet, snapshot_time.isoformat(), cached.longitude)
             return cached
 
+        # Извлекаем данные из модели
         data = self._point_dict(subject, planet)
         if not data:
+            logger.warning("[EXTRACT] No data for planet %s at %s", planet, snapshot_time.isoformat())
             return None
 
         longitude = to_float(data.get("abs_pos"))
         if longitude is None:
+            logger.warning("[EXTRACT] No abs_pos for planet %s", planet)
             return None
 
+        # Диагностика: выводим извлечённую долготу
+        logger.info("[EXTRACT] %s at %s: lon=%.4f", planet, snapshot_time.isoformat(), longitude)
+
         snapshot = PlanetSnapshot(
-            timestamp=ensure_utc(
-                datetime(
-                    subject.year,
-                    subject.month,
-                    subject.day,
-                    subject.hour,
-                    subject.minute,
-                    tzinfo=timezone.utc,
-                )
-            ),
+            timestamp=snapshot_time,
             longitude=normalize_longitude(longitude),
             speed=to_float(data.get("speed"), 0.0) or 0.0,
             retrograde=bool(data.get("retrograde", False)),
