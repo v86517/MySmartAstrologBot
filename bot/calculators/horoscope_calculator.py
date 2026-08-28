@@ -675,10 +675,26 @@ class HoroscopeCalculator:
             logger.warning("[EXTRACT] No abs_pos for planet %s", planet)
             return None
 
-        logger.info("[EXTRACT] NEW data for %s at %s: lon=%.4f (from dict keys: %s)", planet, snapshot_time.isoformat(),
-                    longitude, list(data.keys()))
+        speed = to_float(data.get("speed"), 0.0) or 0.0
+        retrograde = bool(data.get("retrograde", False))
 
-        snapshot = PlanetSnapshot(...)
+        logger.info(
+            "[EXTRACT] NEW data for %s at %s: lon=%.4f (speed=%.4f, retro=%s)",
+            planet,
+            snapshot_time.isoformat(),
+            longitude,
+            speed,
+            retrograde,
+        )
+
+        snapshot = PlanetSnapshot(
+            timestamp=snapshot_time,
+            longitude=normalize_longitude(longitude),
+            speed=speed,
+            retrograde=retrograde,
+            house=data.get("house"),
+        )
+
         self._planet_snapshot_cache[key] = snapshot
         return snapshot
 
