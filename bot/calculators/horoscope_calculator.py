@@ -373,8 +373,9 @@ class EngineConfig:
     year_slow_orb_limit: float = 8.0
     year_score_threshold: float = 10.0
 
+    boundary_tolerance_seconds: int = 60  # порог для «около границы»
     log_snapshots: bool = False
-    debug_geometry: bool = True  # Временный флаг для отладки
+    debug_geometry: bool = False  # отключаем дебаг-вывод в production
 
     def period_step_seconds(self, period_type: str) -> int:
         if period_type == "day":
@@ -460,9 +461,11 @@ class TransitEvent:
     boundary_limited: bool = False       # True если минимум на границе
     nearest_utc: Optional[datetime] = None
     nearest_orb: float = 999.0
-    # Типы объектов для отладки
-    source_type: str = "transit"         # "transit" или "natal" (всегда transit для движка)
-    target_type: str = "natal"           # "transit" или "natal"
+    # Типы объектов
+    source_type: str = "transit"         # всегда "transit"
+    target_type: str = "natal"           # "natal" или "transit" (пока только natal)
+    # Детализация границ
+    boundary_type: str = "inside"        # "inside", "near_start", "near_end", "outside"
 
     @property
     def unique_key(self) -> str:
@@ -490,7 +493,7 @@ class TransitEpisode:
     first_start_utc: Optional[datetime]
     last_end_utc: Optional[datetime]
     # Поля с дефолтом
-    exact_hits: List[datetime] = field(default_factory=list)        # только реальные точные пики
+    exact_hits: List[datetime] = field(default_factory=list)
     nearest_approaches: List[Tuple[datetime, float]] = field(default_factory=list)
     exact_hits_count: int = 0
     max_score: float = 0.0
@@ -499,6 +502,7 @@ class TransitEpisode:
     phase: str = ""
     min_orb: float = 0.0
     boundary_limited: bool = False
+    boundary_type: str = "inside"
     source_type: str = "transit"
     target_type: str = "natal"
 
@@ -629,20 +633,17 @@ class HoroscopeCalculator:
         else:
             data = getattr(model, "__dict__", {})
 
-        # Логируем ключи один раз (при первом вызове)
         if not self._snapshot_cache:
             logger.info("[MODEL KEYS] First model keys: %s", list(data.keys())[:30])
         return data
 
     def _point_dict(self, subject: AstrologicalSubject, name: str) -> Optional[Dict[str, Any]]:
         data = self._get_model_dict(subject)
-        # Сначала ищем с заглавной буквы (например, "Uranus")
         alt_name = name.capitalize()
         value = data.get(alt_name)
         if value is not None:
             logger.debug("[POINT_DICT] Found '%s' using capitalized key '%s'", name, alt_name)
         else:
-            # Если не найдено, ищем в нижнем регистре
             value = data.get(name)
             if value is None:
                 if name in ("uranus", "saturn", "jupiter", "neptune", "pluto"):
@@ -742,7 +743,6 @@ class HoroscopeCalculator:
         )
         key = (datetime_key(snapshot_time), planet)
 
-        # Временное отключение кеша для Урана
         if planet == "uranus":
             cached = None
         else:
@@ -782,13 +782,6 @@ class HoroscopeCalculator:
         )
 
         self._planet_snapshot_cache[key] = snapshot
-
-        # Временный debug-вывод для проверки геометрии
-        if self.config.debug_geometry:
-            # Проверяем ключевые моменты для отладки
-            if snapshot_time.hour in (6, 18) and snapshot_time.minute == 0:
-                logger.info(f"[DEBUG_GEOMETRY] {snapshot_time.isoformat()} {planet} = {longitude:.4f}°")
-
         return snapshot
 
     # ======================================================================
@@ -1063,28 +1056,35 @@ class HoroscopeCalculator:
         """
         Определяет статус события:
         - exact_hit: True только если найден минимум с орбом <= exact_tolerance_deg
-        - boundary_limited: True если минимум на границе периода
+        - boundary_limited: True если минимум на границе периода (с допуском)
         - nearest_utc, nearest_orb: ближайшая точка в периоде
+        - boundary_type: уточнение местоположения минимума
         """
-        # Ищем минимум орба внутри периода
         start = event.start_utc if event.start_utc is not None else period.start_utc
         end = event.end_utc if event.end_utc is not None else period.end_utc
 
-        # Используем refine для поиска минимума
         t_min = self._refine_exact_hit(event.transit_body, event.natal_target, event.aspect, start, end)
         if t_min is None:
-            # Fallback: используем середину
             t_min = start + (end - start) / 2
         orb_min = abs(self._aspect_function(t_min, event.transit_body, event.natal_target, event.aspect))
 
-        # Проверяем, находится ли минимум на границе (увеличиваем epsilon до 120 секунд)
-        boundary_epsilon = timedelta(seconds=120)  # 2 минуты
-        if abs((t_min - period.start_utc).total_seconds()) < boundary_epsilon.total_seconds() or \
-           abs((t_min - period.end_utc).total_seconds()) < boundary_epsilon.total_seconds():
+        # Определяем тип границы
+        boundary_epsilon = timedelta(seconds=self.config.boundary_tolerance_seconds)
+        start_diff = abs((t_min - period.start_utc).total_seconds())
+        end_diff = abs((t_min - period.end_utc).total_seconds())
+
+        if start_diff < boundary_epsilon.total_seconds():
+            event.boundary_type = "near_start"
             event.boundary_limited = True
-            self.stats["boundary_candidates"] += 1
+        elif end_diff < boundary_epsilon.total_seconds():
+            event.boundary_type = "near_end"
+            event.boundary_limited = True
         else:
+            event.boundary_type = "inside"
             event.boundary_limited = False
+
+        if event.boundary_limited:
+            self.stats["boundary_candidates"] += 1
 
         # Проверяем, достигнут ли точный пик
         if orb_min <= self.config.exact_tolerance_deg:
@@ -1102,8 +1102,6 @@ class HoroscopeCalculator:
 
         event.nearest_utc = t_min
         event.nearest_orb = orb_min
-
-        # Определяем фазу по производной (учитывая, что если orb_min <= tolerance, фаза будет "exact")
         event.phase = self._phase_from_derivative(event.transit_body, event.natal_target, event.aspect, t_min)
 
     def _build_event(
@@ -1134,7 +1132,7 @@ class HoroscopeCalculator:
             aspect=aspect,
             aspect_angle=MAJOR_ASPECT_ANGLES[aspect],
             start_utc=start,
-            exact_utc=None,  # будет заполнен в _determine_exact_status
+            exact_utc=None,
             end_utc=end,
             orb_at_exact=orb,
             phase=phase,
@@ -1169,7 +1167,6 @@ class HoroscopeCalculator:
         return 0.0
 
     def _score(self, event: TransitEvent, period_type: str) -> float:
-        """Вычисляет скор с учётом периода."""
         planet_weights = PERIOD_PLANET_WEIGHTS.get(period_type, BASE_PLANET_WEIGHT)
         planet_weight = planet_weights.get(event.transit_body, 0.0)
         target_weight = TARGET_WEIGHT.get(event.natal_target, 0.0) * 0.35
@@ -1499,6 +1496,28 @@ class HoroscopeCalculator:
                 logger.debug("[RETROGRADE] %s: no stations", planet)
 
     # ======================================================================
+    # RETROGRADE STATE (для вывода)
+    # ======================================================================
+
+    def _get_retrograde_planets_at(self, timestamp: datetime) -> List[str]:
+        """Возвращает список планет, ретроградных в данный момент."""
+        retro_planets = []
+        for planet in TRANSIT_PLANETS:
+            speed = self._planet_speed(planet, timestamp)
+            if speed < 0:
+                retro_planets.append(planet)
+        return retro_planets
+
+    def _get_retrograde_state(self, period: ForecastPeriod) -> Dict[str, Any]:
+        """Возвращает ретроградные планеты на начало и конец периода."""
+        start_retro = self._get_retrograde_planets_at(period.start_utc)
+        end_retro = self._get_retrograde_planets_at(period.end_utc)
+        return {
+            "start": start_retro,
+            "end": end_retro,
+        }
+
+    # ======================================================================
     # DEDUPLICATION
     # ======================================================================
 
@@ -1566,19 +1585,18 @@ class HoroscopeCalculator:
             group = sorted(group, key=lambda e: e.exact_utc or datetime.max.replace(tzinfo=timezone.utc))
             first = group[0]
 
-            # Только реальные точные пики (exact_hit = True)
             exact_hits = [e.nearest_utc for e in group if e.exact_hit and e.nearest_utc is not None]
             exact_hits_count = len(exact_hits)
 
-            # Все ближайшие подходы
             nearest_approaches = [(e.nearest_utc, e.nearest_orb) for e in group if e.nearest_utc is not None]
 
             min_orb = min(e.nearest_orb for e in group if e.nearest_orb < 999.0) if nearest_approaches else 0.0
             boundary_limited = any(e.boundary_limited for e in group)
+            # Определяем тип границы: если все события одного типа, берём его, иначе "mixed"
+            boundary_types = set(e.boundary_type for e in group)
+            boundary_type = boundary_types.pop() if len(boundary_types) == 1 else "mixed"
 
-            # Фаза: берём фазу первого события
             phase = first.phase
-
             max_score = max(e.score for e in group)
             hit_count = len(group)
             retrograde_hits = sum(1 for e in group if e.is_retrograde)
@@ -1599,6 +1617,7 @@ class HoroscopeCalculator:
                 phase=phase,
                 min_orb=min_orb,
                 boundary_limited=boundary_limited,
+                boundary_type=boundary_type,
                 source_type="transit",
                 target_type="natal",
             )
@@ -1631,16 +1650,21 @@ class HoroscopeCalculator:
         return ranked
 
     # ======================================================================
-    # PLANET CATEGORY
+    # PLANET CATEGORY (детализированная)
     # ======================================================================
 
     def _planet_category(self, planet: str) -> str:
-        if planet in FAST_PLANETS:
-            return "быстрая (кратковременное влияние)"
-        elif planet in SLOW_PLANETS:
-            return "медленная (долгосрочное влияние)"
-        else:
-            return "средняя"
+        """Возвращает категорию планеты с указанием типичной длительности влияния."""
+        # Очень быстрые (часы)
+        if planet == "moon":
+            return "очень быстрая (часы)"
+        # Быстрые (дни)
+        if planet in ("sun", "mercury", "venus", "mars"):
+            return "быстрая (дни)"
+        # Медленные (недели/месяцы)
+        if planet in ("jupiter", "saturn", "uranus", "neptune", "pluto"):
+            return "медленная (недели/месяцы)"
+        return "средняя"
 
     # ======================================================================
     # FINAL PIPELINE
@@ -1833,13 +1857,24 @@ class HoroscopeCalculator:
             )
         lines.append("")
 
+        # RETROGRADE PLANETS (добавляем новую секцию)
+        retro_state = self._get_retrograde_state(period)
+        lines.append("=== РЕТРОГРАДНЫЕ ПЛАНЕТЫ ===")
+        if retro_state["start"] or retro_state["end"]:
+            start_names = [PLANET_RU.get(p, p) for p in retro_state["start"]]
+            end_names = [PLANET_RU.get(p, p) for p in retro_state["end"]]
+            lines.append(f"На начало периода: {', '.join(start_names) if start_names else 'нет'}")
+            lines.append(f"На конец периода: {', '.join(end_names) if end_names else 'нет'}")
+        else:
+            lines.append("Нет ретроградных планет в течение периода.")
+        lines.append("")
+
         # THEMATIC EVENTS
         lines.append("=== ГЛАВНЫЕ ТРАНЗИТНЫЕ ТЕМЫ ===")
         if not episodes:
             lines.append("Нет транзитов, прошедших порог значимости.")
         else:
             for index, episode in enumerate(episodes, start=1):
-                # Явно показываем типы
                 source_label = f"{PLANET_RU.get(episode.transit_body, episode.transit_body)} ({episode.source_type})"
                 target_label = f"{TARGET_RU.get(episode.natal_target, episode.natal_target)} ({episode.target_type})"
                 aspect_label = ASPECT_RU.get(episode.aspect, episode.aspect)
@@ -1865,8 +1900,14 @@ class HoroscopeCalculator:
                     if episode.nearest_approaches:
                         nearest_time, nearest_orb = episode.nearest_approaches[0]
                         nearest_str = nearest_time.strftime("%d.%m.%Y %H:%M") + " UTC"
-                        boundary_mark = " (на границе периода)" if episode.boundary_limited else ""
-                        lines.append(f"   Ближайшая точка в периоде: {nearest_str} (орб {nearest_orb:.2f}°){boundary_mark}")
+                        # Уточняем тип границы
+                        boundary_desc = {
+                            "inside": "",
+                            "near_start": " (около начала периода)",
+                            "near_end": " (около конца периода)",
+                            "mixed": " (на границе)",
+                        }.get(episode.boundary_type, "")
+                        lines.append(f"   Ближайшая точка в периоде: {nearest_str} (орб {nearest_orb:.2f}°){boundary_desc}")
 
                 phase_ru = PHASE_RU.get(episode.phase, episode.phase)
                 lines.append(f"   Фаза: {phase_ru}")
@@ -1875,7 +1916,7 @@ class HoroscopeCalculator:
                 lines.append(f"   Priority score: {episode.max_score:.2f}")
                 lines.append("")
 
-        # RETROGRADES
+        # RETROGRADE STATIONS (оставляем как есть)
         lines.append("=== РЕТРОГРАДНЫЕ СТАНЦИИ ===")
         retrogrades_found = False
         for planet, windows in sorted(self.retrograde_windows.items()):
@@ -1908,7 +1949,7 @@ class HoroscopeCalculator:
         lines.append("Используй транзитные темы как основу прогноза.")
         lines.append("Точное время пика показывает момент максимальной концентрации энергии.")
         lines.append("Фаза указывает на динамику процесса: applying – влияние нарастает, exact – кульминация, separating – влияние спадает.")
-        lines.append("Тип планеты определяет масштаб: быстрая – кратковременное событие (часы/дни), медленная – долгосрочный процесс (недели/месяцы).")
+        lines.append("Тип планеты определяет масштаб: очень быстрая – часы, быстрая – дни, медленная – недели/месяцы.")
         lines.append("Если точный пик отсутствует, используй ближайшую точку с орбом для оценки интенсивности.")
         lines.append("Не придумывай дополнительные транзиты или даты.")
         lines.append(
