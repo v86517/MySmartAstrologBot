@@ -217,14 +217,65 @@ async def confirm_horoscope(callback: CallbackQuery):
             gemini_service=_gemini_service
         )
 
-        # build_context уже обрабатывает эмуляцию – возвращает промпт или ответ Gemini
-        final_text = calc.build_context(
+        # Определяем max_display в зависимости от периода
+        if period == 'today':
+            max_display = 12
+        elif period == 'month':
+            max_display = 15
+        else:  # year
+            max_display = 20
+
+        # 1. Получаем астрологический контекст (без инструкций)
+        horoscope_context = calc.build_horoscope_context(
             period_type=period_type,
             period_start_utc=start_utc,
             period_end_utc=end_utc,
-            max_display=12
+            max_display=max_display
         )
 
+        # 2. Загружаем шаблон промпта
+        from pathlib import Path
+        template_path = Path(__file__).parent.parent.parent / 'prompts' / 'prompt_horoscope.txt'
+        try:
+            with open(template_path, 'r', encoding='utf-8') as f:
+                template = f.read()
+        except FileNotFoundError:
+            logger.error(f"Шаблон {template_path} не найден")
+            await callback.message.answer("❌ Ошибка: шаблон промпта не найден.")
+            return
+
+        # 3. Определяем период для вывода
+        if period == 'today':
+            horoscope_period = "24 часа"
+        elif period == 'month':
+            # Можно вывести конкретный месяц и год
+            month_name = target_date.strftime("%B %Y")
+            horoscope_period = month_name
+        else:  # year
+            horoscope_period = str(target_date.year)
+
+        # 4. Языковая инструкция
+        if lang == 'en':
+            language_instruction = "IMPORTANT: Respond in English only. All your output must be in English."
+        else:
+            language_instruction = "ВАЖНО: Отвечай только на русском языке. Весь твой ответ должен быть на русском."
+
+        # 5. Имя пользователя
+        name = user_data.get('name', 'Пользователь')
+
+        # 6. Подставляем в шаблон
+        prompt = template.replace('{horoscope_period}', horoscope_period)
+        prompt = prompt.replace('{language_instruction}', language_instruction)
+        prompt = prompt.replace('{name}', name)
+        prompt = prompt.replace('{horoscope_context}', horoscope_context)
+
+        # 7. Режим эмуляции или реальный запрос
+        if emulation:
+            final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+        else:
+            final_text = _gemini_service.send_raw_prompt(prompt)
+
+        # 8. Сохраняем в архив
         await save_message_to_archive(user_id, 'horoscope', final_text)
         if not is_subscribed:
             await mark_feature_used_db(user_id, 'horoscope')

@@ -628,8 +628,8 @@ class HoroscopeCalculator:
         else:
             data = getattr(model, "__dict__", {})
 
-        if not self._snapshot_cache:
-            logger.info("[MODEL KEYS] First model keys: %s", list(data.keys())[:30])
+        #if not self._snapshot_cache:
+        #    logger.info("[MODEL KEYS] First model keys: %s", list(data.keys())[:30])
         return data
 
     def _point_dict(self, subject: AstrologicalSubject, name: str) -> Optional[Dict[str, Any]]:
@@ -1143,13 +1143,13 @@ class HoroscopeCalculator:
             event.exact_utc = t_min
             event.orb_at_exact = orb_min
             self.stats["exact_hits"] += 1
-            logger.info(f"[EXACT] Found exact hit: {event.display_name} at {t_min} with orb {orb_min:.4f}°")
+            #logger.info(f"[EXACT] Found exact hit: {event.display_name} at {t_min} with orb {orb_min:.4f}°")
         else:
             event.exact_hit = False
             event.exact_utc = None
             event.orb_at_exact = orb_min
             self.stats["near_hits"] += 1
-            logger.debug(f"[NEAR] Near hit: {event.display_name} at {t_min} with orb {orb_min:.4f}°")
+            #logger.debug(f"[NEAR] Near hit: {event.display_name} at {t_min} with orb {orb_min:.4f}°")
 
         event.nearest_utc = t_min
         event.nearest_orb = orb_min
@@ -1922,150 +1922,158 @@ class HoroscopeCalculator:
             logger.error(f"Error sending to Gemini: {e}", exc_info=True)
             return f"❌ Ошибка при обращении к Gemini: {str(e)}\n\n{prompt}"
 
-    def _build_prompt(
-            self,
-            period: ForecastPeriod,
-            episodes: List[TransitEpisode],
-    ) -> str:
-        lines = []
-
-        lines.append("=== АСТРОЛОГИЧЕСКИЙ КОНТЕКСТ ===")
-        lines.append(f"Тип периода: {period.period_type}")
-        lines.append(f"Начало UTC: {period.start_utc.isoformat()}")
-        lines.append(f"Конец UTC: {period.end_utc.isoformat()}")
-        lines.append("")
-
-        # NATAL
-        lines.append("=== НАТАЛЬНЫЕ ТОЧКИ ===")
-        for target, data in sorted(self._natal_points.items()):
-            longitude = to_float(data.get("abs_pos"))
-            if longitude is None:
-                continue
-            sign = data.get("sign", "")
-            position = to_float(data.get("position"), 0.0) or 0.0
-            house = data.get("house")
-            lines.append(
-                f"{TARGET_RU.get(target, target)}: "
-                f"{sign} {position:.2f}°"
-                + (f", дом {house}" if house else "")
-            )
-        lines.append("")
-
-        # RETROGRADE PLANETS
-        retro_state = self._get_retrograde_state(period)
-        lines.append("=== РЕТРОГРАДНЫЕ ПЛАНЕТЫ ===")
-        if retro_state["start"] or retro_state["end"]:
-            start_names = [PLANET_RU.get(p, p) for p in retro_state["start"]]
-            end_names = [PLANET_RU.get(p, p) for p in retro_state["end"]]
-            lines.append(f"На начало периода: {', '.join(start_names) if start_names else 'нет'}")
-            lines.append(f"На конец периода: {', '.join(end_names) if end_names else 'нет'}")
-        else:
-            lines.append("Нет ретроградных планет в течение периода.")
-        lines.append("")
-
-        # THEMATIC EVENTS
-        lines.append("=== ГЛАВНЫЕ ТРАНЗИТНЫЕ ТЕМЫ ===")
-        if not episodes:
-            lines.append("Нет транзитов, прошедших порог значимости.")
-        else:
-            for index, episode in enumerate(episodes, start=1):
-                source_label = f"{PLANET_RU.get(episode.transit_body, episode.transit_body)} ({episode.source_type})"
-                target_label = f"{TARGET_RU.get(episode.natal_target, episode.natal_target)} ({episode.target_type})"
-                aspect_label = ASPECT_RU.get(episode.aspect, episode.aspect)
-
-                planet_category = self._planet_category(episode.transit_body)
-
-                lines.append(f"{index}. {source_label} — {aspect_label} — {target_label}")
-                lines.append(f"   Тема: {episode.theme}")
-
-                if episode.exact_hits_count > 0:
-                    lines.append(f"   Количество точных проходов: {episode.exact_hits_count}")
-                else:
-                    lines.append("   Точных проходов в периоде нет")
-
-                if episode.exact_hits:
-                    exact_dt = episode.exact_hits[0]
-                    exact_str = exact_dt.strftime("%d.%m.%Y %H:%M") + " UTC"
-                    lines.append(f"   Точное время пика: {exact_str}")
-                    if len(episode.exact_hits) > 1:
-                        all_exact = ", ".join(dt.strftime("%d.%m %H:%M") for dt in episode.exact_hits)
-                        lines.append(f"   Все пики: {all_exact} UTC")
-                else:
-                    if episode.nearest_approaches:
-                        nearest_time, nearest_orb = episode.nearest_approaches[0]
-                        nearest_str = nearest_time.strftime("%d.%m.%Y %H:%M") + " UTC"
-                        boundary_desc = {
-                            "inside": "",
-                            "near_start": " (около начала периода)",
-                            "near_end": " (около конца периода)",
-                            "mixed": " (на границе)",
-                        }.get(episode.boundary_type, "")
-                        lines.append(f"   Ближайшая точка в периоде: {nearest_str} (орб {nearest_orb:.2f}°){boundary_desc}")
-
-                phase_ru = PHASE_RU.get(episode.phase, episode.phase)
-                lines.append(f"   Фаза: {phase_ru}")
-                lines.append(f"   Орб: {episode.min_orb:.2f}°")
-                lines.append(f"   Тип планеты: {planet_category}")
-                lines.append(f"   Priority score: {episode.max_score:.2f}")
-                lines.append("")
-
-        # RETROGRADE STATIONS
-        lines.append("=== РЕТРОГРАДНЫЕ СТАНЦИИ ===")
-        retrogrades_found = False
-        for planet, windows in sorted(self.retrograde_windows.items()):
-            for window in windows:
-                retrogrades_found = True
-                direction = "начало ретроградности" if window.retrograde_after else "окончание ретроградности"
-                lines.append(
-                    f"- {PLANET_RU.get(planet, planet)}: {direction}; "
-                    f"станция {window.station_exact_utc.isoformat(timespec='minutes')} UTC"
-                )
-        if not retrogrades_found:
-            lines.append("Нет.")
-        lines.append("")
-
-        # ENGINE QA
-        lines.append("=== ENGINE QA ===")
-        lines.append(f"Snapshots created: {self.stats['snapshot_created']}")
-        lines.append(f"Snapshot requests: {self.stats['snapshot_requests']}")
-        lines.append(f"Snapshot cache hits: {self.stats['snapshot_cache_hits']}")
-        lines.append(f"Candidate windows: {self.stats['candidate_windows']}")
-        lines.append(f"Exact hits: {self.stats['exact_hits']}")
-        lines.append(f"Near hits: {self.stats['near_hits']}")
-        lines.append(f"Boundary candidates: {self.stats['boundary_candidates']}")
-        lines.append(f"False exact candidates rejected: {self.stats['false_exact_rejected']}")
-        lines.append(f"Retrograde refinements: {self.stats['retrograde_refinements']}")
-
-        # Дополнительные счётчики для месяца
-        if period.period_type == "month":
-            lines.append(f"Month raw candidate windows: {self.stats['month_raw_candidate_windows']}")
-            lines.append(f"Month merged candidate windows: {self.stats['month_merged_candidate_windows']}")
-            lines.append(f"Month pre-ranked candidates: {self.stats['month_pre_ranked_candidates']}")
-            lines.append(f"Month refinement candidates: {self.stats['month_refinement_candidates']}")
-            lines.append(f"Month candidates skipped by budget: {self.stats['month_candidates_skipped_by_budget']}")
-            lines.append(f"Month moon hits suppressed: {self.stats['month_moon_hits_suppressed']}")
-
-        lines.append("")
-
-        # LLM INSTRUCTIONS
-        lines.append("=== ИНСТРУКЦИЯ ДЛЯ ИНТЕРПРЕТАТОРА ===")
-        lines.append("Используй транзитные темы как основу прогноза.")
-        lines.append("Точное время пика показывает момент максимальной концентрации энергии.")
-        lines.append("Фаза указывает на динамику процесса: applying – влияние нарастает, exact – кульминация, separating – влияние спадает.")
-        lines.append("Тип планеты определяет масштаб: очень быстрая – часы, быстрая – дни, медленная – недели/месяцы.")
-        lines.append("Если точный пик отсутствует, используй ближайшую точку с орбом для оценки интенсивности.")
-        lines.append("Не придумывай дополнительные транзиты или даты.")
-        lines.append(
-            "Если у транзита несколько точных проходов, рассматривай их как один повторяющийся тематический процесс.")
-        lines.append(
-            "Ретроградный проход не считать новым независимым жизненным сюжетом: он является частью того же transit episode.")
-        lines.append("Score предназначен только для внутреннего ранжирования и не должен объясняться пользователю.")
-        lines.append("Для дневного прогноза приоритет — конкретные события текущего дня.")
-        lines.append("Для месячного прогноза приоритет — точные даты и периоды повторных проходов.")
-        lines.append(
-            "Для годового прогноза приоритет — медленные планеты, станции, повторные проходы и долгосрочные тематические процессы.")
-
-        return "\n".join(lines)
+    # def _build_prompt(
+    #         self,
+    #         period: ForecastPeriod,
+    #         episodes: List[TransitEpisode],
+    # ) -> str:
+    #     lines = []
+    #
+    #     # ----- ПАРАМЕТРЫ РАСЧЁТА -----
+    #     lines.append("### Параметры расчёта")
+    #     lines.append("")
+    #     period_name = {
+    #         "day": "сутки",
+    #         "month": "месяц",
+    #         "year": "год"
+    #     }.get(period.period_type, period.period_type)
+    #     lines.append(f"Тип: Транзитный прогноз")
+    #     lines.append(f"Период: {period_name}")
+    #     lines.append(f"Начало периода UTC: {period.start_utc.isoformat()}")
+    #     lines.append(f"Конец периода UTC: {period.end_utc.isoformat()}")
+    #     lines.append("Зодиак: Tropical")
+    #     lines.append("Система домов: Placidus")
+    #     lines.append("Перспектива: Geocentric")
+    #     lines.append("")
+    #
+    #     # ----- ДАННЫЕ РОЖДЕНИЯ -----
+    #     user = self.user_data
+    #     birth_date = user.get('birth_date', 'не указана')
+    #     birth_time = user.get('birth_time', 'не указано')
+    #     lat = user.get('birth_lat')
+    #     lng = user.get('birth_lng')
+    #     if lat is not None and lng is not None:
+    #         coords = f"{lat:.4f}° N, {lng:.4f}° E"
+    #     else:
+    #         coords = "не указаны"
+    #     lines.append("### Данные рождения человека")
+    #     lines.append("")
+    #     lines.append(f"Дата рождения: {birth_date}")
+    #     lines.append(f"Время рождения: {birth_time}")
+    #     lines.append(f"Координаты рождения: {coords}")
+    #     lines.append("Часовой пояс: UTC")
+    #     lines.append("")
+    #
+    #     # ----- НАТАЛЬНЫЕ ТОЧКИ -----
+    #     lines.append("## Натальные точки")
+    #     for target, data in sorted(self._natal_points.items()):
+    #         longitude = to_float(data.get("abs_pos"))
+    #         if longitude is None:
+    #             continue
+    #         sign = data.get("sign", "")
+    #         position = to_float(data.get("position"), 0.0) or 0.0
+    #         house = data.get("house")
+    #         lines.append(
+    #             f"{TARGET_RU.get(target, target)}: "
+    #             f"{sign} {position:.2f}°"
+    #             + (f", дом {house}" if house else "")
+    #         )
+    #     lines.append("")
+    #
+    #     # ----- РЕТРОГРАДНЫЕ ПЛАНЕТЫ -----
+    #     retro_state = self._get_retrograde_state(period)
+    #     lines.append("## Ретроградные планеты")
+    #     if retro_state["start"] or retro_state["end"]:
+    #         start_names = [PLANET_RU.get(p, p) for p in retro_state["start"]]
+    #         end_names = [PLANET_RU.get(p, p) for p in retro_state["end"]]
+    #         lines.append(f"На начало периода: {', '.join(start_names) if start_names else 'нет'}")
+    #         lines.append(f"На конец периода: {', '.join(end_names) if end_names else 'нет'}")
+    #     else:
+    #         lines.append("Нет ретроградных планет в течение периода.")
+    #     lines.append("")
+    #
+    #     # ----- ГЛАВНЫЕ ТРАНЗИТНЫЕ ТЕМЫ -----
+    #     lines.append("## Главные транзитные темы")
+    #     if not episodes:
+    #         lines.append("Нет транзитов, прошедших порог значимости.")
+    #     else:
+    #         for index, episode in enumerate(episodes, start=1):
+    #             source_label = f"{PLANET_RU.get(episode.transit_body, episode.transit_body)} ({episode.source_type})"
+    #             target_label = f"{TARGET_RU.get(episode.natal_target, episode.natal_target)} ({episode.target_type})"
+    #             aspect_label = ASPECT_RU.get(episode.aspect, episode.aspect)
+    #
+    #             planet_category = self._planet_category(episode.transit_body)
+    #
+    #             lines.append(f"{index}. {source_label} — {aspect_label} — {target_label}")
+    #             lines.append(f"   Тема: {episode.theme}")
+    #
+    #             if episode.exact_hits_count > 0:
+    #                 lines.append(f"   Количество точных проходов: {episode.exact_hits_count}")
+    #             else:
+    #                 lines.append("   Точных проходов в периоде нет")
+    #
+    #             if episode.exact_hits:
+    #                 exact_dt = episode.exact_hits[0]
+    #                 exact_str = exact_dt.strftime("%d.%m.%Y %H:%M") + " UTC"
+    #                 lines.append(f"   Точное время пика: {exact_str}")
+    #                 if len(episode.exact_hits) > 1:
+    #                     all_exact = ", ".join(dt.strftime("%d.%m %H:%M") for dt in episode.exact_hits)
+    #                     lines.append(f"   Все пики: {all_exact} UTC")
+    #             else:
+    #                 if episode.nearest_approaches:
+    #                     nearest_time, nearest_orb = episode.nearest_approaches[0]
+    #                     nearest_str = nearest_time.strftime("%d.%m.%Y %H:%M") + " UTC"
+    #                     boundary_desc = {
+    #                         "inside": "",
+    #                         "near_start": " (около начала периода)",
+    #                         "near_end": " (около конца периода)",
+    #                         "mixed": " (на границе)",
+    #                     }.get(episode.boundary_type, "")
+    #                     lines.append(
+    #                         f"   Ближайшая точка в периоде: {nearest_str} (орб {nearest_orb:.2f}°){boundary_desc}")
+    #
+    #             phase_ru = PHASE_RU.get(episode.phase, episode.phase)
+    #             lines.append(f"   Фаза: {phase_ru}")
+    #             lines.append(f"   Орб: {episode.min_orb:.2f}°")
+    #             lines.append(f"   Тип планеты: {planet_category}")
+    #             lines.append(f"   Priority score: {episode.max_score:.2f}")
+    #             lines.append("")
+    #
+    #     # ----- РЕТРОГРАДНЫЕ СТАНЦИИ -----
+    #     lines.append("## Ретроградные станции")
+    #     retrogrades_found = False
+    #     for planet, windows in sorted(self.retrograde_windows.items()):
+    #         for window in windows:
+    #             retrogrades_found = True
+    #             direction = "начало ретроградности" if window.retrograde_after else "окончание ретроградности"
+    #             lines.append(
+    #                 f"- {PLANET_RU.get(planet, planet)}: {direction}; "
+    #                 f"станция {window.station_exact_utc.isoformat(timespec='minutes')} UTC"
+    #             )
+    #     if not retrogrades_found:
+    #         lines.append("Нет.")
+    #     lines.append("")
+    #
+    #     # ----- ИНСТРУКЦИЯ ДЛЯ LLM (остаётся, так как мы не используем отдельный шаблон) -----
+    #     lines.append("=== ИНСТРУКЦИЯ ДЛЯ ИНТЕРПРЕТАТОРА ===")
+    #     lines.append("Используй транзитные темы как основу прогноза.")
+    #     lines.append("Точное время пика показывает момент максимальной концентрации энергии.")
+    #     lines.append(
+    #         "Фаза указывает на динамику процесса: applying – влияние нарастает, exact – кульминация, separating – влияние спадает.")
+    #     lines.append("Тип планеты определяет масштаб: очень быстрая – часы, быстрая – дни, медленная – недели/месяцы.")
+    #     lines.append("Если точный пик отсутствует, используй ближайшую точку с орбом для оценки интенсивности.")
+    #     lines.append("Не придумывай дополнительные транзиты или даты.")
+    #     lines.append(
+    #         "Если у транзита несколько точных проходов, рассматривай их как один повторяющийся тематический процесс.")
+    #     lines.append(
+    #         "Ретроградный проход не считать новым независимым жизненным сюжетом: он является частью того же transit episode.")
+    #     lines.append("Score предназначен только для внутреннего ранжирования и не должен объясняться пользователю.")
+    #     lines.append("Для дневного прогноза приоритет — конкретные события текущего дня.")
+    #     lines.append("Для месячного прогноза приоритет — точные даты и периоды повторных проходов.")
+    #     lines.append(
+    #         "Для годового прогноза приоритет — медленные планеты, станции, повторные проходы и долгосрочные тематические процессы.")
+    #
+    #     return "\n".join(lines)
 
     # ======================================================================
     # QA
@@ -2124,5 +2132,161 @@ class HoroscopeCalculator:
                     f"after={window.after_speed:.8f} | "
                     f"retrograde_after={window.retrograde_after}"
                 )
+
+        return "\n".join(lines)
+
+    def build_horoscope_context(
+            self,
+            period_type: str,
+            period_start_utc: datetime,
+            period_end_utc: datetime,
+            max_display: int = 12,
+    ) -> str:
+        """
+        Строит только астрологический контекст (без инструкций и без мета-заголовков)
+        для вставки в шаблон prompt_horoscope.txt.
+        """
+        period = ForecastPeriod(
+            period_type=period_type,
+            start_utc=ensure_utc(period_start_utc),
+            end_utc=ensure_utc(period_end_utc),
+        )
+
+        # Выполняем расчёт (этот же метод используется в build_context)
+        episodes = self.calculate(period, max_display=max_display)
+
+        # Формируем контекст без инструкций
+        return self._build_context_string(period, episodes)
+
+    def _build_context_string(
+            self,
+            period: ForecastPeriod,
+            episodes: List[TransitEpisode],
+    ) -> str:
+        lines = []
+
+        # ----- ПАРАМЕТРЫ РАСЧЁТА -----
+        lines.append("### Параметры расчёта")
+        lines.append("")
+        period_name = {
+            "day": "сутки",
+            "month": "месяц",
+            "year": "год"
+        }.get(period.period_type, period.period_type)
+        lines.append(f"Тип: Транзитный прогноз")
+        lines.append(f"Период: {period_name}")
+        lines.append(f"Начало периода UTC: {period.start_utc.isoformat()}")
+        lines.append(f"Конец периода UTC: {period.end_utc.isoformat()}")
+        lines.append("Зодиак: Tropical")
+        lines.append("Система домов: Placidus")
+        lines.append("Перспектива: Geocentric")
+        lines.append("")
+
+        # ----- ДАННЫЕ РОЖДЕНИЯ -----
+        user = self.user_data
+        birth_date = user.get('birth_date', 'не указана')
+        birth_time = user.get('birth_time', 'не указано')
+        lat = user.get('birth_lat')
+        lng = user.get('birth_lng')
+        if lat is not None and lng is not None:
+            coords = f"{lat:.4f}° N, {lng:.4f}° E"
+        else:
+            coords = "не указаны"
+        lines.append("### Данные рождения человека")
+        lines.append("")
+        lines.append(f"Дата рождения: {birth_date}")
+        lines.append(f"Время рождения: {birth_time}")
+        lines.append(f"Координаты рождения: {coords}")
+        lines.append("Часовой пояс: UTC")
+        lines.append("")
+
+        # ----- НАТАЛЬНЫЕ ТОЧКИ -----
+        lines.append("## Натальные точки")
+        for target, data in sorted(self._natal_points.items()):
+            longitude = to_float(data.get("abs_pos"))
+            if longitude is None:
+                continue
+            sign = data.get("sign", "")
+            position = to_float(data.get("position"), 0.0) or 0.0
+            house = data.get("house")
+            lines.append(
+                f"{TARGET_RU.get(target, target)}: "
+                f"{sign} {position:.2f}°"
+                + (f", дом {house}" if house else "")
+            )
+        lines.append("")
+
+        # ----- РЕТРОГРАДНЫЕ ПЛАНЕТЫ -----
+        retro_state = self._get_retrograde_state(period)
+        lines.append("## Ретроградные планеты")
+        if retro_state["start"] or retro_state["end"]:
+            start_names = [PLANET_RU.get(p, p) for p in retro_state["start"]]
+            end_names = [PLANET_RU.get(p, p) for p in retro_state["end"]]
+            lines.append(f"На начало периода: {', '.join(start_names) if start_names else 'нет'}")
+            lines.append(f"На конец периода: {', '.join(end_names) if end_names else 'нет'}")
+        else:
+            lines.append("Нет ретроградных планет в течение периода.")
+        lines.append("")
+
+        # ----- ГЛАВНЫЕ ТРАНЗИТНЫЕ ТЕМЫ -----
+        lines.append("## Главные транзитные темы")
+        if not episodes:
+            lines.append("Нет транзитов, прошедших порог значимости.")
+        else:
+            for index, episode in enumerate(episodes, start=1):
+                source_label = f"{PLANET_RU.get(episode.transit_body, episode.transit_body)} ({episode.source_type})"
+                target_label = f"{TARGET_RU.get(episode.natal_target, episode.natal_target)} ({episode.target_type})"
+                aspect_label = ASPECT_RU.get(episode.aspect, episode.aspect)
+                planet_category = self._planet_category(episode.transit_body)
+
+                lines.append(f"{index}. {source_label} — {aspect_label} — {target_label}")
+                lines.append(f"   Тема: {episode.theme}")
+
+                if episode.exact_hits_count > 0:
+                    lines.append(f"   Количество точных проходов: {episode.exact_hits_count}")
+                else:
+                    lines.append("   Точных проходов в периоде нет")
+
+                if episode.exact_hits:
+                    exact_dt = episode.exact_hits[0]
+                    exact_str = exact_dt.strftime("%d.%m.%Y %H:%M") + " UTC"
+                    lines.append(f"   Точное время пика: {exact_str}")
+                    if len(episode.exact_hits) > 1:
+                        all_exact = ", ".join(dt.strftime("%d.%m %H:%M") for dt in episode.exact_hits)
+                        lines.append(f"   Все пики: {all_exact} UTC")
+                else:
+                    if episode.nearest_approaches:
+                        nearest_time, nearest_orb = episode.nearest_approaches[0]
+                        nearest_str = nearest_time.strftime("%d.%m.%Y %H:%M") + " UTC"
+                        boundary_desc = {
+                            "inside": "",
+                            "near_start": " (около начала периода)",
+                            "near_end": " (около конца периода)",
+                            "mixed": " (на границе)",
+                        }.get(episode.boundary_type, "")
+                        lines.append(
+                            f"   Ближайшая точка в периоде: {nearest_str} (орб {nearest_orb:.2f}°){boundary_desc}")
+
+                phase_ru = PHASE_RU.get(episode.phase, episode.phase)
+                lines.append(f"   Фаза: {phase_ru}")
+                lines.append(f"   Орб: {episode.min_orb:.2f}°")
+                lines.append(f"   Тип планеты: {planet_category}")
+                lines.append(f"   Priority score: {episode.max_score:.2f}")
+                lines.append("")
+
+        # ----- РЕТРОГРАДНЫЕ СТАНЦИИ -----
+        lines.append("## Ретроградные станции")
+        retrogrades_found = False
+        for planet, windows in sorted(self.retrograde_windows.items()):
+            for window in windows:
+                retrogrades_found = True
+                direction = "начало ретроградности" if window.retrograde_after else "окончание ретроградности"
+                lines.append(
+                    f"- {PLANET_RU.get(planet, planet)}: {direction}; "
+                    f"станция {window.station_exact_utc.isoformat(timespec='minutes')} UTC"
+                )
+        if not retrogrades_found:
+            lines.append("Нет.")
+        lines.append("")
 
         return "\n".join(lines)
