@@ -374,6 +374,7 @@ class EngineConfig:
     year_score_threshold: float = 10.0
 
     log_snapshots: bool = False
+    debug_geometry: bool = True  # Временный флаг для отладки
 
     def period_step_seconds(self, period_type: str) -> int:
         if period_type == "day":
@@ -459,6 +460,9 @@ class TransitEvent:
     boundary_limited: bool = False       # True если минимум на границе
     nearest_utc: Optional[datetime] = None
     nearest_orb: float = 999.0
+    # Типы объектов для отладки
+    source_type: str = "transit"         # "transit" или "natal" (всегда transit для движка)
+    target_type: str = "natal"           # "transit" или "natal"
 
     @property
     def unique_key(self) -> str:
@@ -470,11 +474,10 @@ class TransitEvent:
 
     @property
     def display_name(self) -> str:
-        return (
-            f"{PLANET_RU.get(self.transit_body, self.transit_body)} "
-            f"{ASPECT_RU.get(self.aspect, self.aspect)} "
-            f"{TARGET_RU.get(self.natal_target, self.natal_target)}"
-        )
+        source = PLANET_RU.get(self.transit_body, self.transit_body)
+        target = TARGET_RU.get(self.natal_target, self.natal_target)
+        aspect = ASPECT_RU.get(self.aspect, self.aspect)
+        return f"{source} ({self.source_type}) — {aspect} — {target} ({self.target_type})"
 
 
 @dataclass
@@ -496,6 +499,8 @@ class TransitEpisode:
     phase: str = ""
     min_orb: float = 0.0
     boundary_limited: bool = False
+    source_type: str = "transit"
+    target_type: str = "natal"
 
     @property
     def semantic_key(self) -> Tuple[str, str, str]:
@@ -503,11 +508,10 @@ class TransitEpisode:
 
     @property
     def display_name(self) -> str:
-        return (
-            f"{PLANET_RU.get(self.transit_body, self.transit_body)} "
-            f"{ASPECT_RU.get(self.aspect, self.aspect)} "
-            f"{TARGET_RU.get(self.natal_target, self.natal_target)}"
-        )
+        source = PLANET_RU.get(self.transit_body, self.transit_body)
+        target = TARGET_RU.get(self.natal_target, self.natal_target)
+        aspect = ASPECT_RU.get(self.aspect, self.aspect)
+        return f"{source} ({self.source_type}) — {aspect} — {target} ({self.target_type})"
 
 
 @dataclass
@@ -778,6 +782,13 @@ class HoroscopeCalculator:
         )
 
         self._planet_snapshot_cache[key] = snapshot
+
+        # Временный debug-вывод для проверки геометрии
+        if self.config.debug_geometry:
+            # Проверяем ключевые моменты для отладки
+            if snapshot_time.hour in (6, 18) and snapshot_time.minute == 0:
+                logger.info(f"[DEBUG_GEOMETRY] {snapshot_time.isoformat()} {planet} = {longitude:.4f}°")
+
         return snapshot
 
     # ======================================================================
@@ -1030,7 +1041,6 @@ class HoroscopeCalculator:
         """
         try:
             orb = abs(self._aspect_function(t, planet, target, aspect))
-            # Если орб уже в пределах точности – это точный аспект
             if orb <= self.config.exact_tolerance_deg:
                 return "exact"
         except Exception:
@@ -1135,6 +1145,8 @@ class HoroscopeCalculator:
             is_retrograde=transit.retrograde,
             transit_speed=transit.speed,
             theme=theme,
+            source_type="transit",
+            target_type="natal",
         )
         return event
 
@@ -1587,6 +1599,8 @@ class HoroscopeCalculator:
                 phase=phase,
                 min_orb=min_orb,
                 boundary_limited=boundary_limited,
+                source_type="transit",
+                target_type="natal",
             )
             if episode.hit_count > 1:
                 episode.max_score += self.config.repeated_hit_bonus * min(episode.hit_count - 1, 3)
@@ -1825,22 +1839,21 @@ class HoroscopeCalculator:
             lines.append("Нет транзитов, прошедших порог значимости.")
         else:
             for index, episode in enumerate(episodes, start=1):
-                planet = PLANET_RU.get(episode.transit_body, episode.transit_body)
-                target = TARGET_RU.get(episode.natal_target, episode.natal_target)
-                aspect = ASPECT_RU.get(episode.aspect, episode.aspect)
+                # Явно показываем типы
+                source_label = f"{PLANET_RU.get(episode.transit_body, episode.transit_body)} ({episode.source_type})"
+                target_label = f"{TARGET_RU.get(episode.natal_target, episode.natal_target)} ({episode.target_type})"
+                aspect_label = ASPECT_RU.get(episode.aspect, episode.aspect)
 
                 planet_category = self._planet_category(episode.transit_body)
 
-                lines.append(f"{index}. {planet} — {aspect} — {target}")
+                lines.append(f"{index}. {source_label} — {aspect_label} — {target_label}")
                 lines.append(f"   Тема: {episode.theme}")
 
-                # Количество точных проходов
                 if episode.exact_hits_count > 0:
                     lines.append(f"   Количество точных проходов: {episode.exact_hits_count}")
                 else:
                     lines.append("   Точных проходов в периоде нет")
 
-                # Вывод пиков
                 if episode.exact_hits:
                     exact_dt = episode.exact_hits[0]
                     exact_str = exact_dt.strftime("%d.%m.%Y %H:%M") + " UTC"
@@ -1849,24 +1862,16 @@ class HoroscopeCalculator:
                         all_exact = ", ".join(dt.strftime("%d.%m %H:%M") for dt in episode.exact_hits)
                         lines.append(f"   Все пики: {all_exact} UTC")
                 else:
-                    # Нет точных пиков, показываем ближайшую точку
                     if episode.nearest_approaches:
                         nearest_time, nearest_orb = episode.nearest_approaches[0]
                         nearest_str = nearest_time.strftime("%d.%m.%Y %H:%M") + " UTC"
                         boundary_mark = " (на границе периода)" if episode.boundary_limited else ""
                         lines.append(f"   Ближайшая точка в периоде: {nearest_str} (орб {nearest_orb:.2f}°){boundary_mark}")
 
-                # Фаза
                 phase_ru = PHASE_RU.get(episode.phase, episode.phase)
                 lines.append(f"   Фаза: {phase_ru}")
-
-                # Орб (минимальный)
                 lines.append(f"   Орб: {episode.min_orb:.2f}°")
-
-                # Тип планеты
                 lines.append(f"   Тип планеты: {planet_category}")
-
-                # Score
                 lines.append(f"   Priority score: {episode.max_score:.2f}")
                 lines.append("")
 
