@@ -312,13 +312,12 @@ class EngineConfig:
         default_factory=lambda: dict(DEFAULT_ASPECT_ORBS)
     )
 
-    # Увеличиваем точность до 0.05° (3 угловые минуты)
     exact_tolerance_deg: float = 0.05
-    exact_tolerance_seconds: float = 180.0  # 3 минуты (для дедупликации)
+    exact_tolerance_seconds: float = 180.0
     root_tolerance_seconds: float = 30.0
 
     day_step_minutes: int = 30
-    month_step_hours: int = 6
+    month_step_hours: int = 12          # Изменено с 6 на 12
     year_step_hours: int = 24
 
     include_moon_in_year: bool = False
@@ -344,7 +343,7 @@ class EngineConfig:
     max_events_per_theme: int = 8
 
     max_final_events_day: int = 15
-    max_final_events_month: int = 20
+    max_final_events_month: int = 15        # Изменено с 20 на 15
     max_final_events_year: int = 30
 
     max_scan_days: int = 5000
@@ -366,16 +365,21 @@ class EngineConfig:
     month_exact_orb_limit: float = 1.0
     month_fast_orb_limit: float = 2.0
     month_slow_orb_limit: float = 6.0
-    month_score_threshold: float = 12.0
+    month_score_threshold: float = 15.0     # Изменено с 12 на 15
 
     year_exact_orb_limit: float = 0.5
     year_fast_orb_limit: float = 1.0
     year_slow_orb_limit: float = 8.0
     year_score_threshold: float = 10.0
 
-    boundary_tolerance_seconds: int = 60  # порог для «около границы»
+    # Новые параметры для месяца
+    month_candidate_merge_gap_hours: float = 2.0
+    month_max_refinement_candidates: int = 50
+    month_max_moon_hits_per_key: int = 2
+
+    boundary_tolerance_seconds: int = 60
     log_snapshots: bool = False
-    debug_geometry: bool = False  # отключаем дебаг-вывод в production
+    debug_geometry: bool = False
 
     def period_step_seconds(self, period_type: str) -> int:
         if period_type == "day":
@@ -434,7 +438,6 @@ class PlanetSnapshot:
 
 @dataclass
 class TransitEvent:
-    # Обязательные поля (без дефолта)
     transit_body: str
     natal_target: str
     aspect: str
@@ -446,7 +449,6 @@ class TransitEvent:
     phase: str
     transit_longitude: float
     natal_longitude: float
-    # Поля с дефолтными значениями
     transit_house: Any = None
     natal_house: Any = None
     is_retrograde: bool = False
@@ -456,16 +458,13 @@ class TransitEvent:
     reason: str = ""
     hit_index: int = 1
     theme: str = ""
-    # Новые поля для корректной семантики
-    exact_hit: bool = False              # True только если орб <= exact_tolerance
-    boundary_limited: bool = False       # True если минимум на границе
+    exact_hit: bool = False
+    boundary_limited: bool = False
     nearest_utc: Optional[datetime] = None
     nearest_orb: float = 999.0
-    # Типы объектов
-    source_type: str = "transit"         # всегда "transit"
-    target_type: str = "natal"           # "natal" или "transit" (пока только natal)
-    # Детализация границ
-    boundary_type: str = "inside"        # "inside", "near_start", "near_end", "outside"
+    source_type: str = "transit"
+    target_type: str = "natal"
+    boundary_type: str = "inside"
 
     @property
     def unique_key(self) -> str:
@@ -485,14 +484,12 @@ class TransitEvent:
 
 @dataclass
 class TransitEpisode:
-    # Обязательные поля
     transit_body: str
     natal_target: str
     aspect: str
     theme: str
     first_start_utc: Optional[datetime]
     last_end_utc: Optional[datetime]
-    # Поля с дефолтом
     exact_hits: List[datetime] = field(default_factory=list)
     nearest_approaches: List[Tuple[datetime, float]] = field(default_factory=list)
     exact_hits_count: int = 0
@@ -539,13 +536,6 @@ class RetrogradeWindow:
 # ============================================================================
 
 class HoroscopeCalculator:
-    """
-    Production horoscope calculator.
-
-    Совместим с ботом: принимает user_data, lang, telegram_id, coords, emulation_mode.
-    Предоставляет build_context, get_qa_report, get_stats.
-    """
-
     VERSION = "3.0.0"
 
     def __init__(
@@ -566,7 +556,6 @@ class HoroscopeCalculator:
         self.config = config
         self.gemini_service = gemini_service
 
-        # Получаем натальную карту через существующий AstrologyCalculator
         self.astro_calc = AstrologyCalculator(
             user_data,
             lang=lang,
@@ -577,7 +566,6 @@ class HoroscopeCalculator:
         self.natal_data = self.astro_calc._build_natal_chart()
         self.natal_subject = self.astro_calc._subject
 
-        # Извлекаем координаты
         location = self.natal_data.get("location", {})
         lat = to_float(location.get("lat"))
         lng = to_float(location.get("lng"))
@@ -593,7 +581,6 @@ class HoroscopeCalculator:
         self.lat = float(lat)
         self.lng = float(lng)
 
-        # Инициализируем внутреннее состояние движка
         self._snapshot_cache: Dict[str, AstrologicalSubject] = {}
         self._planet_snapshot_cache: Dict[Tuple[str, str], PlanetSnapshot] = {}
         self._retrograde_cache: Dict[Tuple[str, str, str], RetrogradeWindow] = {}
@@ -603,6 +590,7 @@ class HoroscopeCalculator:
         self.episodes: List[TransitEpisode] = []
         self.retrograde_windows: Dict[str, List[RetrogradeWindow]] = defaultdict(list)
 
+        # Расширенная статистика
         self.stats: Dict[str, int] = {
             "snapshot_requests": 0,
             "snapshot_created": 0,
@@ -614,6 +602,13 @@ class HoroscopeCalculator:
             "false_exact_rejected": 0,
             "retrograde_candidates": 0,
             "retrograde_refinements": 0,
+            # Новые счётчики для месяца
+            "month_raw_candidate_windows": 0,
+            "month_merged_candidate_windows": 0,
+            "month_pre_ranked_candidates": 0,
+            "month_refinement_candidates": 0,
+            "month_candidates_skipped_by_budget": 0,
+            "month_moon_hits_suppressed": 0,
         }
 
     # ======================================================================
@@ -880,40 +875,108 @@ class HoroscopeCalculator:
                             if old_key not in current_keys:
                                 previous.pop(old_key, None)
 
-        candidates = self._merge_candidate_windows(candidates)
+        # Сохраняем сырые окна для статистики (только для месяца)
+        if period.period_type == "month":
+            self.stats["month_raw_candidate_windows"] = len(candidates)
+
+        # Слияние окон для месяца
+        if period.period_type == "month":
+            candidates = self._merge_candidate_windows_for_month(candidates)
+
         self.stats["candidate_windows"] = len(candidates)
         logger.info("[CANDIDATES] windows=%d snapshots=%d",
                     len(candidates),
                     self.stats["snapshot_created"])
         return candidates
 
-    def _merge_candidate_windows(
+    def _merge_candidate_windows_for_month(
         self,
-        candidates: Sequence[Tuple[str, str, str, datetime, datetime]],
+        candidates: List[Tuple[str, str, str, datetime, datetime]],
     ) -> List[Tuple[str, str, str, datetime, datetime]]:
+        """
+        Сливает соседние окна для месяца по ключу (planet, target, aspect)
+        с учётом максимального разрыва month_candidate_merge_gap_hours.
+        """
+        if not candidates:
+            return []
+
+        gap = timedelta(hours=self.config.month_candidate_merge_gap_hours)
         grouped: Dict[Tuple[str, str, str], List[Tuple[datetime, datetime]]] = defaultdict(list)
+
         for planet, target, aspect, start, end in candidates:
             grouped[(planet, target, aspect)].append((start, end))
 
-        result = []
+        merged = []
         for key, windows in grouped.items():
             windows.sort()
-            current_start: Optional[datetime] = None
-            current_end: Optional[datetime] = None
-            for start, end in windows:
-                if current_start is None:
-                    current_start = start
-                    current_end = end
-                    continue
-                if start <= current_end:
+            current_start, current_end = windows[0]
+            for start, end in windows[1:]:
+                if start <= current_end + gap:
                     current_end = max(current_end, end)
                 else:
-                    result.append((key[0], key[1], key[2], current_start, current_end))
-                    current_start = start
-                    current_end = end
-            if current_start is not None:
-                result.append((key[0], key[1], key[2], current_start, current_end))
-        return result
+                    merged.append((key[0], key[1], key[2], current_start, current_end))
+                    current_start, current_end = start, end
+            merged.append((key[0], key[1], key[2], current_start, current_end))
+
+        self.stats["month_merged_candidate_windows"] = len(merged)
+        return merged
+
+    # ======================================================================
+    # PRE-RANKING (для месяца)
+    # ======================================================================
+
+    def _candidate_pre_score(
+        self,
+        candidate: Tuple[str, str, str, datetime, datetime],
+        period_type: str,
+    ) -> float:
+        """
+        Дешёвый предварительный скор для кандидата без вызова exact solver.
+        Использует грубые данные (coarse samples).
+        """
+        planet, target, aspect, start, end = candidate
+        planet_weight = PERIOD_PLANET_WEIGHTS.get(period_type, BASE_PLANET_WEIGHT).get(planet, 0.0)
+        target_weight = TARGET_WEIGHT.get(target, 0.0)
+        aspect_weight = ASPECT_WEIGHT.get(aspect, 0.0)
+
+        # Определяем минимальный орб на грубой сетке (по midpoint)
+        mid = start + (end - start) / 2
+        subject = self._snapshot(mid)
+        transit = self._extract_transit_planet(subject, planet)
+        natal = self._natal_points.get(target)
+        if transit is None or natal is None:
+            return 0.0
+        natal_lon = to_float(natal.get("abs_pos"))
+        if natal_lon is None:
+            return 0.0
+        orb = angular_distance(transit.longitude, natal_lon)
+        # Находим ближайший аспект
+        min_orb = min(abs(orb - angle) for angle in MAJOR_ASPECT_ANGLES.values())
+        # tightness_bonus: чем меньше орб, тем выше
+        tightness_bonus = max(0.0, 1.0 - min_orb / 10.0) * 2.0
+
+        # applying_bonus: определяем по грубой производной
+        try:
+            before = start + (end - start) * 0.25
+            after = start + (end - start) * 0.75
+            sub_before = self._snapshot(before)
+            sub_after = self._snapshot(after)
+            tr_before = self._extract_transit_planet(sub_before, planet)
+            tr_after = self._extract_transit_planet(sub_after, planet)
+            if tr_before and tr_after:
+                orb_before = angular_distance(tr_before.longitude, natal_lon)
+                orb_after = angular_distance(tr_after.longitude, natal_lon)
+                if orb_before > orb_after:
+                    applying_bonus = self.config.applying_bonus
+                else:
+                    applying_bonus = self.config.separating_bonus
+            else:
+                applying_bonus = 0.0
+        except Exception:
+            applying_bonus = 0.0
+
+        score = planet_weight + target_weight + aspect_weight * 3.0 + tightness_bonus + applying_bonus
+        return round(score, 2)
 
     # ======================================================================
     # ROOT / EXACT
@@ -1029,9 +1092,6 @@ class HoroscopeCalculator:
     # ======================================================================
 
     def _phase_from_derivative(self, planet: str, target: str, aspect: str, t: datetime) -> str:
-        """Вычисляет фазу по производной орба в точке t.
-        Если орб меньше или равен exact_tolerance_deg, возвращает "exact".
-        """
         try:
             orb = abs(self._aspect_function(t, planet, target, aspect))
             if orb <= self.config.exact_tolerance_deg:
@@ -1053,13 +1113,6 @@ class HoroscopeCalculator:
             return "unknown"
 
     def _determine_exact_status(self, event: TransitEvent, period: ForecastPeriod) -> None:
-        """
-        Определяет статус события:
-        - exact_hit: True только если найден минимум с орбом <= exact_tolerance_deg
-        - boundary_limited: True если минимум на границе периода (с допуском)
-        - nearest_utc, nearest_orb: ближайшая точка в периоде
-        - boundary_type: уточнение местоположения минимума
-        """
         start = event.start_utc if event.start_utc is not None else period.start_utc
         end = event.end_utc if event.end_utc is not None else period.end_utc
 
@@ -1068,7 +1121,6 @@ class HoroscopeCalculator:
             t_min = start + (end - start) / 2
         orb_min = abs(self._aspect_function(t_min, event.transit_body, event.natal_target, event.aspect))
 
-        # Определяем тип границы
         boundary_epsilon = timedelta(seconds=self.config.boundary_tolerance_seconds)
         start_diff = abs((t_min - period.start_utc).total_seconds())
         end_diff = abs((t_min - period.end_utc).total_seconds())
@@ -1086,7 +1138,6 @@ class HoroscopeCalculator:
         if event.boundary_limited:
             self.stats["boundary_candidates"] += 1
 
-        # Проверяем, достигнут ли точный пик
         if orb_min <= self.config.exact_tolerance_deg:
             event.exact_hit = True
             event.exact_utc = t_min
@@ -1495,12 +1546,7 @@ class HoroscopeCalculator:
             else:
                 logger.debug("[RETROGRADE] %s: no stations", planet)
 
-    # ======================================================================
-    # RETROGRADE STATE (для вывода)
-    # ======================================================================
-
     def _get_retrograde_planets_at(self, timestamp: datetime) -> List[str]:
-        """Возвращает список планет, ретроградных в данный момент."""
         retro_planets = []
         for planet in TRANSIT_PLANETS:
             speed = self._planet_speed(planet, timestamp)
@@ -1509,7 +1555,6 @@ class HoroscopeCalculator:
         return retro_planets
 
     def _get_retrograde_state(self, period: ForecastPeriod) -> Dict[str, Any]:
-        """Возвращает ретроградные планеты на начало и конец периода."""
         start_retro = self._get_retrograde_planets_at(period.start_utc)
         end_retro = self._get_retrograde_planets_at(period.end_utc)
         return {
@@ -1574,7 +1619,7 @@ class HoroscopeCalculator:
     # THEMATIC AGGREGATION
     # ======================================================================
 
-    def _aggregate_themes(self, events: Sequence[TransitEvent]) -> List[TransitEpisode]:
+    def _aggregate_themes(self, events: Sequence[TransitEvent], period_type: str) -> List[TransitEpisode]:
         logger.info("[AGGREGATE] Input events: %d", len(events))
         grouped: Dict[Tuple[str, str, str], List[TransitEvent]] = defaultdict(list)
         for event in events:
@@ -1592,7 +1637,6 @@ class HoroscopeCalculator:
 
             min_orb = min(e.nearest_orb for e in group if e.nearest_orb < 999.0) if nearest_approaches else 0.0
             boundary_limited = any(e.boundary_limited for e in group)
-            # Определяем тип границы: если все события одного типа, берём его, иначе "mixed"
             boundary_types = set(e.boundary_type for e in group)
             boundary_type = boundary_types.pop() if len(boundary_types) == 1 else "mixed"
 
@@ -1625,6 +1669,32 @@ class HoroscopeCalculator:
                 episode.max_score += self.config.repeated_hit_bonus * min(episode.hit_count - 1, 3)
             episodes.append(episode)
 
+        # Для месяца ограничиваем количество эпизодов с Луной
+        if period_type == "month":
+            moon_episodes = [e for e in episodes if e.transit_body == "moon"]
+            other_episodes = [e for e in episodes if e.transit_body != "moon"]
+
+            # Группируем эпизоды Луны по ключу (natal_target, aspect)
+            moon_by_key: Dict[Tuple[str, str], List[TransitEpisode]] = defaultdict(list)
+            for e in moon_episodes:
+                key = (e.natal_target, e.aspect)
+                moon_by_key[key].append(e)
+
+            # Для каждого ключа оставляем только top N (по max_score)
+            kept_moon = []
+            suppressed_count = 0
+            for key, episodes_list in moon_by_key.items():
+                episodes_list.sort(key=lambda e: e.max_score, reverse=True)
+                kept = episodes_list[:self.config.month_max_moon_hits_per_key]
+                suppressed = episodes_list[self.config.month_max_moon_hits_per_key:]
+                kept_moon.extend(kept)
+                suppressed_count += len(suppressed)
+
+            self.stats["month_moon_hits_suppressed"] = suppressed_count
+
+            # Собираем финальный список: все медленные + отобранные Луны
+            episodes = other_episodes + kept_moon
+
         logger.info("[AGGREGATE] Episodes created: %d", len(episodes))
         return episodes
 
@@ -1650,18 +1720,14 @@ class HoroscopeCalculator:
         return ranked
 
     # ======================================================================
-    # PLANET CATEGORY (детализированная)
+    # PLANET CATEGORY
     # ======================================================================
 
     def _planet_category(self, planet: str) -> str:
-        """Возвращает категорию планеты с указанием типичной длительности влияния."""
-        # Очень быстрые (часы)
         if planet == "moon":
             return "очень быстрая (часы)"
-        # Быстрые (дни)
         if planet in ("sun", "mercury", "venus", "mars"):
             return "быстрая (дни)"
-        # Медленные (недели/месяцы)
         if planet in ("jupiter", "saturn", "uranus", "neptune", "pluto"):
             return "медленная (недели/месяцы)"
         return "средняя"
@@ -1692,6 +1758,12 @@ class HoroscopeCalculator:
             "false_exact_rejected": 0,
             "retrograde_candidates": 0,
             "retrograde_refinements": 0,
+            "month_raw_candidate_windows": 0,
+            "month_merged_candidate_windows": 0,
+            "month_pre_ranked_candidates": 0,
+            "month_refinement_candidates": 0,
+            "month_candidates_skipped_by_budget": 0,
+            "month_moon_hits_suppressed": 0,
         })
 
         logger.info("=== TRANSIT ENGINE START ===")
@@ -1703,12 +1775,34 @@ class HoroscopeCalculator:
         planets = self._planets_for_period(period.period_type)
         logger.info("[PLANETS] %s", ",".join(planets))
 
-        # PASS A
+        # STEP 1
         logger.info("[STEP 1] Detecting candidate windows...")
         candidates = self._detect_candidate_windows(period, planets)
         logger.info("[STEP 1] Candidate windows found: %d", len(candidates))
 
-        # PASS B
+        # Для месяца применяем pre-ranking и бюджет
+        if period.period_type == "month" and len(candidates) > self.config.month_max_refinement_candidates:
+            # pre-score
+            scored = []
+            for cand in candidates:
+                score = self._candidate_pre_score(cand, period.period_type)
+                scored.append((cand, score))
+            scored.sort(key=lambda x: x[1], reverse=True)
+
+            # отбираем top N
+            budget = self.config.month_max_refinement_candidates
+            top_candidates = [cand for cand, _ in scored[:budget]]
+            skipped = len(candidates) - len(top_candidates)
+
+            self.stats["month_pre_ranked_candidates"] = len(scored)
+            self.stats["month_refinement_candidates"] = len(top_candidates)
+            self.stats["month_candidates_skipped_by_budget"] = skipped
+
+            logger.info("[STEP 1b] Month pre-ranking: %d candidates, selected %d, skipped %d",
+                        len(scored), len(top_candidates), skipped)
+            candidates = top_candidates
+
+        # STEP 2
         logger.info("[STEP 2] Resolving exact hits...")
         events: List[TransitEvent] = []
         resolved_count = 0
@@ -1733,7 +1827,7 @@ class HoroscopeCalculator:
         self.stats["false_exact_rejected"] = len(events) - real_exact
         logger.info("[STEP 2] After dedup: %d events, exact hits: %d", len(events), real_exact)
 
-        # PASS C
+        # STEP 3
         logger.info("[STEP 3] Detecting retrograde stations...")
         self._detect_retrogrades(period, planets)
         retrograde_count = sum(len(windows) for windows in self.retrograde_windows.values())
@@ -1741,7 +1835,7 @@ class HoroscopeCalculator:
 
         self._annotate_retrograde(events)
 
-        # CLASSIFY
+        # STEP 4
         logger.info("[STEP 4] Classifying events with period-specific weights...")
         for event in events:
             self._classify_event(event, period.period_type)
@@ -1749,14 +1843,14 @@ class HoroscopeCalculator:
 
         self.events = events
 
-        # FILTER
+        # STEP 5
         logger.info("[STEP 5] Filtering events for final selection...")
         filtered_events = self._select_final_events(events, period.period_type)
         logger.info("[STEP 5] Filtered events: %d (from %d)", len(filtered_events), len(events))
 
-        # AGGREGATE
+        # STEP 6 (передаём period_type для ограничения Луны)
         logger.info("[STEP 6] Aggregating themes from filtered events...")
-        episodes = self._aggregate_themes(filtered_events)
+        episodes = self._aggregate_themes(filtered_events, period.period_type)
         logger.info("[STEP 6] Thematic episodes created: %d", len(episodes))
 
         logger.info("[STEP 7] Ranking episodes...")
@@ -1857,7 +1951,7 @@ class HoroscopeCalculator:
             )
         lines.append("")
 
-        # RETROGRADE PLANETS (добавляем новую секцию)
+        # RETROGRADE PLANETS
         retro_state = self._get_retrograde_state(period)
         lines.append("=== РЕТРОГРАДНЫЕ ПЛАНЕТЫ ===")
         if retro_state["start"] or retro_state["end"]:
@@ -1900,7 +1994,6 @@ class HoroscopeCalculator:
                     if episode.nearest_approaches:
                         nearest_time, nearest_orb = episode.nearest_approaches[0]
                         nearest_str = nearest_time.strftime("%d.%m.%Y %H:%M") + " UTC"
-                        # Уточняем тип границы
                         boundary_desc = {
                             "inside": "",
                             "near_start": " (около начала периода)",
@@ -1916,7 +2009,7 @@ class HoroscopeCalculator:
                 lines.append(f"   Priority score: {episode.max_score:.2f}")
                 lines.append("")
 
-        # RETROGRADE STATIONS (оставляем как есть)
+        # RETROGRADE STATIONS
         lines.append("=== РЕТРОГРАДНЫЕ СТАНЦИИ ===")
         retrogrades_found = False
         for planet, windows in sorted(self.retrograde_windows.items()):
@@ -1942,6 +2035,16 @@ class HoroscopeCalculator:
         lines.append(f"Boundary candidates: {self.stats['boundary_candidates']}")
         lines.append(f"False exact candidates rejected: {self.stats['false_exact_rejected']}")
         lines.append(f"Retrograde refinements: {self.stats['retrograde_refinements']}")
+
+        # Дополнительные счётчики для месяца
+        if period.period_type == "month":
+            lines.append(f"Month raw candidate windows: {self.stats['month_raw_candidate_windows']}")
+            lines.append(f"Month merged candidate windows: {self.stats['month_merged_candidate_windows']}")
+            lines.append(f"Month pre-ranked candidates: {self.stats['month_pre_ranked_candidates']}")
+            lines.append(f"Month refinement candidates: {self.stats['month_refinement_candidates']}")
+            lines.append(f"Month candidates skipped by budget: {self.stats['month_candidates_skipped_by_budget']}")
+            lines.append(f"Month moon hits suppressed: {self.stats['month_moon_hits_suppressed']}")
+
         lines.append("")
 
         # LLM INSTRUCTIONS
