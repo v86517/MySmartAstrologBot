@@ -374,7 +374,7 @@ class EngineConfig:
     month_max_moon_hits_per_key: int = 2
 
     year_candidate_merge_gap_hours: float = 72.0
-    year_max_refinement_candidates: int = 150  # уменьшено с 200
+    year_max_refinement_candidates: int = 100  # Уменьшено с 150 до 100
 
     boundary_tolerance_seconds: int = 60
     log_snapshots: bool = False
@@ -999,13 +999,13 @@ class HoroscopeCalculator:
         return result
 
     # ======================================================================
-    # BOUNDARY SEARCH (используется только для дня и месяца)
+    # BOUNDARY SEARCH
     # ======================================================================
 
     def _boundary_radius(self, planet: str, period_type: str) -> timedelta:
         if planet in SLOW_PLANETS:
             if period_type == "year":
-                return timedelta(days=30)  # для года всё равно не используется, но оставим
+                return timedelta(days=30)
             return timedelta(days=self.config.boundary_search_days_slow)
         return timedelta(hours=self.config.boundary_search_hours_fast)
 
@@ -1365,7 +1365,7 @@ class HoroscopeCalculator:
         if exact is None:
             return None
 
-        # Для года пропускаем поиск границ — они не нужны в промпте.
+        # Для года пропускаем поиск границ
         if period.period_type == "year":
             event = self._build_event(
                 planet=planet,
