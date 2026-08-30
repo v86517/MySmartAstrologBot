@@ -1369,27 +1369,40 @@ class HoroscopeCalculator:
     # ======================================================================
 
     def _resolve_candidate(
-        self,
-        planet: str,
-        target: str,
-        aspect: str,
-        start: datetime,
-        end: datetime,
-        period: ForecastPeriod,
+            self,
+            planet: str,
+            target: str,
+            aspect: str,
+            start: datetime,
+            end: datetime,
+            period: ForecastPeriod,
     ) -> Optional[TransitEvent]:
         exact = self._refine_exact_hit(planet, target, aspect, start, end)
         if exact is None:
             return None
-        boundary_start = self._find_boundary(planet, target, aspect, exact, -1, period)
-        boundary_end = self._find_boundary(planet, target, aspect, exact, +1, period)
-        event = self._build_event(
-            planet=planet,
-            target=target,
-            aspect=aspect,
-            exact=exact,
-            start=boundary_start,
-            end=boundary_end,
-        )
+
+        # Для года не ищем границы — они не нужны для промпта
+        if period.period_type == "year":
+            event = self._build_event(
+                planet=planet,
+                target=target,
+                aspect=aspect,
+                exact=exact,
+                start=None,
+                end=None,
+            )
+        else:
+            boundary_start = self._find_boundary(planet, target, aspect, exact, -1, period)
+            boundary_end = self._find_boundary(planet, target, aspect, exact, +1, period)
+            event = self._build_event(
+                planet=planet,
+                target=target,
+                aspect=aspect,
+                exact=exact,
+                start=boundary_start,
+                end=boundary_end,
+            )
+
         if event is not None:
             self._determine_exact_status(event, period)
         return event
