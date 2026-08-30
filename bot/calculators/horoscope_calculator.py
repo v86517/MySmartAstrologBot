@@ -374,7 +374,7 @@ class EngineConfig:
     month_max_moon_hits_per_key: int = 2
 
     year_candidate_merge_gap_hours: float = 72.0
-    year_max_refinement_candidates: int = 100  # Уменьшено с 150 до 100
+    year_max_refinement_candidates: int = 60  # Уменьшено с 150 до 100, потом до 60
 
     boundary_tolerance_seconds: int = 60
     log_snapshots: bool = False
