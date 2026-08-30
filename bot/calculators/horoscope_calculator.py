@@ -833,7 +833,7 @@ class HoroscopeCalculator:
         return result
 
     # ======================================================================
-    # CANDIDATE DETECTION
+    # CANDIDATE DETECTION (исправленная версия с интервалами)
     # ======================================================================
 
     def _detect_candidate_windows(
@@ -843,11 +843,14 @@ class HoroscopeCalculator:
     ) -> List[Tuple[str, str, str, datetime, datetime]]:
         timestamps = self._generate_sampling_times(period)
 
-        previous: Dict[Tuple[str, str], Tuple[datetime, float, str, float]] = {}
+        # active_intervals хранит для каждого ключа (planet, target, aspect) пару (start, last)
+        active_intervals: Dict[Tuple[str, str, str], Tuple[datetime, datetime]] = {}
         candidates: List[Tuple[str, str, str, datetime, datetime]] = []
 
         for timestamp in timestamps:
             subject = self._snapshot(timestamp)
+            # Для каждого planet собираем активные аспекты в этом сэмпле
+            current_keys: set = set()
             for planet in planets:
                 transit = self._extract_transit_planet(subject, planet)
                 if transit is None:
@@ -857,39 +860,34 @@ class HoroscopeCalculator:
                     if natal_longitude is None:
                         continue
                     states = self._aspect_state(transit.longitude, natal_longitude)
-
-                    current_keys = set()
                     for aspect, orb in states:
                         key = (planet, target, aspect)
                         current_keys.add(key)
+                        # Если аспект уже активен, обновляем last
+                        if key in active_intervals:
+                            start, last = active_intervals[key]
+                            active_intervals[key] = (start, timestamp)
+                        else:
+                            # Новый аспект – начинаем интервал
+                            active_intervals[key] = (timestamp, timestamp)
 
-                        previous_state = previous.get(key)
-                        if previous_state is None:
-                            previous[key] = (timestamp, orb, aspect, transit.longitude)
-                            continue
+            # Проверяем, какие аспекты перестали быть активными
+            keys_to_close = [key for key in active_intervals if key not in current_keys]
+            for key in keys_to_close:
+                start, last = active_intervals.pop(key)
+                candidates.append((key[0], key[1], key[2], start, last))
 
-                        previous_time, previous_orb, _, _ = previous_state
-                        max_orb = self.config.aspect_orbs[aspect]
+        # Закрываем интервалы, активные до конца периода
+        for key, (start, last) in active_intervals.items():
+            candidates.append((key[0], key[1], key[2], start, last))
 
-                        if previous_orb <= max_orb and orb <= max_orb:
-                            candidates.append(
-                                (planet, target, aspect, previous_time, timestamp)
-                            )
-
-                        previous[key] = (timestamp, orb, aspect, transit.longitude)
-
-                    for old_key in list(previous):
-                        if old_key[:2] == (planet, target):
-                            if old_key not in current_keys:
-                                previous.pop(old_key, None)
-
-        # ------ СОХРАНЯЕМ СЫРЫЕ ОКНА ------
+        # Сохраняем сырые окна для статистики
         if period.period_type == "month":
             self.stats["month_raw_candidate_windows"] = len(candidates)
         elif period.period_type == "year":
             self.stats["year_raw_candidate_windows"] = len(candidates)
 
-        # ------ СЛИЯНИЕ ДЛЯ МЕСЯЦА И ГОДА ------
+        # Слияние для месяца и года
         if period.period_type == "month":
             candidates = self._merge_candidate_windows_for_period(
                 candidates,
@@ -1017,13 +1015,13 @@ class HoroscopeCalculator:
         return result
 
     # ======================================================================
-    # BOUNDARY SEARCH
+    # BOUNDARY SEARCH (изменён радиус для года)
     # ======================================================================
 
     def _boundary_radius(self, planet: str, period_type: str) -> timedelta:
         if planet in SLOW_PLANETS:
             if period_type == "year":
-                return timedelta(days=90)  # для года поиск границ меньше
+                return timedelta(days=30)  # уменьшенный радиус для года
             return timedelta(days=self.config.boundary_search_days_slow)
         return timedelta(hours=self.config.boundary_search_hours_fast)
 
@@ -1927,7 +1925,6 @@ class HoroscopeCalculator:
             episodes: List[TransitEpisode],
     ) -> str:
         # Используем build_horoscope_context для получения контекста
-        # Этот метод вызывается только из build_context
         return self.build_horoscope_context(
             period.period_type,
             period.start_utc,
