@@ -316,7 +316,7 @@ class EngineConfig:
 
     day_step_minutes: int = 30
     month_step_hours: int = 12
-    year_step_hours: int = 24
+    year_step_hours: int = 48  # было 24
 
     include_moon_in_year: bool = False
     include_fast_planets_year: bool = True
