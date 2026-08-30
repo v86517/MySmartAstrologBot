@@ -105,7 +105,6 @@ ASPECT_WEIGHT = {
     "sextile": 0.75,
 }
 
-# Базовые веса планет (используются как основа, переопределяются в PERIOD_PLANET_WEIGHTS)
 BASE_PLANET_WEIGHT = {
     "pluto": 10.0,
     "neptune": 9.0,
@@ -119,7 +118,6 @@ BASE_PLANET_WEIGHT = {
     "moon": 3.0,
 }
 
-# Веса планет для каждого периода
 PERIOD_PLANET_WEIGHTS = {
     "day": {
         "moon": 10.0,
@@ -355,7 +353,6 @@ class EngineConfig:
     retrograde_bonus: float = 0.5
     repeated_hit_bonus: float = 1.25
 
-    # Пороги орбов для фильтрации по периодам
     day_exact_orb_limit: float = 1.0
     day_moon_orb_limit: float = 5.0
     day_fast_orb_limit: float = 3.0
@@ -372,14 +369,12 @@ class EngineConfig:
     year_slow_orb_limit: float = 8.0
     year_score_threshold: float = 10.0
 
-    # Новые параметры для месяца
     month_candidate_merge_gap_hours: float = 2.0
     month_max_refinement_candidates: int = 50
     month_max_moon_hits_per_key: int = 2
 
-    # YEAR OPTIMIZATION
     year_candidate_merge_gap_hours: float = 72.0
-    year_max_refinement_candidates: int = 200
+    year_max_refinement_candidates: int = 150  # уменьшено с 200
 
     boundary_tolerance_seconds: int = 60
     log_snapshots: bool = False
@@ -594,7 +589,6 @@ class HoroscopeCalculator:
         self.episodes: List[TransitEpisode] = []
         self.retrograde_windows: Dict[str, List[RetrogradeWindow]] = defaultdict(list)
 
-        # Расширенная статистика
         self.stats: Dict[str, int] = {
             "snapshot_requests": 0,
             "snapshot_created": 0,
@@ -606,14 +600,12 @@ class HoroscopeCalculator:
             "false_exact_rejected": 0,
             "retrograde_candidates": 0,
             "retrograde_refinements": 0,
-            # Новые счётчики для месяца
             "month_raw_candidate_windows": 0,
             "month_merged_candidate_windows": 0,
             "month_pre_ranked_candidates": 0,
             "month_refinement_candidates": 0,
             "month_candidates_skipped_by_budget": 0,
             "month_moon_hits_suppressed": 0,
-            # годовые счётчики
             "year_raw_candidate_windows": 0,
             "year_merged_candidate_windows": 0,
             "year_pre_ranked_candidates": 0,
@@ -833,7 +825,7 @@ class HoroscopeCalculator:
         return result
 
     # ======================================================================
-    # CANDIDATE DETECTION (исправленная версия с интервалами)
+    # CANDIDATE DETECTION
     # ======================================================================
 
     def _detect_candidate_windows(
@@ -843,13 +835,11 @@ class HoroscopeCalculator:
     ) -> List[Tuple[str, str, str, datetime, datetime]]:
         timestamps = self._generate_sampling_times(period)
 
-        # active_intervals хранит для каждого ключа (planet, target, aspect) пару (start, last)
         active_intervals: Dict[Tuple[str, str, str], Tuple[datetime, datetime]] = {}
         candidates: List[Tuple[str, str, str, datetime, datetime]] = []
 
         for timestamp in timestamps:
             subject = self._snapshot(timestamp)
-            # Для каждого planet собираем активные аспекты в этом сэмпле
             current_keys: set = set()
             for planet in planets:
                 transit = self._extract_transit_planet(subject, planet)
@@ -863,31 +853,25 @@ class HoroscopeCalculator:
                     for aspect, orb in states:
                         key = (planet, target, aspect)
                         current_keys.add(key)
-                        # Если аспект уже активен, обновляем last
                         if key in active_intervals:
                             start, last = active_intervals[key]
                             active_intervals[key] = (start, timestamp)
                         else:
-                            # Новый аспект – начинаем интервал
                             active_intervals[key] = (timestamp, timestamp)
 
-            # Проверяем, какие аспекты перестали быть активными
             keys_to_close = [key for key in active_intervals if key not in current_keys]
             for key in keys_to_close:
                 start, last = active_intervals.pop(key)
                 candidates.append((key[0], key[1], key[2], start, last))
 
-        # Закрываем интервалы, активные до конца периода
         for key, (start, last) in active_intervals.items():
             candidates.append((key[0], key[1], key[2], start, last))
 
-        # Сохраняем сырые окна для статистики
         if period.period_type == "month":
             self.stats["month_raw_candidate_windows"] = len(candidates)
         elif period.period_type == "year":
             self.stats["year_raw_candidate_windows"] = len(candidates)
 
-        # Слияние для месяца и года
         if period.period_type == "month":
             candidates = self._merge_candidate_windows_for_period(
                 candidates,
@@ -1015,13 +999,13 @@ class HoroscopeCalculator:
         return result
 
     # ======================================================================
-    # BOUNDARY SEARCH (изменён радиус для года)
+    # BOUNDARY SEARCH (используется только для дня и месяца)
     # ======================================================================
 
     def _boundary_radius(self, planet: str, period_type: str) -> timedelta:
         if planet in SLOW_PLANETS:
             if period_type == "year":
-                return timedelta(days=30)  # уменьшенный радиус для года
+                return timedelta(days=30)  # для года всё равно не используется, но оставим
             return timedelta(days=self.config.boundary_search_days_slow)
         return timedelta(hours=self.config.boundary_search_hours_fast)
 
@@ -1369,19 +1353,19 @@ class HoroscopeCalculator:
     # ======================================================================
 
     def _resolve_candidate(
-            self,
-            planet: str,
-            target: str,
-            aspect: str,
-            start: datetime,
-            end: datetime,
-            period: ForecastPeriod,
+        self,
+        planet: str,
+        target: str,
+        aspect: str,
+        start: datetime,
+        end: datetime,
+        period: ForecastPeriod,
     ) -> Optional[TransitEvent]:
         exact = self._refine_exact_hit(planet, target, aspect, start, end)
         if exact is None:
             return None
 
-        # Для года не ищем границы — они не нужны для промпта
+        # Для года пропускаем поиск границ — они не нужны в промпте.
         if period.period_type == "year":
             event = self._build_event(
                 planet=planet,
@@ -1660,7 +1644,6 @@ class HoroscopeCalculator:
                 episode.max_score += self.config.repeated_hit_bonus * min(episode.hit_count - 1, 3)
             episodes.append(episode)
 
-        # Для месяца ограничиваем количество эпизодов с Луной
         if period_type == "month":
             moon_episodes = [e for e in episodes if e.transit_body == "moon"]
             other_episodes = [e for e in episodes if e.transit_body != "moon"]
@@ -1767,7 +1750,6 @@ class HoroscopeCalculator:
         planets = self._planets_for_period(period.period_type)
         logger.info("[PLANETS] %s", ",".join(planets))
 
-        # STEP 1
         logger.info("[STEP 1] Detecting candidate windows...")
         candidates = self._detect_candidate_windows(period, planets)
         logger.info("[STEP 1] Candidate windows found: %d", len(candidates))
@@ -1937,7 +1919,6 @@ class HoroscopeCalculator:
             period: ForecastPeriod,
             episodes: List[TransitEpisode],
     ) -> str:
-        # Используем build_horoscope_context для получения контекста
         return self.build_horoscope_context(
             period.period_type,
             period.start_utc,
@@ -2016,10 +1997,6 @@ class HoroscopeCalculator:
             period_end_utc: datetime,
             max_display: int = 12,
     ) -> str:
-        """
-        Строит только астрологический контекст (без инструкций)
-        для вставки в шаблон prompt_horoscope.txt.
-        """
         period = ForecastPeriod(
             period_type=period_type,
             start_utc=ensure_utc(period_start_utc),
@@ -2036,7 +2013,6 @@ class HoroscopeCalculator:
     ) -> str:
         lines = []
 
-        # ----- ПАРАМЕТРЫ РАСЧЁТА -----
         lines.append("### Параметры расчёта")
         lines.append("")
         period_name = {
@@ -2053,7 +2029,6 @@ class HoroscopeCalculator:
         lines.append("Перспектива: Geocentric")
         lines.append("")
 
-        # ----- ДАННЫЕ РОЖДЕНИЯ -----
         user = self.user_data
         birth_date = user.get('birth_date', 'не указана')
         birth_time = user.get('birth_time', 'не указано')
@@ -2071,7 +2046,6 @@ class HoroscopeCalculator:
         lines.append("Часовой пояс: UTC")
         lines.append("")
 
-        # ----- НАТАЛЬНЫЕ ТОЧКИ -----
         lines.append("### Натальные точки")
         for target, data in sorted(self._natal_points.items()):
             longitude = to_float(data.get("abs_pos"))
@@ -2087,7 +2061,6 @@ class HoroscopeCalculator:
             )
         lines.append("")
 
-        # ----- РЕТРОГРАДНЫЕ ПЛАНЕТЫ -----
         retro_state = self._get_retrograde_state(period)
         lines.append("### Ретроградные планеты")
         if retro_state["start"] or retro_state["end"]:
@@ -2099,7 +2072,6 @@ class HoroscopeCalculator:
             lines.append("Нет ретроградных планет в течение периода.")
         lines.append("")
 
-        # ----- ГЛАВНЫЕ ТРАНЗИТНЫЕ ТЕМЫ -----
         lines.append("### Главные транзитные темы")
         if not episodes:
             lines.append("Нет транзитов, прошедших порог значимости.")
@@ -2144,7 +2116,6 @@ class HoroscopeCalculator:
                 lines.append(f"   Тип планеты: {planet_category}")
                 lines.append("")
 
-        # ----- РЕТРОГРАДНЫЕ СТАНЦИИ -----
         lines.append("### Ретроградные станции")
         retrogrades_found = False
         for planet, windows in sorted(self.retrograde_windows.items()):
@@ -2170,10 +2141,6 @@ class HoroscopeCalculator:
             candidates: List[Tuple[str, str, str, datetime, datetime]],
             gap_hours: float,
     ) -> List[Tuple[str, str, str, datetime, datetime]]:
-        """
-        Сливает соседние окна по ключу (planet, target, aspect)
-        с учётом максимального разрыва gap_hours.
-        """
         if not candidates:
             return []
 
