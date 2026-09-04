@@ -246,13 +246,23 @@ async def confirm_horoscope(callback: CallbackQuery):
 
         # 3. Определяем период для вывода
         if period == 'today':
-            horoscope_period = "24 часа"
+            user_tz = timezone(timedelta(hours=timezone_offset))
+            local_start = start_utc.astimezone(user_tz)
+            horoscope_period = local_start.strftime("%d.%m.%Y")
         elif period == 'month':
             # Можно вывести конкретный месяц и год
             month_name = target_date.strftime("%B %Y")
             horoscope_period = month_name
         else:  # year
             horoscope_period = str(target_date.year)
+
+        # Определяем акцент для прогноза
+        if period == 'today':
+            horoscope_accent = "Делай акцент на конкретных периодах дня, настроении, взаимодействии, решениях и ситуациях."
+        elif period == 'month':
+            horoscope_accent = "Выделяй наиболее значимые даты и этапы месяца, объединяя повторяющиеся влияния в общие темы."
+        else:  # year
+            horoscope_accent = "Делай акцент на долгосрочных изменениях, важных этапах, повторяющихся периодах и главных направлениях развития."
 
         # 4. Языковая инструкция
         if lang == 'en':
@@ -265,6 +275,7 @@ async def confirm_horoscope(callback: CallbackQuery):
 
         # 6. Подставляем в шаблон
         prompt = template.replace('{horoscope_period}', horoscope_period)
+        prompt = prompt.replace('{horoscope_accent}', horoscope_accent)
         prompt = prompt.replace('{language_instruction}', language_instruction)
         prompt = prompt.replace('{name}', name)
         prompt = prompt.replace('{horoscope_context}', horoscope_context)
