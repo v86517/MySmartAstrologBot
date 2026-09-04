@@ -518,13 +518,52 @@ async def confirm_compatibility(callback: CallbackQuery, state: FSMContext):
 
         # 7. Режим эмуляции или реальный запрос
         if emulation:
-            final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+            result_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
         else:
             if _gemini_service:
                 result_text = _gemini_service.send_raw_prompt(prompt)
-                final_text = result_text
             else:
-                final_text = "❌ Gemini сервис недоступен."
+                result_text = "❌ Gemini сервис недоступен."
+
+        # ---- Добавленный блок: параметры двух людей ----
+        # Получаем данные для отображения из калькулятора
+        person1_display = calc.get_person_display_data('1')
+        person2_display = calc.get_person_display_data('2')
+
+        def format_person(p):
+            lines = []
+            lines.append(f"👤 Имя: {p.get('name', 'Не указано')}")
+            gender = p.get('gender', 'Не указан')
+            if gender == 'M':
+                gender_display = 'Мужчина'
+            elif gender == 'F':
+                gender_display = 'Женщина'
+            else:
+                gender_display = 'Не указан'
+            lines.append(f"⚥ Пол: {gender_display}")
+            lines.append(f"📅 Дата рождения: {p.get('birth_date', 'Не указана')}")
+            lines.append(f"🕒 Время рождения: {p.get('birth_time', 'Не указано')}")
+            lines.append(f"📍 Место рождения: {p.get('birth_place', 'Не указано')}")
+            if p.get('lat') and p.get('lng'):
+                lines.append(f"🌐 Координаты: {p['lat']}, {p['lng']}")
+            if p.get('utc'):
+                lines.append(f"🕒 UTC время рождения: {p['utc']}")
+            return "\n".join(lines)
+
+        params_block = (
+            f"💕 Анализ совместимости\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Человек 1**\n"
+            f"{format_person(person1_display)}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Человек 2**\n"
+            f"{format_person(person2_display)}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+        )
+
+        # Вставляем блок перед результатом
+        final_text = f"{params_block}\n{result_text}"
+        # -----------------------------------------------
 
         # 8. Сохраняем в архив и отмечаем использование
         await save_message_to_archive(user_id, 'compatibility', final_text)

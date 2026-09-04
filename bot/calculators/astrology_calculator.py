@@ -414,3 +414,11 @@ class AstrologyCalculator:
             'utc_datetime': utc,
             'angles': angles_str
         }
+
+    def get_natal_context(self, lang: str) -> str:
+        """Возвращает натальный контекст для администратора без пересчёта карты."""
+        if not self._subject:
+            return "Натальная карта не построена."
+        from bot.calculators.natal_context_builder import NatalContextBuilder
+        builder = NatalContextBuilder(self._subject, lang=lang)
+        return builder.build()

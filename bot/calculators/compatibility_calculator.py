@@ -766,3 +766,39 @@ class CompatibilityCalculator:
         if label and label != '?':
             return f"{display} {label}"
         return display
+
+    def get_person_display_data(self, label: str) -> Dict[str, Any]:
+        """
+        Возвращает данные человека для отображения в выводе.
+        label: '1' или '2'
+        """
+        if label == '1':
+            data = self.person_a_data
+            coords = self._computed_coords_a
+            utc = self._utc_dt_a
+        else:
+            data = self.person_b_data
+            coords = self._computed_coords_b
+            utc = self._utc_dt_b
+
+        result = {
+            'name': data.get('name', 'Не указано'),
+            'gender': data.get('gender', 'Не указан'),
+            'birth_date': data.get('birth_date', 'Не указана'),
+            'birth_time': data.get('birth_time', 'Не указано'),
+            'birth_place': data.get('birth_place', 'Не указано'),
+        }
+        if coords:
+            result['lat'] = f"{coords[0]:.4f}"
+            result['lng'] = f"{coords[1]:.4f}"
+        if utc:
+            result['utc'] = utc.isoformat()
+        return result
+
+    def get_natal_context(self, lang: str) -> str:
+        """Возвращает натальный контекст для администратора без пересчёта карты."""
+        if not self._subject:
+            return "Натальная карта не построена."
+        from bot.calculators.natal_context_builder import NatalContextBuilder
+        builder = NatalContextBuilder(self._subject, lang=lang)
+        return builder.build()

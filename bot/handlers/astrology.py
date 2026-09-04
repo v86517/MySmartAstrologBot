@@ -288,11 +288,15 @@ async def astrology_use_my_data(callback: CallbackQuery, state: FSMContext):
                 f"🕒 Время рождения: {basic['birth_time']}\n"
                 f"📍 Место рождения: {basic['birth_place']}\n"
                 f"🌐 Координаты: {basic['lat']}, {basic['lng']}\n"
-                f"🕒 Часовой пояс: {basic['timezone']}\n"
-                f"🕒 UTC время: {basic['utc_datetime']}\n"
+                f"🕒 UTC время рождения: {basic['utc_datetime']}\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
             )
             final_text = f"{basic_text}\n\n{result}"
+
+        # Если администратор, добавляем натальный контекст
+        if await is_user_admin(user_id):
+            natal_context = calc.get_natal_context(lang)
+            final_text += f"\n\n━━━━━━━━━━━━━━━━━━━━━\n📊 **Натальный контекст (для администратора):**\n{natal_context}"
 
         await save_message_to_archive(user_id, 'astrology', final_text)
         await add_astrology_count(user_id, -1)
@@ -436,11 +440,15 @@ async def astrology_confirm(callback: CallbackQuery, state: FSMContext):
                 f"🕒 Время рождения: {basic['birth_time']}\n"
                 f"📍 Место рождения: {basic['birth_place']}\n"
                 f"🌐 Координаты: {basic['lat']}, {basic['lng']}\n"
-                f"🕒 Часовой пояс: {basic['timezone']}\n"
-                f"🕒 UTC время: {basic['utc_datetime']}\n"
+                f"🕒 UTC время рождения: {basic['utc_datetime']}\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
             )
             final_text = f"{basic_text}\n\n{result}"
+
+        # Если администратор, добавляем натальный контекст
+        if await is_user_admin(user_id):
+            natal_context = calc.get_natal_context(lang)
+            final_text += f"\n\n━━━━━━━━━━━━━━━━━━━━━\n📊 **Натальный контекст (для администратора):**\n{natal_context}"
 
         # 7. Сохраняем в архив и списываем сессию
         await save_message_to_archive(user_id, 'astrology', final_text)

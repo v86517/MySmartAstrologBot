@@ -286,6 +286,8 @@ async def confirm_horoscope(callback: CallbackQuery):
         else:
             final_text = _gemini_service.send_raw_prompt(prompt)
 
+        final_text = f"🔮 Ваш персональный гороскоп на {horoscope_period}\n\n{final_text}"
+
         # 8. Сохраняем в архив
         await save_message_to_archive(user_id, 'horoscope', final_text)
         if not is_subscribed:
