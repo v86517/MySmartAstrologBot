@@ -2013,6 +2013,7 @@ class HoroscopeCalculator:
     ) -> str:
         lines = []
 
+        # ----- ПАРАМЕТРЫ РАСЧЁТА -----
         lines.append("### Параметры расчёта")
         lines.append("")
         period_name = {
@@ -2029,23 +2030,81 @@ class HoroscopeCalculator:
         lines.append("Перспектива: Geocentric")
         lines.append("")
 
+        # ----- ДАННЫЕ РОЖДЕНИЯ (UTC) -----
         user = self.user_data
-        birth_date = user.get('birth_date', 'не указана')
-        birth_time = user.get('birth_time', 'не указано')
+        birth_date_local = user.get('birth_date', 'не указана')
+        birth_time_local = user.get('birth_time', 'не указано')
+        birth_place = user.get('birth_place', '')
         lat = user.get('birth_lat')
         lng = user.get('birth_lng')
+        utc_str = user.get('birth_timezone')
+
+        # Попытка получить UTC из БД
+        if utc_str:
+            try:
+                utc_dt = datetime.fromisoformat(utc_str.replace('Z', '+00:00'))
+                birth_date_utc = utc_dt.strftime('%d.%m.%Y')
+                birth_time_utc = utc_dt.strftime('%H:%M')
+            except (ValueError, TypeError):
+                birth_date_utc = birth_date_local
+                birth_time_utc = birth_time_local
+        else:
+            # Если UTC нет в БД — вычисляем на лету (как в астрологии)
+            birth_date_utc = birth_date_local
+            birth_time_utc = birth_time_local
+            if birth_date_local != 'не указана' and birth_time_local != 'не указано' and birth_place:
+                try:
+                    from bot.utils.place_resolver import PlaceResolver
+                    from datetime import datetime as dt
+                    import zoneinfo
+                    import asyncio
+
+                    resolver = PlaceResolver()
+                    parts = [p.strip() for p in birth_place.split(',') if p.strip()]
+                    city = parts[0] if parts else "Москва"
+                    country = parts[1] if len(parts) > 1 else "RU"
+                    lat_calc, lng_calc, iana_tz = resolver.resolve(city, country)
+
+                    local_dt = dt.strptime(f"{birth_date_local} {birth_time_local}", "%d.%m.%Y %H:%M")
+                    tz = zoneinfo.ZoneInfo(iana_tz)
+                    local_with_tz = local_dt.replace(tzinfo=tz)
+                    utc_dt = local_with_tz.astimezone(timezone.utc)
+
+                    birth_date_utc = utc_dt.strftime('%d.%m.%Y')
+                    birth_time_utc = utc_dt.strftime('%H:%M')
+
+                    # Сохраняем координаты и UTC в БД (фоново)
+                    if self.telegram_id:
+                        asyncio.create_task(
+                            save_user_coords(
+                                self.telegram_id,
+                                lat_calc,
+                                lng_calc,
+                                utc_dt.isoformat()
+                            )
+                        )
+                        # Обновляем локальные переменные для вывода координат
+                        lat = lat_calc
+                        lng = lng_calc
+                except Exception as e:
+                    logger.warning(f"Не удалось вычислить UTC для гороскопа: {e}")
+                    # остаются локальные дата/время
+
+        # Координаты для вывода
         if lat is not None and lng is not None:
             coords = f"{lat:.4f}° N, {lng:.4f}° E"
         else:
             coords = "не указаны"
+
         lines.append("### Данные рождения человека")
         lines.append("")
-        lines.append(f"Дата рождения: {birth_date}")
-        lines.append(f"Время рождения: {birth_time}")
+        lines.append(f"Дата рождения: {birth_date_utc}")
+        lines.append(f"Время рождения: {birth_time_utc}")
         lines.append(f"Координаты рождения: {coords}")
         lines.append("Часовой пояс: UTC")
         lines.append("")
 
+        # ----- НАТАЛЬНЫЕ ТОЧКИ -----
         lines.append("### Натальные точки")
         for target, data in sorted(self._natal_points.items()):
             longitude = to_float(data.get("abs_pos"))
@@ -2061,6 +2120,7 @@ class HoroscopeCalculator:
             )
         lines.append("")
 
+        # ----- РЕТРОГРАДНЫЕ ПЛАНЕТЫ -----
         retro_state = self._get_retrograde_state(period)
         lines.append("### Ретроградные планеты")
         if retro_state["start"] or retro_state["end"]:
@@ -2072,6 +2132,7 @@ class HoroscopeCalculator:
             lines.append("Нет ретроградных планет в течение периода.")
         lines.append("")
 
+        # ----- ГЛАВНЫЕ ТРАНЗИТНЫЕ ТЕМЫ -----
         lines.append("### Главные транзитные темы")
         if not episodes:
             lines.append("Нет транзитов, прошедших порог значимости.")
@@ -2116,6 +2177,7 @@ class HoroscopeCalculator:
                 lines.append(f"   Тип планеты: {planet_category}")
                 lines.append("")
 
+        # ----- РЕТРОГРАДНЫЕ СТАНЦИИ -----
         lines.append("### Ретроградные станции")
         retrogrades_found = False
         for planet, windows in sorted(self.retrograde_windows.items()):
