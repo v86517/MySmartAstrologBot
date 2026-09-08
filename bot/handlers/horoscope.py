@@ -29,6 +29,7 @@ from bot.db import (
     save_message_to_archive,
     get_user_language,
     get_emulation_mode,
+    save_user_coords,
 )
 from bot.calculators.horoscope_calculator import HoroscopeCalculator
 from bot.services.gemini import GeminiService
@@ -216,6 +217,22 @@ async def confirm_horoscope(callback: CallbackQuery):
             emulation_mode=emulation,
             gemini_service=_gemini_service
         )
+
+        # ---- СОХРАНЯЕМ КООРДИНАТЫ, ЕСЛИ ОНИ ВЫЧИСЛЕНЫ, НО НЕ СОХРАНЕНЫ В БД ----
+        if hasattr(calc.astro_calc, '_calculated_coords') and calc.astro_calc._calculated_coords:
+            lat, lng = calc.astro_calc._calculated_coords
+            utc_str = calc.astro_calc._calculated_utc_str
+            if utc_str and not user_data.get('birth_timezone'):
+                try:
+                    await save_user_coords(user_id, lat, lng, utc_str)
+                    logger.info(f"✅ Координаты и UTC сохранены в БД для {user_id} (гороскоп)")
+                    # Обновляем user_data, чтобы в дальнейшем не было повторных попыток
+                    user_data['birth_timezone'] = utc_str
+                    user_data['birth_lat'] = lat
+                    user_data['birth_lng'] = lng
+                except Exception as e:
+                    logger.error(f"❌ Ошибка сохранения координат в гороскопе: {e}")
+        # -----------------------------------------------------------------
 
         # Определяем max_display в зависимости от периода
         if period == 'today':
