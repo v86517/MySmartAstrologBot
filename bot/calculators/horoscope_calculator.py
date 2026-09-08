@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from kerykeion import AstrologicalSubject
 
 from bot.calculators.astrology_calculator import AstrologyCalculator
+from bot.db import save_user_coords
 
 logger = logging.getLogger(__name__)
 
@@ -2035,11 +2036,11 @@ class HoroscopeCalculator:
         birth_date_local = user.get('birth_date', 'не указана')
         birth_time_local = user.get('birth_time', 'не указано')
         birth_place = user.get('birth_place', '')
-        lat = user.get('birth_lat')
-        lng = user.get('birth_lng')
-        utc_str = user.get('birth_timezone')
 
-        # Попытка получить UTC из БД
+        # Пытаемся взять уже вычисленные данные из AstrologyCalculator
+        utc_str = self.astro_calc._calculated_utc_str if hasattr(self.astro_calc, '_calculated_utc_str') else None
+        coords = self.astro_calc._calculated_coords if hasattr(self.astro_calc, '_calculated_coords') else None
+
         if utc_str:
             try:
                 utc_dt = datetime.fromisoformat(utc_str.replace('Z', '+00:00'))
@@ -2049,7 +2050,7 @@ class HoroscopeCalculator:
                 birth_date_utc = birth_date_local
                 birth_time_utc = birth_time_local
         else:
-            # Если UTC нет в БД — вычисляем на лету (как в астрологии)
+            # Если нет — вычисляем на лету (как в астрологии)
             birth_date_utc = birth_date_local
             birth_time_utc = birth_time_local
             if birth_date_local != 'не указана' and birth_time_local != 'не указано' and birth_place:
@@ -2083,24 +2084,28 @@ class HoroscopeCalculator:
                                 utc_dt.isoformat()
                             )
                         )
-                        # Обновляем локальные переменные для вывода координат
-                        lat = lat_calc
-                        lng = lng_calc
+                        coords = (lat_calc, lng_calc)
                 except Exception as e:
                     logger.warning(f"Не удалось вычислить UTC для гороскопа: {e}")
                     # остаются локальные дата/время
 
         # Координаты для вывода
-        if lat is not None and lng is not None:
-            coords = f"{lat:.4f}° N, {lng:.4f}° E"
+        if coords is not None:
+            lat, lng = coords
+            coords_str = f"{lat:.4f}° N, {lng:.4f}° E"
         else:
-            coords = "не указаны"
+            lat = user.get('birth_lat')
+            lng = user.get('birth_lng')
+            if lat is not None and lng is not None:
+                coords_str = f"{lat:.4f}° N, {lng:.4f}° E"
+            else:
+                coords_str = "не указаны"
 
         lines.append("### Данные рождения человека")
         lines.append("")
         lines.append(f"Дата рождения: {birth_date_utc}")
         lines.append(f"Время рождения: {birth_time_utc}")
-        lines.append(f"Координаты рождения: {coords}")
+        lines.append(f"Координаты рождения: {coords_str}")
         lines.append("Часовой пояс: UTC")
         lines.append("")
 
