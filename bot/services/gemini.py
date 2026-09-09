@@ -7,8 +7,8 @@ import traceback
 from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
 
-from bot.calculators.base_calculator import BaseCalculator
-from bot.calculators.natal_calculator import NatalCalculator
+#from bot.calculators.base_calculator import BaseCalculator
+#from bot.calculators.natal_calculator import NatalCalculator
 from bot.db import get_user_language
 
 DEBUG_PRINT_PROMPT = False
@@ -23,7 +23,7 @@ class GeminiService:
         self.base_url = "https://proxy.gen-api.ru/v1/chat/completions"
         self.model = "gemini-3-1-flash-lite" #gemini-2.5-flash-preview-04-17
         self.prompts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'prompts')
-        self._base_calc = BaseCalculator()
+        #self._base_calc = BaseCalculator()
         self.user_data = None
         self.lang = 'ru'
 
@@ -115,40 +115,40 @@ class GeminiService:
     #         prompt_data['language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь анализ должен быть на русском."
     #     return self.generate_from_prompt(prompt_data, 'prompt_connect.txt', lang)
 
-    def generate_numerology(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
-        calc = NatalCalculator(
-            birth_date=user_data.get('birth_date'),
-            name=user_data.get('name'),
-            birth_time=user_data.get('birth_time'),
-            birth_place=user_data.get('birth_place'),
-            gender=user_data.get('gender')
-        )
-        matrix = calc.calculate()
-        prompt_data = matrix.copy()
-        prompt_data['name'] = user_data.get('name', '')
-        prompt_data['gender_display'] = "Мужчина" if user_data.get('gender') == 'M' else "Женщина"
-        prompt_data['birth_date'] = user_data.get('birth_date', '')
-        prompt_data['birth_time'] = user_data.get('birth_time', 'не указано')
-        prompt_data['birth_place'] = user_data.get('birth_place', 'не указано')
-        prompt_data['pronoun'] = "он" if user_data.get('gender') == 'M' else "она"
-        prompt_data['possessive'] = "его" if user_data.get('gender') == 'M' else "её"
-        name = user_data.get('name', '')
-        prompt_data['expression_number'] = self._base_calc.calculate_expression_number(name) or "не рассчитано"
-        prompt_data['soul_urge_number'] = self._base_calc.calculate_soul_urge_number(name) or "не рассчитано"
-        prompt_data['personality_number'] = self._base_calc.calculate_personality_number(name) or "не рассчитано"
-        target_date = datetime.now().strftime('%d.%m.%Y')
-        birth_date = user_data.get('birth_date')
-        if birth_date:
-            prompt_data['personal_year'] = self._base_calc.calculate_personal_year(birth_date, target_date)
-            prompt_data['personal_month'] = self._base_calc.calculate_personal_month(birth_date, target_date)
-            prompt_data['personal_day'] = self._base_calc.calculate_personal_day(birth_date, target_date)
-        else:
-            prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
-        if lang == 'en':
-            prompt_data['language_instruction'] = "IMPORTANT: Respond in English only. All your analysis must be in English."
-        else:
-            prompt_data['language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь анализ должен быть на русском."
-        return self.generate_from_prompt(prompt_data, 'prompt_numerology.txt', lang)
+    # def generate_numerology(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
+    #     calc = NatalCalculator(
+    #         birth_date=user_data.get('birth_date'),
+    #         name=user_data.get('name'),
+    #         birth_time=user_data.get('birth_time'),
+    #         birth_place=user_data.get('birth_place'),
+    #         gender=user_data.get('gender')
+    #     )
+    #     matrix = calc.calculate()
+    #     prompt_data = matrix.copy()
+    #     prompt_data['name'] = user_data.get('name', '')
+    #     prompt_data['gender_display'] = "Мужчина" if user_data.get('gender') == 'M' else "Женщина"
+    #     prompt_data['birth_date'] = user_data.get('birth_date', '')
+    #     prompt_data['birth_time'] = user_data.get('birth_time', 'не указано')
+    #     prompt_data['birth_place'] = user_data.get('birth_place', 'не указано')
+    #     prompt_data['pronoun'] = "он" if user_data.get('gender') == 'M' else "она"
+    #     prompt_data['possessive'] = "его" if user_data.get('gender') == 'M' else "её"
+    #     name = user_data.get('name', '')
+    #     prompt_data['expression_number'] = self._base_calc.calculate_expression_number(name) or "не рассчитано"
+    #     prompt_data['soul_urge_number'] = self._base_calc.calculate_soul_urge_number(name) or "не рассчитано"
+    #     prompt_data['personality_number'] = self._base_calc.calculate_personality_number(name) or "не рассчитано"
+    #     target_date = datetime.now().strftime('%d.%m.%Y')
+    #     birth_date = user_data.get('birth_date')
+    #     if birth_date:
+    #         prompt_data['personal_year'] = self._base_calc.calculate_personal_year(birth_date, target_date)
+    #         prompt_data['personal_month'] = self._base_calc.calculate_personal_month(birth_date, target_date)
+    #         prompt_data['personal_day'] = self._base_calc.calculate_personal_day(birth_date, target_date)
+    #     else:
+    #         prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
+    #     if lang == 'en':
+    #         prompt_data['language_instruction'] = "IMPORTANT: Respond in English only. All your analysis must be in English."
+    #     else:
+    #         prompt_data['language_instruction'] = "ВАЖНО: Отвечай только на русском языке. Весь анализ должен быть на русском."
+    #     return self.generate_from_prompt(prompt_data, 'prompt_numerology.txt', lang)
 
     # def generate_astrology(self, user_data: Dict[str, Any], lang: str = 'ru') -> str:
     #     from bot.calculators.astrology_calculator import AstrologyCalculator
