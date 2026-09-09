@@ -4,7 +4,7 @@ from datetime import datetime
 from bot.locales import TEXTS
 from bot.utils.zodiac import get_zodiac_emoji, get_zodiac_sign_localized
 from bot.calculators.base_calculator import BaseCalculator
-from bot.calculators.natal_calculator import NatalCalculator
+#from bot.calculators.natal_calculator import NatalCalculator
 from bot.calculators.compatibility_calculator import CompatibilityCalculator
 from bot.calculators.transit_horoscope_calculator import TransitHoroscopeCalculator
 from bot.calculators.astrology_calculator import AstrologyCalculator
@@ -62,38 +62,38 @@ def format_parameters(prompt_data: dict, service_type: str, lang: str = 'ru') ->
             lines.append("🏠 Куспиды домов:")
             lines.append(prompt_data.get('cusps_list', ''))
 
-    elif service_type == 'numerology':
-        lines.append("")
-        lines.append(f"👤 Имя: {prompt_data.get('name', '')}")
-        lines.append(f"⚥ Пол: {prompt_data.get('gender_display', '')}")
-        lines.append(f"📅 Дата рождения: {prompt_data.get('birth_date', '')}")
-        lines.append(f"🕒 Время рождения: {prompt_data.get('birth_time', '')}")
-        lines.append(f"📍 Место рождения: {prompt_data.get('birth_place', '')}")
-        lines.append("")
-        lines.append(f"🔢 Число жизненного пути: {prompt_data.get('life_path', '')}")
-        lines.append(f"🔢 Число экспрессии: {prompt_data.get('expression_number', '')}")
-        lines.append(f"🔢 Число души: {prompt_data.get('soul_urge_number', '')}")
-        lines.append(f"🔢 Число личности: {prompt_data.get('personality_number', '')}")
-        lines.append(f"📅 Личный год: {prompt_data.get('personal_year', '')}")
-        lines.append(f"📅 Личный месяц: {prompt_data.get('personal_month', '')}")
-        lines.append(f"📅 Личный день: {prompt_data.get('personal_day', '')}")
-        lines.append("")
-        lines.append("🧩 Матрица судьбы (22 аркана):")
-        lines.append(f"  Аркан дня (m1): {prompt_data.get('m1', '')}")
-        lines.append(f"  Аркан месяца (m2): {prompt_data.get('m2', '')}")
-        lines.append(f"  Аркан года (m3): {prompt_data.get('m3', '')}")
-        lines.append(f"  Отношения (ОПВ): {prompt_data.get('opv', '')}")
-        lines.append(f"  Судьба (СЗ): {prompt_data.get('sz', '')}")
-        lines.append(f"  Препятствие: {prompt_data.get('obstacle', '')}")
-        lines.append(f"  Человек-предатель: {prompt_data.get('traitor', '')}")
-        lines.append(f"  Зона комфорта: {prompt_data.get('comfort', '')}")
-        lines.append(f"  Левая родовая: {prompt_data.get('v_left', '')}")
-        lines.append(f"  Правая родовая: {prompt_data.get('v_right', '')}")
-        lines.append(f"  Кармическая (нижняя левая): {prompt_data.get('v_bottom_left', '')}")
-        lines.append(f"  Кармическая (нижняя правая): {prompt_data.get('v_bottom_right', '')}")
-        lines.append(f"  Багаж опыта: {prompt_data.get('v_left_side', '')}")
-        lines.append(f"  Человек-предатель (правый бок): {prompt_data.get('v_right_side', '')}")
-        lines.append(f"  Внутренний паспорт: {prompt_data.get('v_top', '')}")
+    # elif service_type == 'numerology':
+    #     lines.append("")
+    #     lines.append(f"👤 Имя: {prompt_data.get('name', '')}")
+    #     lines.append(f"⚥ Пол: {prompt_data.get('gender_display', '')}")
+    #     lines.append(f"📅 Дата рождения: {prompt_data.get('birth_date', '')}")
+    #     lines.append(f"🕒 Время рождения: {prompt_data.get('birth_time', '')}")
+    #     lines.append(f"📍 Место рождения: {prompt_data.get('birth_place', '')}")
+    #     lines.append("")
+    #     lines.append(f"🔢 Число жизненного пути: {prompt_data.get('life_path', '')}")
+    #     lines.append(f"🔢 Число экспрессии: {prompt_data.get('expression_number', '')}")
+    #     lines.append(f"🔢 Число души: {prompt_data.get('soul_urge_number', '')}")
+    #     lines.append(f"🔢 Число личности: {prompt_data.get('personality_number', '')}")
+    #     lines.append(f"📅 Личный год: {prompt_data.get('personal_year', '')}")
+    #     lines.append(f"📅 Личный месяц: {prompt_data.get('personal_month', '')}")
+    #     lines.append(f"📅 Личный день: {prompt_data.get('personal_day', '')}")
+    #     lines.append("")
+    #     lines.append("🧩 Матрица судьбы (22 аркана):")
+    #     lines.append(f"  Аркан дня (m1): {prompt_data.get('m1', '')}")
+    #     lines.append(f"  Аркан месяца (m2): {prompt_data.get('m2', '')}")
+    #     lines.append(f"  Аркан года (m3): {prompt_data.get('m3', '')}")
+    #     lines.append(f"  Отношения (ОПВ): {prompt_data.get('opv', '')}")
+    #     lines.append(f"  Судьба (СЗ): {prompt_data.get('sz', '')}")
+    #     lines.append(f"  Препятствие: {prompt_data.get('obstacle', '')}")
+    #     lines.append(f"  Человек-предатель: {prompt_data.get('traitor', '')}")
+    #     lines.append(f"  Зона комфорта: {prompt_data.get('comfort', '')}")
+    #     lines.append(f"  Левая родовая: {prompt_data.get('v_left', '')}")
+    #     lines.append(f"  Правая родовая: {prompt_data.get('v_right', '')}")
+    #     lines.append(f"  Кармическая (нижняя левая): {prompt_data.get('v_bottom_left', '')}")
+    #     lines.append(f"  Кармическая (нижняя правая): {prompt_data.get('v_bottom_right', '')}")
+    #     lines.append(f"  Багаж опыта: {prompt_data.get('v_left_side', '')}")
+    #     lines.append(f"  Человек-предатель (правый бок): {prompt_data.get('v_right_side', '')}")
+    #     lines.append(f"  Внутренний паспорт: {prompt_data.get('v_top', '')}")
 
     elif service_type == 'compatibility':
         lines.append("")  # убираем лишний заголовок
