@@ -4,7 +4,7 @@ TEXTS = {
     'ru': {
         # ========== Общие ==========
         'welcome': "✨ Добро пожаловать в <b>«Мой астролог»</b>!\n\n🌙 Узнайте, что звёзды приготовили <b>именно для вас сегодня</b>.\n\nВыберите раздел ниже <b>👇</b>",
-        'profile_no_data': "📝 У вас пока нет сохраненных данных.\nЧтобы заполнить профиль, нажмите **📝 Заполнить и Сохранить** или **🔮 Гороскоп на сегодня**.",
+        'profile_no_data': "📝 У вас пока нет сохраненных данных.\nЧтобы заполнить профиль, нажмите **📝 Заполнить и Сохранить** или **🔮 Гороскоп на сегодня**.",  # используется в profile_func
         'choose_language': "Выберите язык:",
         'language_set': "✅ Язык установлен на русский!",
         'error_name_short': "❗ Имя должно содержать хотя бы 2 символа.",
@@ -37,25 +37,25 @@ TEXTS = {
         'menu_language': "🌐 En/Ru",
 
         # ========== Гороскоп ==========
-        'horoscope_today': "🔮 Гороскоп на сегодня!",
-        'horoscope_your_data': "Ваши данные:",
-        'horoscope_name': "👤 Имя: {name}",
-        'horoscope_birth_date': "📅 Дата рождения: {birth_date}",
-        'horoscope_birth_time': "🕒 Время рождения: {birth_time}",
-        'horoscope_birth_place': "📍 Место рождения: {birth_place}",
-        'horoscope_zodiac': "{emoji} Знак зодиака: {zodiac}",
+        # 'horoscope_today': "🔮 Гороскоп на сегодня!",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_your_data': "Ваши данные:",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_name': "👤 Имя: {name}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_birth_date': "📅 Дата рождения: {birth_date}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_birth_time': "🕒 Время рождения: {birth_time}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_birth_place': "📍 Место рождения: {birth_place}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_zodiac': "{emoji} Знак зодиака: {zodiac}",  # НЕ ИСПОЛЬЗУЕТСЯ
         'horoscope_intro': "🔮 Давайте познакомимся!\n\n✨ Чтобы составить персональный прогноз,\nмне нужно немного узнать о вас.\nЭто займет меньше минуты.\n\n❓ Как вас зовут?",
-        #'horoscope_step_birth_date': "📅 Шаг 2 из 5\n\nУкажите дату рождения в формате:\nДД.ММ.ГГГГ\n\nНапример: 15.03.1990",
+        # 'horoscope_step_birth_date': "📅 Шаг 2 из 5\n\nУкажите дату рождения в формате:\nДД.ММ.ГГГГ\n\nНапример: 15.03.1990", # закомментировано
         'step_birth_date': "📅 Шаг 2 из 5\n\nУкажите дату рождения в формате:\nДД.ММ.ГГГГ\n\nНапример: 15.03.1990",
         'step_birth_time': "🕒 Шаг 3 из 5\n\nУкажите точное время рождения в формате:\nЧЧ:ММ\n\nНапример: 15:30\nЕсли не знаете, напишите 12:00",
         'step_birth_place': "📍 Шаг 4 из 5\n\nУкажите место рождения:\nГород, Страна\n\nНапример: Москва, Россия",
         'step_gender': "👤 Шаг 5 из 5 (последний!)\n\nУкажите ваш пол:\nМ - мужской\nЖ - женский\n\nНапишите: М или Ж",
         'step_birth_time_with_zodiac': "✅ Отлично! Знак зодиака: {emoji} {zodiac}\n\n🕒 Шаг 3 из 5\n\nУкажите точное время рождения в формате:\nЧЧ:ММ\n\nНапример: 15:30\nЕсли не знаете, напишите 12:00",
-        'horoscope_free_ready': "✨ Сегодняшний бесплатный прогноз уже готов.\n\nПолучайте новые прогнозы без ограничений\nза 333 ₽ в месяц.",
+        # 'horoscope_free_ready': "✨ Сегодняшний бесплатный прогноз уже готов.\n\nПолучайте новые прогнозы без ограничений\nза 333 ₽ в месяц.",  # НЕ ИСПОЛЬЗУЕТСЯ
         'horoscope_status_planets': "✨ Изучаю положение планет...",
-        'horoscope_status_chart': "🌙 Строю натальную карту...",
-        'horoscope_status_analyze': "⭐ Анализирую влияние созвездий...",
-        'horoscope_result': "🔮 Ваш гороскоп на {date}\n\n{horoscope}",
+        # 'horoscope_status_chart': "🌙 Строю натальную карту...",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_status_analyze': "⭐ Анализирую влияние созвездий...",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_result': "🔮 Ваш гороскоп на {date}\n\n{horoscope}",  # НЕ ИСПОЛЬЗУЕТСЯ
         'horoscope_promo': "✨ Понравился прогноз?\n\nПолучайте персональный гороскоп автоматически каждое утро в 8:00 и используйте Совместимость без ограничений.",
         'horoscope_confirm_data': "Ваши данные:\n👤 Имя: {name}\n⚥ Пол: {gender}\n📅 Дата рождения: {birth_date}\n🕒 Время рождения: {birth_time}\n📍 Место рождения: {birth_place}\n{emoji} Знак зодиака: {zodiac}",
         'horoscope_basic_name': '👤 Имя',
@@ -82,9 +82,9 @@ TEXTS = {
         'horoscope_period_today': "Гороскоп на сегодня!",
         'horoscope_period_month': "Гороскоп на этот месяц!",
         'horoscope_period_year': "Гороскоп на этот год!",
-        'horoscope_result_today': "Ваш гороскоп на {date}",
-        'horoscope_result_month': "Ваш гороскоп на {month} {year}",
-        'horoscope_result_year': "Ваш гороскоп на {year} год",
+        # 'horoscope_result_today': "Ваш гороскоп на {date}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_result_month': "Ваш гороскоп на {month} {year}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_result_year': "Ваш гороскоп на {year} год",  # НЕ ИСПОЛЬЗУЕТСЯ
         'horoscope_limit_reached': "✨ Сегодня вы уже использовали бесплатный гороскоп.\n\nПолучите неограниченный доступ за 333 ₽ в месяц.",
         # Дни недели
         'weekday_monday': 'Понедельник',
@@ -110,13 +110,13 @@ TEXTS = {
         'compatibility_person2_birth_date': "✅ Знак зодиака: {emoji} {zodiac}\n\n🕒 Введите время рождения человека 2 (ЧЧ:ММ)\nНапример: 02:15\nЕсли не знаете - напишите 12:00",
         'compatibility_person2_birth_time': "📍 Введите место рождения человека 2:\nГород, Страна",
         'compatibility_person2_gender': "👤 Укажите пол человека 2:\nМ - мужской\nЖ - женский\n\nНапишите: М или Ж",
-        'compatibility_summary': "💕 Данные для анализа совместимости\n\n━━━━━━━━━━━━━━━━━━━━━\n👤 ЧЕЛОВЕК 1\nИмя: {name1}\n📅 {date1}\n🕒 {time1}\n📍 {place1}\n{emoji1} {zodiac1}\n━━━━━━━━━━━━━━━━━━━━━\n👤 ЧЕЛОВЕК 2\nИмя: {name2}\n📅 {date2}\n🕒 {time2}\n📍 {place2}\n{emoji2} {zodiac2}\n━━━━━━━━━━━━━━━━━━━━━\n\n✅ Данные собраны! Начинаю анализ совместимости... 🔮",
-        'compatibility_status_aspects': "✨ Изучаю совместимость знаков...",
-        'compatibility_status_natal': "💫 Анализирую натальные карты...",
-        'compatibility_status_forecast': "⭐ Составляю прогноз совместимости...",
+        # 'compatibility_summary': "💕 Данные для анализа совместимости\n\n━━━━━━━━━━━━━━━━━━━━━\n👤 ЧЕЛОВЕК 1\nИмя: {name1}\n📅 {date1}\n🕒 {time1}\n📍 {place1}\n{emoji1} {zodiac1}\n━━━━━━━━━━━━━━━━━━━━━\n👤 ЧЕЛОВЕК 2\nИмя: {name2}\n📅 {date2}\n🕒 {time2}\n📍 {place2}\n{emoji2} {zodiac2}\n━━━━━━━━━━━━━━━━━━━━━\n\n✅ Данные собраны! Начинаю анализ совместимости... 🔮",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'compatibility_status_aspects': "✨ Изучаю совместимость знаков...",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'compatibility_status_natal': "💫 Анализирую натальные карты...",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'compatibility_status_forecast': "⭐ Составляю прогноз совместимости...",  # НЕ ИСПОЛЬЗУЕТСЯ
         'compatibility_result': "💕 Анализ совместимости\n\n{result}",
         'compatibility_promo': "✨ Понравился разбор?\n\nПолучайте Совместимость без ограничений и персональный гороскоп автоматически каждое утро в 8:00.",
-        'compatibility_confirm_title': "📋 Подтверждение данных для совместимости",
+        # 'compatibility_confirm_title': "📋 Подтверждение данных для совместимости",  # НЕ ИСПОЛЬЗУЕТСЯ
         'compatibility_confirm_person': "👤 Человек {num}\nИмя: {name}\nПол: {gender}\nДата рождения: {birth_date}\nВремя рождения: {birth_time}\nМесто рождения: {birth_place}",
         'kb_confirm_compatibility': "✅ Получить совместимость",
         'kb_cancel_compatibility': "❌ Отмена",
@@ -139,12 +139,12 @@ TEXTS = {
         'compatibility_moon_illumination_label': "☀️ Освещённость Луны",
 
         # ========== Нумерология ==========
-        'numerology_start': "🌌 Нумерология — познай себя\n\nВаши данные:\n👤 Имя: {name}\n📅 Дата рождения: {birth_date}\n🕒 Время рождения: {birth_time}\n📍 Место рождения: {birth_place}\n{emoji} Знак зодиака: {zodiac}\n\nХотите получить числовой разбор?",
+        'numerology_start': "🌌 Нумерология — познай себя\n\nВаши данные:\n👤 Имя: {name}\n📅 Дата рождения: {birth_date}\n{emoji} Знак зодиака: {zodiac}\n\nХотите получить числовой разбор?",
         'numerology_no_data': "🔢 Раскройте свой код судьбы\n\nУзнайте, что скрывает ваша дата рождения:\n\n✨ Ваш характер и таланты\n🌌 Предназначение и кармическая задача\n💼 Деньги и карьерный путь\n❤️ Любовь и отношения\n🌿 Энергия и ресурсы\n⭐ Важные этапы жизни и советы\n\n💰 Стоимость: 888 ₽",
         'numerology_no_user_data': "🌌 Для расчёта нумерологии мне нужно узнать вас получше.\n\n❓ Как вас зовут?",
         'numerology_payment_required': "⚠️ Сначала необходимо оплатить нумерологию.\n\n💰 Стоимость: 888 ₽",
         'numerology_data_not_found': "❌ Данные не найдены. Пожалуйста, заполните заново.",
-        'numerology_use_data_confirm': "✅ Используем ваши данные:\n\n👤 Имя: {name}\n📅 Дата рождения: {birth_date}\n🕒 Время рождения: {birth_time}\n📍 Место рождения: {birth_place}\n👤 Пол: {gender}\n{emoji} Знак зодиака: {zodiac}\n\n🌌 Начинаю расчёт нумерологии... 🔮",
+        'numerology_use_data_confirm': "✅ Используем ваши данные:\n\n👤 Имя: {name}\n📅 Дата рождения: {birth_date}\n👤 Пол: {gender}\n{emoji} Знак зодиака: {zodiac}\n\n🌌 Начинаю расчёт нумерологии... 🔮",
         'numerology_fill_new_data': "✏️ Введите имя для нумерологии:",
         'numerology_payment_process': "💳 Оплата 888 ₽\n\nНажмите на кнопку ниже, чтобы перейти к оплате.\n\n⚠️ Оплата может занять до 1 минуты. После оплаты нумерология будет доступна сразу по кнопке \"🔢 Нумерология\".",
         'numerology_payment_error': "⚠️ Платежная система временно недоступна.\nПожалуйста, попробуйте позже.",
@@ -156,12 +156,13 @@ TEXTS = {
         'numerology_result': "🌌 Ваш нумерологический разбор\n\n{result}",
         'numerology_name_prompt': "✅ Имя: {name}\n\n📅 Введите дату рождения в формате ДД.ММ.ГГГГ",
         'numerology_birth_date': "✅ Знак зодиака: {emoji} {zodiac}\n\n🕒 Введите время рождения (ЧЧ:ММ)\nНапример: 15:30\nЕсли не знаете - напишите 12:00",
-        'numerology_birth_time': "📍 Введите место рождения:\nГород, Страна",
+        # 'numerology_birth_time': "📍 Введите место рождения:\nГород, Страна",  # НЕ ИСПОЛЬЗУЕТСЯ (удалено время и место)
+        # 'numerology_birth_place': "📍 Введите место рождения:\nГород, Страна",  # НЕ ИСПОЛЬЗУЕТСЯ (удалено время и место)
         'numerology_gender': "👤 Укажите пол:\nМ - мужской\nЖ - женский\n\nНапишите: М или Ж",
         'numerology_edit_name': "✏️ Введите ваше имя для нумерологии:",
-        'numerology_confirm_data': "🔢 Нумерология — познай себя\n\nВведенные данные:\n👤 Имя: {name}\n⚥ Пол: {gender}\n📅 Дата рождения: {birth_date}\n🕒 Время рождения: {birth_time}\n📍 Место рождения: {birth_place}\n{emoji} Знак зодиака: {zodiac}\n\nПолучить нумерологический разбор?",
+        'numerology_confirm_data': "🔢 Нумерология — познай себя\n\nВведенные данные:\n👤 Имя: {name}\n⚥ Пол: {gender}\n📅 Дата рождения: {birth_date}\n{emoji} Знак зодиака: {zodiac}\n\nПолучить нумерологический разбор?",
         'numerology_payment_not_confirmed': "⚠️ Оплата не подтверждена. Пожалуйста, оплатите 888 ₽.",
-        'numerology_data_saved': "✅ Данные сохранены!\n\n👤 Имя: {name}\n📅 Дата рождения: {birth_date}\n🕒 Время рождения: {birth_time}\n📍 Место рождения: {birth_place}\n👤 Пол: {gender}\n{emoji} Знак зодиака: {zodiac}\n\n🌌 Начинаю расчёт нумерологии... 🔮",
+        'numerology_data_saved': "✅ Данные сохранены!\n\n👤 Имя: {name}\n📅 Дата рождения: {birth_date}\n👤 Пол: {gender}\n{emoji} Знак зодиака: {zodiac}\n\n🌌 Начинаю расчёт нумерологии... 🔮",
 
         # ========== Астрология (Натальная карта) ==========
         'astrology_start': "🌙 Астрология — узнай судьбу\n\nВаши данные:\n👤 Имя: {name}\n📅 Дата рождения: {birth_date}\n🕒 Время рождения: {birth_time}\n📍 Место рождения: {birth_place}\n{emoji} Знак зодиака: {zodiac}\n\nХотите получить астрологический разбор?",
@@ -202,17 +203,17 @@ TEXTS = {
         'profile_no_data_message': "📝 У вас пока нет сохраненных данных.\nЧтобы заполнить профиль, нажмите **📝 Заполнить и Сохранить** или **🔮 Гороскоп на сегодня**.\n\n📄 Нажимая «**Заполнить и Сохранить**», вы даёте [согласие на обработку персональных данных]({consent_url}) в соответствии с [Политикой конфиденциальности]({privacy_url}).",
         'profile_no_data_message_can_use': "📝 У вас пока нет сохраненных данных.\nЧтобы заполнить профиль, нажмите **📝 Заполнить и Сохранить**.\n\n📄 Нажимая «Заполнить и Сохранить», вы даёте [согласие на обработку персональных данных]({consent_url}) в соответствии с [Политикой конфиденциальности]({privacy_url}).",
         'edit_name_prompt': "✏️ Текущее имя: {name}\n\nВведите новое имя или нажмите «Пропустить».",
-        'edit_birth_date_prompt': "✏️ Текущая дата рождения: {date}\n\nВведите новую дату в формате ДД.ММ.ГГГГ или нажмите «Пропустить».",
-        'edit_birth_time_prompt': "✏️ Текущее время рождения: {time}\n\nВведите новое время в формате ЧЧ:ММ или нажмите «Пропустить».",
-        'edit_birth_place_prompt': "✏️ Текущее место рождения: {place}\n\nВведите новое место (город, страна) или нажмите «Пропустить».",
+        # 'edit_birth_date_prompt': "✏️ Текущая дата рождения: {date}\n\nВведите новую дату в формате ДД.ММ.ГГГГ или нажмите «Пропустить».",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'edit_birth_time_prompt': "✏️ Текущее время рождения: {time}\n\nВведите новое время в формате ЧЧ:ММ или нажмите «Пропустить».",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'edit_birth_place_prompt': "✏️ Текущее место рождения: {place}\n\nВведите новое место (город, страна) или нажмите «Пропустить».",  # НЕ ИСПОЛЬЗУЕТСЯ
         'edit_gender_prompt': "✏️ Текущий пол: {gender}\n\nВведите новый пол (М или Ж) или нажмите «Пропустить».",
         'skip_birth_date': "✏️ Текущая дата рождения: {date}\n\nВведите новую дату в формате ДД.ММ.ГГГГ или нажмите «Пропустить».",
         'skip_birth_time': "✏️ Текущее время рождения: {time}\n\nВведите новое время в формате ЧЧ:ММ или нажмите «Пропустить».",
         'skip_birth_place': "✏️ Текущее место рождения: {place}\n\nВведите новое место (город, страна) или нажмите «Пропустить».",
         'skip_gender': "✏️ Текущий пол: {gender}\n\nВведите новый пол (М или Ж) или нажмите «Пропустить».",
-        'profile_updated': "✅ Данные успешно обновлены!\n\n{profile}",
-        'profile_data_saved': "✅ Данные сохранены!\n\n{profile}",
-        'profile_continue_prompt': "Чтобы продолжить нажмите ещё раз \"🔮 Гороскоп на сегодня\".",
+        # 'profile_updated': "✅ Данные успешно обновлены!\n\n{profile}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'profile_data_saved': "✅ Данные сохранены!\n\n{profile}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'profile_continue_prompt': "Чтобы продолжить нажмите ещё раз \"🔮 Гороскоп на сегодня\".",  # НЕ ИСПОЛЬЗУЕТСЯ
         'profile_fill_intro': "📝 Давайте заполним ваш профиль.\n\n❓ Как вас зовут?",
         'profile_save_confirm': "🔐 Сохранить данные в ваш профиль чтобы не заполнять их каждый раз?\n\n{profile}\n\n📄 Нажимая «**Сохранить**», вы даёте [согласие на обработку персональных данных]({consent_url}) в соответствии с [Политикой конфиденциальности]({privacy_url}).",
         'timezone_updated': "✅ Часовой пояс обновлён!\n\n{profile}",
@@ -222,7 +223,7 @@ TEXTS = {
         'subscription_inactive': "⭐ Подписка 333 ₽/МЕС\n\n✨ Что вы получите:\n✓ Ежедневный персональный гороскоп\n✓ Авто отправка гороскопа в 8:00\n✓ Совместимость без ограничений\n✓ Архив прогнозов\n💰 333 ₽ / месяц\n\nНажмите кнопку ниже, чтобы оформить подписку.",
         'subscription_payment_process': "💳 Оплата 333 ₽\n\nНажмите на кнопку ниже, чтобы перейти к оплате.\n\n⚠️ После оплаты подписка активируется автоматически.\nЭто может занять до 1 минуты.",
         'subscription_payment_error': "⚠️ Платежная система временно недоступна.\nПожалуйста, попробуйте позже или свяжитесь с поддержкой.",
-        'subscription_extend': "🔄 Продление подписки\n\n💰 333 ₽ / месяц\n\nНажмите кнопку ниже для продления.",
+        # 'subscription_extend': "🔄 Продление подписки\n\n💰 333 ₽ / месяц\n\nНажмите кнопку ниже для продления.",  # НЕ ИСПОЛЬЗУЕТСЯ
         'subscription_cancel_not_found': "❌ Пользователь не найден в базе данных.",
         'subscription_not_active': "📌 У вас нет активной подписки.\nОформить подписку можно в разделе ⭐ Premium.",
         'subscription_canceled': "❌ Ваша подписка отменена.\n\nВы больше не будете получать ежедневные гороскопы.\nВы можете оформить подписку снова в любой момент в разделе ⭐ Подписка.",
@@ -236,7 +237,7 @@ TEXTS = {
         'archive_title': "📚 Ваш архив прогнозов\n\n",
         'archive_item': "{i}. {emoji} {type} — {date}\n   📄 {preview}\n\n",
         'archive_footer': "━━━━━━━━━━━━━━━━━━━━━\n💡 Нажмите на кнопку ниже, чтобы посмотреть полный прогноз.",
-        'archive_hint': "📄 Продолжение ({i}/{total}):\n\n{text}",
+        # 'archive_hint': "📄 Продолжение ({i}/{total}):\n\n{text}",  # НЕ ИСПОЛЬЗУЕТСЯ
         'archive_message_header': "{emoji} {type}\n📅 {date}\n━━━━━━━━━━━━━━━━━━━━━\n\n{content}",
         'archive_no_premium': "📚 В вашем архиве пока нет сохранённых прогнозов.\n\n🔮 Подпишитесь на Premium, чтобы сохранять все прогнозы!",
 
@@ -244,8 +245,8 @@ TEXTS = {
         'support_text': "🆘 **Поддержка**\n\nЕсли у вас возникли вопросы по работе бота, оплате, подписке или вы заметили ошибку, напишите администратору.\n\nМы постараемся ответить как можно быстрее 👇",
 
         # ========== Платежи ==========
-        'payment_success': "✅ Оплата прошла успешно!\n\nТеперь вы можете получить натальную карту.",
-        'payment_not_confirmed': "⏳ Оплата пока не подтверждена.\nПожалуйста, завершите оплату или проверьте статус позже.",
+        # 'payment_success': "✅ Оплата прошла успешно!\n\nТеперь вы можете получить натальную карту.",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'payment_not_confirmed': "⏳ Оплата пока не подтверждена.\nПожалуйста, завершите оплату или проверьте статус позже.",  # НЕ ИСПОЛЬЗУЕТСЯ
 
         # ========== Астрология (переводы для вывода параметров) ==========
         'astro_name': '👤 Имя',
@@ -260,8 +261,8 @@ TEXTS = {
         'astro_ascendant': '⬆️ Асцендент',
         'astro_planets_header': '🪐 Планеты в знаках и домах:',
         'astro_aspects_header': '🔮 Аспекты между планетами (мажорные, орбис ≤ 5°):',
-        'astro_planet_format': '  • {planet} в {sign} ({degree:.2f}°) в {house} доме',
-        'astro_aspect_format': '  • {p1} {aspect} {p2} (орбис: {orb:.2f}°)',
+        # 'astro_planet_format': '  • {planet} в {sign} ({degree:.2f}°) в {house} доме',  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'astro_aspect_format': '  • {p1} {aspect} {p2} (орбис: {orb:.2f}°)',  # НЕ ИСПОЛЬЗУЕТСЯ
         'astro_gender_male': 'Мужчина',
         'astro_gender_female': 'Женщина',
         'astro_gender_unknown': 'Не указан',
@@ -428,8 +429,8 @@ TEXTS = {
         'type_numerology': 'Нумерология',
         'type_astrology': 'Астрология',
 
-        'astro_house_cusp': "Дом {number}: {sign} {degree:.2f}°",
-        'astro_cusps_header': "🏠 Куспиды домов:",
+        # 'astro_house_cusp': "Дом {number}: {sign} {degree:.2f}°",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'astro_cusps_header': "🏠 Куспиды домов:",  # НЕ ИСПОЛЬЗУЕТСЯ
 
         'main_menu': "🏠 Главное меню",
         'main_menu_button': "🏠 Главное меню",
@@ -472,25 +473,25 @@ TEXTS = {
         'menu_language': "🌐 En/Ru",
 
         # ========== Horoscope ==========
-        'horoscope_today': "🔮 Today's horoscope!",
-        'horoscope_your_data': "Your data:",
-        'horoscope_name': "👤 Name: {name}",
-        'horoscope_birth_date': "📅 Date of birth: {birth_date}",
-        'horoscope_birth_time': "🕒 Time of birth: {birth_time}",
-        'horoscope_birth_place': "📍 Place of birth: {birth_place}",
-        'horoscope_zodiac': "{emoji} Zodiac sign: {zodiac}",
-        #'horoscope_step_birth_date': "📅 Step 2 of 5\n\nEnter your date of birth in format:\nDD.MM.YYYY\n\nExample: 15.03.1990",
+        # 'horoscope_today': "🔮 Today's horoscope!",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_your_data': "Your data:",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_name': "👤 Name: {name}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_birth_date': "📅 Date of birth: {birth_date}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_birth_time': "🕒 Time of birth: {birth_time}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_birth_place': "📍 Place of birth: {birth_place}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_zodiac': "{emoji} Zodiac sign: {zodiac}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_step_birth_date': "📅 Step 2 of 5\n\nEnter your date of birth in format:\nDD.MM.YYYY\n\nExample: 15.03.1990", # закомментировано
         'step_birth_date': "📅 Step 2 of 5\n\nEnter your date of birth in format:\nDD.MM.YYYY\n\nExample: 15.03.1990",
         'step_birth_time': "🕒 Step 3 of 5\n\nEnter the exact time of birth in format:\nHH:MM\n\nExample: 15:30\nIf you don't know, type 12:00",
         'step_birth_place': "📍 Step 4 of 5\n\nEnter your place of birth:\nCity, Country\n\nExample: Moscow, Russia",
         'step_gender': "👤 Step 5 of 5 (last!)\n\nSpecify your gender:\nM - male\nF - female\n\nType: M or F",
         'step_birth_time_with_zodiac': "✅ Great! Zodiac sign: {emoji} {zodiac}\n\n🕒 Step 3 of 5\n\nEnter the exact time of birth in format:\nHH:MM\n\nExample: 15:30\nIf you don't know, type 12:00",
         'horoscope_intro': "🔮 Let's get acquainted!\n\n✨ To make a personal forecast,\nI need to know a little about you.\nIt will take less than a minute.\n\n❓ What is your name?",
-        'horoscope_free_ready': "✨ Today's free forecast is already ready.\n\nGet new forecasts without limits\nfor 333 ₽ per month.",
+        # 'horoscope_free_ready': "✨ Today's free forecast is already ready.\n\nGet new forecasts without limits\nfor 333 ₽ per month.",  # НЕ ИСПОЛЬЗУЕТСЯ
         'horoscope_status_planets': "✨ Studying the position of the planets...",
-        'horoscope_status_chart': "🌙 Building a natal chart...",
-        'horoscope_status_analyze': "⭐ Analyzing the influence of constellations...",
-        'horoscope_result': "🔮 Your horoscope for {date}\n\n{horoscope}",
+        # 'horoscope_status_chart': "🌙 Building a natal chart...",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_status_analyze': "⭐ Analyzing the influence of constellations...",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_result': "🔮 Your horoscope for {date}\n\n{horoscope}",  # НЕ ИСПОЛЬЗУЕТСЯ
         'horoscope_promo': "✨ Liked the forecast?\n\nGet a personal horoscope automatically every morning at 8:00 and use Compatibility without limits.",
         'horoscope_confirm_data': "Your data:\n👤 Name: {name}\n⚥ Gender: {gender}\n📅 Date of birth: {birth_date}\n🕒 Time of birth: {birth_time}\n📍 Place of birth: {birth_place}\n{emoji} Zodiac sign: {zodiac}",
         'horoscope_basic_name': '👤 Name',
@@ -517,9 +518,9 @@ TEXTS = {
         'horoscope_period_today': "Horoscope for today",
         'horoscope_period_month': "Horoscope for this month",
         'horoscope_period_year': "Horoscope for this year",
-        'horoscope_result_today': "Your horoscope for {date}",
-        'horoscope_result_month': "Your horoscope for {month} {year}",
-        'horoscope_result_year': "Your horoscope for {year}",
+        # 'horoscope_result_today': "Your horoscope for {date}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_result_month': "Your horoscope for {month} {year}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'horoscope_result_year': "Your horoscope for {year}",  # НЕ ИСПОЛЬЗУЕТСЯ
         'horoscope_limit_reached': "✨ You have already used your free horoscope today.\n\nGet unlimited access for 333 ₽ per month.",
         # Days of week
         'weekday_monday': 'Monday',
@@ -545,13 +546,13 @@ TEXTS = {
         'compatibility_person2_birth_date': "✅ Zodiac sign: {emoji} {zodiac}\n\n🕒 Enter the time of birth of person 2 (HH:MM)\nExample: 02:15\nIf you don't know, type 12:00",
         'compatibility_person2_birth_time': "📍 Enter the place of birth of person 2:\nCity, Country",
         'compatibility_person2_gender': "👤 Specify the gender of person 2:\nM - male\nF - female\n\nWrite: M or F",
-        'compatibility_summary': "💕 Data for compatibility analysis\n\n━━━━━━━━━━━━━━━━━━━━━\n👤 PERSON 1\nName: {name1}\n📅 {date1}\n🕒 {time1}\n📍 {place1}\n{emoji1} {zodiac1}\n━━━━━━━━━━━━━━━━━━━━━\n👤 PERSON 2\nName: {name2}\n📅 {date2}\n🕒 {time2}\n📍 {place2}\n{emoji2} {zodiac2}\n━━━━━━━━━━━━━━━━━━━━━\n\n✅ Data collected! Starting compatibility analysis... 🔮",
-        'compatibility_status_aspects': "✨ Studying sign compatibility...",
-        'compatibility_status_natal': "💫 Analyzing natal charts...",
-        'compatibility_status_forecast': "⭐ Compiling compatibility forecast...",
+        # 'compatibility_summary': "💕 Data for compatibility analysis\n\n━━━━━━━━━━━━━━━━━━━━━\n👤 PERSON 1\nName: {name1}\n📅 {date1}\n🕒 {time1}\n📍 {place1}\n{emoji1} {zodiac1}\n━━━━━━━━━━━━━━━━━━━━━\n👤 PERSON 2\nName: {name2}\n📅 {date2}\n🕒 {time2}\n📍 {place2}\n{emoji2} {zodiac2}\n━━━━━━━━━━━━━━━━━━━━━\n\n✅ Data collected! Starting compatibility analysis... 🔮",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'compatibility_status_aspects': "✨ Studying sign compatibility...",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'compatibility_status_natal': "💫 Analyzing natal charts...",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'compatibility_status_forecast': "⭐ Compiling compatibility forecast...",  # НЕ ИСПОЛЬЗУЕТСЯ
         'compatibility_result': "💕 Compatibility analysis\n\n{result}",
         'compatibility_promo': "✨ Liked the analysis?\n\nGet Compatibility without limits and a personal horoscope automatically every morning at 8:00.",
-        'compatibility_confirm_title': "📋 Confirm compatibility data",
+        # 'compatibility_confirm_title': "📋 Confirm compatibility data",  # НЕ ИСПОЛЬЗУЕТСЯ
         'compatibility_confirm_person': "👤 Person {num}\nName: {name}\nGender: {gender}\nDate of birth: {birth_date}\nTime of birth: {birth_time}\nPlace of birth: {birth_place}",
         'kb_confirm_compatibility': "✅ Get compatibility",
         'kb_cancel_compatibility': "❌ Cancel",
@@ -574,12 +575,12 @@ TEXTS = {
         'compatibility_moon_illumination_label': "☀️ Moon illumination",
 
         # ========== Numerology ==========
-        'numerology_start': "🌌 Numerology — know yourself\n\nYour data:\n👤 Name: {name}\n📅 Date of birth: {birth_date}\n🕒 Time of birth: {birth_time}\n📍 Place of birth: {birth_place}\n{emoji} Zodiac sign: {zodiac}\n\nDo you want to get a numerical analysis?",
+        'numerology_start': "🌌 Numerology — know yourself\n\nYour data:\n👤 Name: {name}\n📅 Date of birth: {birth_date}\n{emoji} Zodiac sign: {zodiac}\n\nDo you want to get a numerical analysis?",
         'numerology_no_data': "🔢 Reveal your destiny code\n\nFind out what your date of birth hides:\n\n✨ Your character and talents\n🌌 Purpose and karmic task\n💼 Money and career path\n❤️ Love and relationships\n🌿 Energy and resources\n⭐ Important life stages and advice\n\n💰 Cost: 888 ₽",
         'numerology_no_user_data': "🌌 For numerology calculation I need to know you better.\n\n❓ What is your name?",
         'numerology_payment_required': "⚠️ You need to pay for numerology first.\n\n💰 Cost: 888 ₽",
         'numerology_data_not_found': "❌ Data not found. Please fill in again.",
-        'numerology_use_data_confirm': "✅ Using your data:\n\n👤 Name: {name}\n📅 Date of birth: {birth_date}\n🕒 Time of birth: {birth_time}\n📍 Place of birth: {birth_place}\n👤 Gender: {gender}\n{emoji} Zodiac sign: {zodiac}\n\n🌌 Starting numerology calculation... 🔮",
+        'numerology_use_data_confirm': "✅ Using your data:\n\n👤 Name: {name}\n📅 Date of birth: {birth_date}\n👤 Gender: {gender}\n{emoji} Zodiac sign: {zodiac}\n\n🌌 Starting numerology calculation... 🔮",
         'numerology_fill_new_data': "✏️ Enter the name for numerology:",
         'numerology_payment_process': "💳 Payment 888 ₽\n\nClick the button below to proceed to payment.\n\n⚠️ Payment may take up to 1 minute. After payment, numerology will be available immediately via the \"🔢 Numerology\" button.",
         'numerology_payment_error': "⚠️ Payment system is temporarily unavailable.\nPlease try again later.",
@@ -591,12 +592,13 @@ TEXTS = {
         'numerology_result': "🌌 Your numerology analysis\n\n{result}",
         'numerology_name_prompt': "✅ Name: {name}\n\n📅 Enter your date of birth in DD.MM.YYYY format",
         'numerology_birth_date': "✅ Zodiac sign: {emoji} {zodiac}\n\n🕒 Enter the time of birth (HH:MM)\nExample: 15:30\nIf you don't know, type 12:00",
-        'numerology_birth_time': "📍 Enter the place of birth:\nCity, Country",
+        # 'numerology_birth_time': "📍 Enter the place of birth:\nCity, Country",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'numerology_birth_place': "📍 Enter the place of birth:\nCity, Country",  # НЕ ИСПОЛЬЗУЕТСЯ
         'numerology_gender': "👤 Specify gender:\nM - male\nF - female\n\nWrite: M or F",
         'numerology_edit_name': "✏️ Enter your name for numerology:",
-        'numerology_confirm_data': "🔢 Numerology — know yourself\n\nEntered data:\n👤 Name: {name}\n⚥ Gender: {gender}\n📅 Date of birth: {birth_date}\n🕒 Time of birth: {birth_time}\n📍 Place of birth: {birth_place}\n{emoji} Zodiac sign: {zodiac}\n\nGet numerology analysis?",
+        'numerology_confirm_data': "🔢 Numerology — know yourself\n\nEntered data:\n👤 Name: {name}\n⚥ Gender: {gender}\n📅 Date of birth: {birth_date}\n{emoji} Zodiac sign: {zodiac}\n\nGet numerology analysis?",
         'numerology_payment_not_confirmed': "⚠️ Payment not confirmed. Please pay 888 ₽.",
-        'numerology_data_saved': "✅ Data saved!\n\n👤 Name: {name}\n📅 Date of birth: {birth_date}\n🕒 Time of birth: {birth_time}\n📍 Place of birth: {birth_place}\n👤 Gender: {gender}\n{emoji} Zodiac sign: {zodiac}\n\n🌌 Starting numerology calculation... 🔮",
+        'numerology_data_saved': "✅ Data saved!\n\n👤 Name: {name}\n📅 Date of birth: {birth_date}\n👤 Gender: {gender}\n{emoji} Zodiac sign: {zodiac}\n\n🌌 Starting numerology calculation... 🔮",
 
         # ========== Astrology (Natal chart) ==========
         'astrology_start': "🌙 Astrology — know your destiny\n\nYour data:\n👤 Name: {name}\n📅 Date of birth: {birth_date}\n🕒 Time of birth: {birth_time}\n📍 Place of birth: {birth_place}\n{emoji} Zodiac sign: {zodiac}\n\nDo you want to get an astrological analysis?",
@@ -637,17 +639,17 @@ TEXTS = {
         'profile_no_data_message': "📝 You have no saved data yet.\nTo fill your profile, press **📝 Fill and Save** or **🔮 Horoscope for today**.\n\n📄 By pressing «**Fill and Save**», you give [consent to the processing of personal data]({consent_url}) in accordance with the [Privacy Policy]({privacy_url}).",
         'profile_no_data_message_can_use': "📝 You have no saved data yet.\nTo fill your profile, press **📝 Fill and Save**.\n\n📄 By pressing «Fill and Save», you give [consent to the processing of personal data]({consent_url}) in accordance with the [Privacy Policy]({privacy_url}).",
         'edit_name_prompt': "✏️ Current name: {name}\n\nEnter a new name or press «Skip».",
-        'edit_birth_date_prompt': "✏️ Current date of birth: {date}\n\nEnter a new date in DD.MM.YYYY format or press «Skip».",
-        'edit_birth_time_prompt': "✏️ Current time of birth: {time}\n\nEnter a new time in HH:MM format or press «Skip».",
-        'edit_birth_place_prompt': "✏️ Current place of birth: {place}\n\nEnter a new place (city, country) or press «Skip».",
+        # 'edit_birth_date_prompt': "✏️ Current date of birth: {date}\n\nEnter a new date in DD.MM.YYYY format or press «Skip».",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'edit_birth_time_prompt': "✏️ Current time of birth: {time}\n\nEnter a new time in HH:MM format or press «Skip».",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'edit_birth_place_prompt': "✏️ Current place of birth: {place}\n\nEnter a new place (city, country) or press «Skip».",  # НЕ ИСПОЛЬЗУЕТСЯ
         'edit_gender_prompt': "✏️ Current gender: {gender}\n\nEnter a new gender (M or F) or press «Skip».",
         'skip_birth_date': "✏️ Current date of birth: {date}\n\nEnter a new date in DD.MM.YYYY format or press «Skip».",
         'skip_birth_time': "✏️ Current time of birth: {time}\n\nEnter a new time in HH:MM format or press «Skip».",
         'skip_birth_place': "✏️ Current place of birth: {place}\n\nEnter a new place (city, country) or press «Skip».",
         'skip_gender': "✏️ Current gender: {gender}\n\nEnter a new gender (M or F) or press «Skip».",
-        'profile_updated': "✅ Data successfully updated!\n\n{profile}",
-        'profile_data_saved': "✅ Data saved!\n\n{profile}",
-        'profile_continue_prompt': "To continue, press \"🔮 Horoscope for today\" again.",
+        # 'profile_updated': "✅ Data successfully updated!\n\n{profile}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'profile_data_saved': "✅ Data saved!\n\n{profile}",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'profile_continue_prompt': "To continue, press \"🔮 Horoscope for today\" again.",  # НЕ ИСПОЛЬЗУЕТСЯ
         'profile_fill_intro': "📝 Let's fill out your profile.\n\n❓ What is your name?",
         'profile_save_confirm': "🔐 Save the data to your profile so you don't have to fill it out every time?\n\n{profile}\n\n📄 By pressing «**Save**», you give [consent to the processing of personal data]({consent_url}) in accordance with the [Privacy Policy]({privacy_url}).",
         'timezone_updated': "✅ Time zone updated!\n\n{profile}",
@@ -657,7 +659,7 @@ TEXTS = {
         'subscription_inactive': "⭐ Subscription 333 ₽/MONTH\n\n✨ What you get:\n✓ Daily personal horoscope\n✓ Automatic horoscope sending at 8:00\n✓ Compatibility without limits\n✓ Forecast archive\n💰 333 ₽ / month\n\nClick the button below to subscribe.",
         'subscription_payment_process': "💳 Payment 333 ₽\n\nClick the button below to proceed to payment.\n\n⚠️ After payment, the subscription will be activated automatically.\nThis may take up to 1 minute.",
         'subscription_payment_error': "⚠️ Payment system is temporarily unavailable.\nPlease try again later or contact support.",
-        'subscription_extend': "🔄 Subscription renewal\n\n💰 333 ₽ / month\n\nClick the button below to renew.",
+        # 'subscription_extend': "🔄 Subscription renewal\n\n💰 333 ₽ / month\n\nClick the button below to renew.",  # НЕ ИСПОЛЬЗУЕТСЯ
         'subscription_cancel_not_found': "❌ User not found in the database.",
         'subscription_not_active': "📌 You don't have an active subscription.\nYou can subscribe in the ⭐ Premium section.",
         'subscription_canceled': "❌ Your subscription has been canceled.\n\nYou will no longer receive daily horoscopes.\nYou can subscribe again at any time in the ⭐ Subscription section.",
@@ -671,7 +673,7 @@ TEXTS = {
         'archive_title': "📚 Your forecast archive\n\n",
         'archive_item': "{i}. {emoji} {type} — {date}\n   📄 {preview}\n\n",
         'archive_footer': "━━━━━━━━━━━━━━━━━━━━━\n💡 Click the button below to view the full forecast.",
-        'archive_hint': "📄 Continuation ({i}/{total}):\n\n{text}",
+        # 'archive_hint': "📄 Continuation ({i}/{total}):\n\n{text}",  # НЕ ИСПОЛЬЗУЕТСЯ
         'archive_message_header': "{emoji} {type}\n📅 {date}\n━━━━━━━━━━━━━━━━━━━━━\n\n{content}",
         'archive_no_premium': "📚 You have no saved forecasts in your archive yet.\n\n🔮 Subscribe to Premium to save all your forecasts!",
 
@@ -679,8 +681,8 @@ TEXTS = {
         'support_text': "🆘 **Support**\n\nIf you have any questions about the bot, payment, subscription, or you notice an error, write to the administrator.\n\nWe will try to respond as soon as possible 👇",
 
         # ========== Payments ==========
-        'payment_success': "✅ Payment successful!\n\nNow you can get your natal chart.",
-        'payment_not_confirmed': "⏳ Payment not confirmed yet.\nPlease complete the payment or check the status later.",
+        # 'payment_success': "✅ Payment successful!\n\nNow you can get your natal chart.",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'payment_not_confirmed': "⏳ Payment not confirmed yet.\nPlease complete the payment or check the status later.",  # НЕ ИСПОЛЬЗУЕТСЯ
 
         # ========== Astrology (translation for parameter output) ==========
         'astro_name': '👤 Name',
@@ -695,8 +697,8 @@ TEXTS = {
         'astro_ascendant': '⬆️ Ascendant',
         'astro_planets_header': '🪐 Planets in signs and houses:',
         'astro_aspects_header': '🔮 Major aspects (orb ≤ 5°):',
-        'astro_planet_format': '  • {planet} in {sign} ({degree:.2f}°) in {house} house',
-        'astro_aspect_format': '  • {p1} {aspect} {p2} (orb: {orb:.2f}°)',
+        # 'astro_planet_format': '  • {planet} in {sign} ({degree:.2f}°) in {house} house',  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'astro_aspect_format': '  • {p1} {aspect} {p2} (orb: {orb:.2f}°)',  # НЕ ИСПОЛЬЗУЕТСЯ
         'astro_gender_male': 'Male',
         'astro_gender_female': 'Female',
         'astro_gender_unknown': 'Not specified',
@@ -764,13 +766,11 @@ TEXTS = {
         'type_numerology': 'Numerology',
         'type_astrology': 'Astrology',
 
-        'astro_house_cusp': "House {number}: {sign} {degree:.2f}°",
-        'astro_cusps_header': "🏠 House cusps:",
+        # 'astro_house_cusp': "House {number}: {sign} {degree:.2f}°",  # НЕ ИСПОЛЬЗУЕТСЯ
+        # 'astro_cusps_header': "🏠 House cusps:",  # НЕ ИСПОЛЬЗУЕТСЯ
 
         'main_menu': "🏠 Main menu",
-
         'main_menu_button': "🏠 Main menu",
-
         'numerology_status_calculating': "⏳ Calculating numerology...",
         'compatibility_status_analyzing': "⏳ Analyzing compatibility...",
     }

@@ -1,21 +1,20 @@
-# bot/handlers/numerology.py
 import asyncio
 import logging
 import re
 from datetime import datetime
+from pathlib import Path
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 
 from bot.utils.helpers import get_text
-from bot.utils.formatters import format_parameters, prepare_numerology_prompt_data
+from bot.utils.formatters import format_parameters
 from bot.utils.messaging import send_long_message
 from bot.keyboards.keyboards import (
     get_main_menu,
     get_cancel_keyboard,
     get_numerology_payment_keyboard,
     get_numerology_confirm_keyboard,
-    #get_numerology_use_data_keyboard,
     get_payment_url_keyboard,
     get_main_menu_button,
 )
@@ -24,7 +23,6 @@ from bot.utils.zodiac import calculate_zodiac_sign, get_zodiac_emoji, get_zodiac
 from bot.utils.validators import normalize_gender
 from bot.db import (
     get_user_data,
-    save_user_data,
     check_subscription_db,
     can_use_feature_db,
     mark_feature_used_db,
@@ -34,10 +32,10 @@ from bot.db import (
     add_numerology_count,
     save_payment_db,
     get_service_price,
+    get_emulation_mode,
 )
 from bot.yookassa_client import yookassa
-from bot.calculators.base_calculator import BaseCalculator
-from bot.calculators.natal_calculator import NatalCalculator
+from bot.calculators.numerology_alvasar import NumerologyAlvasarCalculator
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -50,6 +48,16 @@ def set_gemini_service(service):
 
 # Глобальный словарь для временного хранения данных нумерологии
 numerology_data = {}
+
+async def load_prompt_template(filename: str) -> str:
+    base = Path(__file__).parent.parent.parent / 'prompts' / filename
+    try:
+        with open(base, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.error(f"Шаблон {filename} не найден")
+        return ""
+
 
 # ==================== ФУНКЦИЯ-СТАРТЕР ДЛЯ КНОПКИ МЕНЮ ====================
 async def start_numerology(message: Message, state: FSMContext):
@@ -74,8 +82,6 @@ async def start_numerology(message: Message, state: FSMContext):
         profile_text = template.format(
             name=user_data.get('name', 'Не указано'),
             birth_date=user_data.get('birth_date', 'Не указана'),
-            birth_time=user_data.get('birth_time', 'Не указано'),
-            birth_place=user_data.get('birth_place', 'Не указано'),
             emoji=zodiac_emoji,
             zodiac=zodiac_name
         )
@@ -126,7 +132,9 @@ async def process_numerology_birth_date(message: Message, state: FSMContext):
         zodiac = calculate_zodiac_sign(birth_date.day, birth_date.month)
         zodiac_name = get_zodiac_sign_localized(zodiac, lang)
         await state.update_data(numerology_birth_date=message.text, numerology_zodiac=zodiac)
-        await state.set_state(NumerologyStates.WAITING_BIRTH_TIME)
+        await state.set_state(NumerologyStates.WAITING_GENDER)
+
+        # Показываем зодиак
         template = await get_text(user_id, 'numerology_birth_date')
         await message.answer(
             template.format(
@@ -135,55 +143,18 @@ async def process_numerology_birth_date(message: Message, state: FSMContext):
             ),
             reply_markup=get_cancel_keyboard(lang)
         )
+
+        # Запрашиваем пол
+        await message.answer(
+            await get_text(user_id, 'numerology_gender'),
+            reply_markup=get_cancel_keyboard(lang)
+        )
+
     except ValueError:
         await message.answer(
             await get_text(user_id, 'error_invalid_date'),
             reply_markup=get_cancel_keyboard(lang)
         )
-
-
-@router.message(NumerologyStates.WAITING_BIRTH_TIME)
-async def process_numerology_birth_time(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    lang = await get_user_language(user_id)
-    time_pattern = r'^\d{2}:\d{2}$'
-    if not re.match(time_pattern, message.text):
-        await message.answer(
-            await get_text(user_id, 'error_invalid_time_format'),
-            reply_markup=get_cancel_keyboard(lang)
-        )
-        return
-    try:
-        datetime.strptime(message.text, "%H:%M")
-        await state.update_data(numerology_birth_time=message.text)
-        await state.set_state(NumerologyStates.WAITING_BIRTH_PLACE)
-        await message.answer(
-            await get_text(user_id, 'numerology_birth_time'),
-            reply_markup=get_cancel_keyboard(lang)
-        )
-    except ValueError:
-        await message.answer(
-            await get_text(user_id, 'error_invalid_time'),
-            reply_markup=get_cancel_keyboard(lang)
-        )
-
-
-@router.message(NumerologyStates.WAITING_BIRTH_PLACE)
-async def process_numerology_birth_place(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    lang = await get_user_language(user_id)
-    if len(message.text) < 3:
-        await message.answer(
-            await get_text(user_id, 'error_invalid_place'),
-            reply_markup=get_cancel_keyboard(lang)
-        )
-        return
-    await state.update_data(numerology_birth_place=message.text)
-    await state.set_state(NumerologyStates.WAITING_GENDER)
-    await message.answer(
-        await get_text(user_id, 'numerology_gender'),
-        reply_markup=get_cancel_keyboard(lang)
-    )
 
 
 @router.message(NumerologyStates.WAITING_GENDER)
@@ -205,11 +176,10 @@ async def process_numerology_gender(message: Message, state: FSMContext):
     numer_count = user_data_from_db.get('numerology_count', 0) if user_data_from_db else 0
 
     if numer_count > 0:
+        # Убраны birth_time и birth_place
         numerology_data[user_id] = {
             'name': data.get('numerology_name'),
             'birth_date': data.get('numerology_birth_date'),
-            'birth_time': data.get('numerology_birth_time'),
-            'birth_place': data.get('numerology_birth_place'),
             'gender': gender,
             'zodiac': data.get('numerology_zodiac'),
             'is_manual': True
@@ -226,8 +196,6 @@ async def process_numerology_gender(message: Message, state: FSMContext):
             name=data.get('numerology_name'),
             gender=gender_display,
             birth_date=data.get('numerology_birth_date'),
-            birth_time=data.get('numerology_birth_time'),
-            birth_place=data.get('numerology_birth_place'),
             emoji=zodiac_emoji,
             zodiac=zodiac_name
         )
@@ -246,11 +214,10 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         await state.set_state(NumerologyStates.PAYMENT)
         return
 
+    # Этот блок обновлён на случай, если он всё же будет достигнут
     user_data_for_calc = {
         'name': data.get('numerology_name'),
         'birth_date': data.get('numerology_birth_date'),
-        'birth_time': data.get('numerology_birth_time'),
-        'birth_place': data.get('numerology_birth_place'),
         'gender': gender,
         'zodiac': data.get('numerology_zodiac')
     }
@@ -266,8 +233,6 @@ async def process_numerology_gender(message: Message, state: FSMContext):
     profile_text = template.format(
         name=data.get('numerology_name'),
         birth_date=data.get('numerology_birth_date'),
-        birth_time=data.get('numerology_birth_time'),
-        birth_place=data.get('numerology_birth_place'),
         gender=gender_display,
         emoji=zodiac_emoji,
         zodiac=zodiac_name
@@ -285,57 +250,51 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         await status_msg.edit_text(await get_text(user_id, 'numerology_status_format'))
         await asyncio.sleep(2)
 
-        if _gemini_service:
-            result = _gemini_service.generate_numerology(numerology_data[user_id], lang)
+        emulation = await get_emulation_mode(user_id)
+        user_data = numerology_data[user_id]
+        calc = NumerologyAlvasarCalculator(
+            name=user_data.get('name'),
+            birth_date=user_data.get('birth_date'),
+            gender=user_data.get('gender')
+        )
+        params = calc.calculate()
+        context = calc.build_prompt_context(lang)
 
-            if await is_user_admin(user_id):
-                calc = BaseCalculator()
-                user_data = numerology_data[user_id]
-                prompt_data = {
-                    'name': user_data.get('name', ''),
-                    'gender_display': "Мужчина" if user_data.get('gender') == 'M' else "Женщина",
-                    'birth_date': user_data.get('birth_date', ''),
-                    'birth_time': user_data.get('birth_time', 'не указано'),
-                    'birth_place': user_data.get('birth_place', 'не указано'),
-                    'pronoun': "он" if user_data.get('gender') == 'M' else "она",
-                    'possessive': "его" if user_data.get('gender') == 'M' else "её",
-                }
-                natal = NatalCalculator(
-                    birth_date=user_data.get('birth_date'),
-                    name=user_data.get('name'),
-                    birth_time=user_data.get('birth_time'),
-                    birth_place=user_data.get('birth_place'),
-                    gender=user_data.get('gender')
-                )
-                matrix = natal.calculate()
-                prompt_data.update(matrix)
-                name = user_data.get('name', '')
-                prompt_data['expression_number'] = calc.calculate_expression_number(name) or "не рассчитано"
-                prompt_data['soul_urge_number'] = calc.calculate_soul_urge_number(name) or "не рассчитано"
-                prompt_data['personality_number'] = calc.calculate_personality_number(name) or "не рассчитано"
-                target_date = datetime.now().strftime('%d.%m.%Y')
-                birth_date = user_data.get('birth_date')
-                if birth_date:
-                    prompt_data['personal_year'] = calc.calculate_personal_year(birth_date, target_date)
-                    prompt_data['personal_month'] = calc.calculate_personal_month(birth_date, target_date)
-                    prompt_data['personal_day'] = calc.calculate_personal_day(birth_date, target_date)
-                else:
-                    prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
+        template = await load_prompt_template('prompt_numerology.txt')
+        if not template:
+            await status_msg.edit_text("❌ Шаблон промпта не найден.")
+            return
 
-                parameters_text = format_parameters(prompt_data, 'numerology', lang)
-                final_message = f"{parameters_text}\n\n💬 Интерпретация:\n{result}"
-            else:
-                final_message = result
-
-            await save_message_to_archive(user_id, 'numerology', final_message)
-            await add_numerology_count(user_id, -1)
-
-            await status_msg.delete()
-            result_template = await get_text(user_id, 'numerology_result')
-            result_text = result_template.format(result=final_message)
-            await send_long_message(message, result_text, reply_markup=get_main_menu_button(lang))
+        if lang == 'en':
+            language_instruction = "IMPORTANT: Respond in English only."
         else:
-            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
+            language_instruction = "ВАЖНО: Отвечай только на русском языке."
+
+        prompt = template.replace('{language_instruction}', language_instruction)
+        prompt = prompt.replace('{name}', params['name'])
+        prompt = prompt.replace('{numerology_context}', context)
+
+        if emulation:
+            final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+        else:
+            if _gemini_service:
+                result = _gemini_service.send_raw_prompt(prompt)
+                if await is_user_admin(user_id):
+                    parameters_text = format_parameters(params, 'numerology', lang)
+                    final_message = f"{parameters_text}\n\n{result}"
+                else:
+                    final_message = result
+            else:
+                final_message = "❌ Gemini сервис недоступен."
+
+        await save_message_to_archive(user_id, 'numerology', final_message)
+        await add_numerology_count(user_id, -1)
+
+        await status_msg.delete()
+        result_template = await get_text(user_id, 'numerology_result')
+        result_text = result_template.format(result=final_message)
+        await send_long_message(message, result_text, reply_markup=get_main_menu_button(lang))
+
     except Exception as e:
         try:
             await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
@@ -374,11 +333,10 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
+    # Убраны birth_time и birth_place
     numerology_data[user_id] = {
         'name': user_data_from_db.get('name'),
         'birth_date': user_data_from_db.get('birth_date'),
-        'birth_time': user_data_from_db.get('birth_time'),
-        'birth_place': user_data_from_db.get('birth_place'),
         'gender': user_data_from_db.get('gender'),
         'zodiac': user_data_from_db.get('zodiac'),
         'is_manual': False
@@ -394,8 +352,6 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
     profile_text = template.format(
         name=user_data_from_db.get('name'),
         birth_date=user_data_from_db.get('birth_date'),
-        birth_time=user_data_from_db.get('birth_time'),
-        birth_place=user_data_from_db.get('birth_place'),
         gender=gender_display,
         emoji=zodiac_emoji,
         zodiac=zodiac_name
@@ -414,58 +370,52 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         await status_msg.edit_text(await get_text(user_id, 'numerology_status_format'))
         await asyncio.sleep(2)
 
-        if _gemini_service:
-            result = _gemini_service.generate_numerology(numerology_data[user_id], lang)
+        emulation = await get_emulation_mode(user_id)
+        user_data = numerology_data[user_id]
+        calc = NumerologyAlvasarCalculator(
+            name=user_data.get('name'),
+            birth_date=user_data.get('birth_date'),
+            gender=user_data.get('gender')
+        )
+        params = calc.calculate()
+        context = calc.build_prompt_context(lang)
 
-            if await is_user_admin(user_id):
-                calc = BaseCalculator()
-                user_data = numerology_data[user_id]
-                prompt_data = {
-                    'name': user_data.get('name', ''),
-                    'gender_display': "Мужчина" if user_data.get('gender') == 'M' else "Женщина",
-                    'birth_date': user_data.get('birth_date', ''),
-                    'birth_time': user_data.get('birth_time', 'не указано'),
-                    'birth_place': user_data.get('birth_place', 'не указано'),
-                    'pronoun': "он" if user_data.get('gender') == 'M' else "она",
-                    'possessive': "его" if user_data.get('gender') == 'M' else "её",
-                }
-                natal = NatalCalculator(
-                    birth_date=user_data.get('birth_date'),
-                    name=user_data.get('name'),
-                    birth_time=user_data.get('birth_time'),
-                    birth_place=user_data.get('birth_place'),
-                    gender=user_data.get('gender')
-                )
-                matrix = natal.calculate()
-                prompt_data.update(matrix)
-                name = user_data.get('name', '')
-                prompt_data['expression_number'] = calc.calculate_expression_number(name) or "не рассчитано"
-                prompt_data['soul_urge_number'] = calc.calculate_soul_urge_number(name) or "не рассчитано"
-                prompt_data['personality_number'] = calc.calculate_personality_number(name) or "не рассчитано"
-                target_date = datetime.now().strftime('%d.%m.%Y')
-                birth_date = user_data.get('birth_date')
-                if birth_date:
-                    prompt_data['personal_year'] = calc.calculate_personal_year(birth_date, target_date)
-                    prompt_data['personal_month'] = calc.calculate_personal_month(birth_date, target_date)
-                    prompt_data['personal_day'] = calc.calculate_personal_day(birth_date, target_date)
-                else:
-                    prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
+        template = await load_prompt_template('prompt_numerology.txt')
+        if not template:
+            await status_msg.edit_text("❌ Шаблон промпта не найден.")
+            return
 
-                parameters_text = format_parameters(prompt_data, 'numerology', lang)
-                final_message = f"{parameters_text}\n\n{result}"
-            else:
-                final_message = result
-
-            await save_message_to_archive(user_id, 'numerology', final_message)
-            await add_numerology_count(user_id, -1)
-
-            result_template = await get_text(user_id, 'numerology_result')
-            result_text = result_template.format(result=final_message)
-
-            await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
-            await status_msg.delete()
+        if lang == 'en':
+            language_instruction = "IMPORTANT: Respond in English only."
         else:
-            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
+            language_instruction = "ВАЖНО: Отвечай только на русском языке."
+
+        prompt = template.replace('{language_instruction}', language_instruction)
+        prompt = prompt.replace('{name}', params['name'])
+        prompt = prompt.replace('{numerology_context}', context)
+
+        if emulation:
+            final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+        else:
+            if _gemini_service:
+                result = _gemini_service.send_raw_prompt(prompt)
+                if await is_user_admin(user_id):
+                    parameters_text = format_parameters(params, 'numerology', lang)
+                    final_message = f"{parameters_text}\n\n{result}"
+                else:
+                    final_message = result
+            else:
+                final_message = "❌ Gemini сервис недоступен."
+
+        await save_message_to_archive(user_id, 'numerology', final_message)
+        await add_numerology_count(user_id, -1)
+
+        result_template = await get_text(user_id, 'numerology_result')
+        result_text = result_template.format(result=final_message)
+
+        await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
+        await status_msg.delete()
+
     except Exception as e:
         try:
             await status_msg.edit_text(f"❌ Ошибка: {str(e)}")
@@ -577,57 +527,51 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         await status_msg.edit_text(await get_text(user_id, 'numerology_status_format'))
         await asyncio.sleep(2)
 
-        if _gemini_service:
-            result = _gemini_service.generate_numerology(user_data, lang)
+        emulation = await get_emulation_mode(user_id)
+        calc = NumerologyAlvasarCalculator(
+            name=user_data.get('name'),
+            birth_date=user_data.get('birth_date'),
+            gender=user_data.get('gender')
+        )
+        params = calc.calculate()
+        context = calc.build_prompt_context(lang)
 
-            if await is_user_admin(user_id):
-                calc = BaseCalculator()
-                prompt_data = {
-                    'name': user_data.get('name', ''),
-                    'gender_display': "Мужчина" if user_data.get('gender') == 'M' else "Женщина",
-                    'birth_date': user_data.get('birth_date', ''),
-                    'birth_time': user_data.get('birth_time', 'не указано'),
-                    'birth_place': user_data.get('birth_place', 'не указано'),
-                    'pronoun': "он" if user_data.get('gender') == 'M' else "она",
-                    'possessive': "его" if user_data.get('gender') == 'M' else "её",
-                }
-                natal = NatalCalculator(
-                    birth_date=user_data.get('birth_date'),
-                    name=user_data.get('name'),
-                    birth_time=user_data.get('birth_time'),
-                    birth_place=user_data.get('birth_place'),
-                    gender=user_data.get('gender')
-                )
-                matrix = natal.calculate()
-                prompt_data.update(matrix)
-                name = user_data.get('name', '')
-                prompt_data['expression_number'] = calc.calculate_expression_number(name) or "не рассчитано"
-                prompt_data['soul_urge_number'] = calc.calculate_soul_urge_number(name) or "не рассчитано"
-                prompt_data['personality_number'] = calc.calculate_personality_number(name) or "не рассчитано"
-                target_date = datetime.now().strftime('%d.%m.%Y')
-                birth_date = user_data.get('birth_date')
-                if birth_date:
-                    prompt_data['personal_year'] = calc.calculate_personal_year(birth_date, target_date)
-                    prompt_data['personal_month'] = calc.calculate_personal_month(birth_date, target_date)
-                    prompt_data['personal_day'] = calc.calculate_personal_day(birth_date, target_date)
-                else:
-                    prompt_data['personal_year'] = prompt_data['personal_month'] = prompt_data['personal_day'] = "не рассчитано"
+        template = await load_prompt_template('prompt_numerology.txt')
+        if not template:
+            await status_msg.edit_text("❌ Шаблон промпта не найден.")
+            return
 
-                parameters_text = format_parameters(prompt_data, 'numerology', lang)
-                final_message = f"{parameters_text}\n\n{result}"
-            else:
-                final_message = result
-
-            await save_message_to_archive(user_id, 'numerology', final_message)
-            await add_numerology_count(user_id, -1)
-
-            result_template = await get_text(user_id, 'numerology_result')
-            result_text = result_template.format(result=final_message)
-
-            await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
-            await status_msg.delete()
+        if lang == 'en':
+            language_instruction = "IMPORTANT: Respond in English only."
         else:
-            await status_msg.edit_text(await get_text(user_id, 'error_service_unavailable'))
+            language_instruction = "ВАЖНО: Отвечай только на русском языке."
+
+        prompt = template.replace('{language_instruction}', language_instruction)
+        prompt = prompt.replace('{name}', params['name'])
+        prompt = prompt.replace('{numerology_context}', context)
+
+        if emulation:
+            final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
+        else:
+            if _gemini_service:
+                result = _gemini_service.send_raw_prompt(prompt)
+                if await is_user_admin(user_id):
+                    parameters_text = format_parameters(params, 'numerology', lang)
+                    final_message = f"{parameters_text}\n\n{result}"
+                else:
+                    final_message = result
+            else:
+                final_message = "❌ Gemini сервис недоступен."
+
+        await save_message_to_archive(user_id, 'numerology', final_message)
+        await add_numerology_count(user_id, -1)
+
+        result_template = await get_text(user_id, 'numerology_result')
+        result_text = result_template.format(result=final_message)
+
+        await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
+        await status_msg.delete()
+
     except Exception as e:
         try:
             await status_msg.edit_text(f"❌ Ошибка: {str(e)}")

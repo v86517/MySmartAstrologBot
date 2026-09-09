@@ -33,8 +33,8 @@ class NumerologyStates(StatesGroup):
     """Состояния для нумерологии"""
     WAITING_NAME = State()
     WAITING_BIRTH_DATE = State()
-    WAITING_BIRTH_TIME = State()
-    WAITING_BIRTH_PLACE = State()
+    #WAITING_BIRTH_TIME = State()
+    #WAITING_BIRTH_PLACE = State()
     WAITING_GENDER = State()
     WAITING_ZODIAC = State()
     CONFIRM_DATA = State()
