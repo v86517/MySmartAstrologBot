@@ -274,6 +274,7 @@ async def process_numerology_gender(message: Message, state: FSMContext):
         prompt = prompt.replace('{name}', params['name'])
         prompt = prompt.replace('{numerology_context}', context)
 
+        # --- ИСПРАВЛЕНО: используем final_text везде ---
         if emulation:
             final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
         else:
@@ -281,18 +282,19 @@ async def process_numerology_gender(message: Message, state: FSMContext):
                 result = _gemini_service.send_raw_prompt(prompt)
                 if await is_user_admin(user_id):
                     parameters_text = format_parameters(params, 'numerology', lang)
-                    final_message = f"{parameters_text}\n\n{result}"
+                    final_text = f"{parameters_text}\n\n{result}"
                 else:
-                    final_message = result
+                    final_text = result
             else:
-                final_message = "❌ Gemini сервис недоступен."
+                final_text = "❌ Gemini сервис недоступен."
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-        await save_message_to_archive(user_id, 'numerology', final_message)
+        await save_message_to_archive(user_id, 'numerology', final_text)
         await add_numerology_count(user_id, -1)
 
         await status_msg.delete()
         result_template = await get_text(user_id, 'numerology_result')
-        result_text = result_template.format(result=final_message)
+        result_text = result_template.format(result=final_text)
         await send_long_message(message, result_text, reply_markup=get_main_menu_button(lang))
 
     except Exception as e:
@@ -394,6 +396,7 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
         prompt = prompt.replace('{name}', params['name'])
         prompt = prompt.replace('{numerology_context}', context)
 
+        # --- ИСПРАВЛЕНО: используем final_text везде ---
         if emulation:
             final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
         else:
@@ -401,17 +404,18 @@ async def numerology_use_my_data(callback: CallbackQuery, state: FSMContext):
                 result = _gemini_service.send_raw_prompt(prompt)
                 if await is_user_admin(user_id):
                     parameters_text = format_parameters(params, 'numerology', lang)
-                    final_message = f"{parameters_text}\n\n{result}"
+                    final_text = f"{parameters_text}\n\n{result}"
                 else:
-                    final_message = result
+                    final_text = result
             else:
-                final_message = "❌ Gemini сервис недоступен."
+                final_text = "❌ Gemini сервис недоступен."
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-        await save_message_to_archive(user_id, 'numerology', final_message)
+        await save_message_to_archive(user_id, 'numerology', final_text)
         await add_numerology_count(user_id, -1)
 
         result_template = await get_text(user_id, 'numerology_result')
-        result_text = result_template.format(result=final_message)
+        result_text = result_template.format(result=final_text)
 
         await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
         await status_msg.delete()
@@ -550,6 +554,7 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
         prompt = prompt.replace('{name}', params['name'])
         prompt = prompt.replace('{numerology_context}', context)
 
+        # --- ИСПРАВЛЕНО: используем final_text везде ---
         if emulation:
             final_text = f"🔍 РЕЖИМ ЭМУЛЯЦИИ (промпт не отправлен в нейросеть):\n\n{prompt}"
         else:
@@ -557,17 +562,18 @@ async def numerology_confirm(callback: CallbackQuery, state: FSMContext):
                 result = _gemini_service.send_raw_prompt(prompt)
                 if await is_user_admin(user_id):
                     parameters_text = format_parameters(params, 'numerology', lang)
-                    final_message = f"{parameters_text}\n\n{result}"
+                    final_text = f"{parameters_text}\n\n{result}"
                 else:
-                    final_message = result
+                    final_text = result
             else:
-                final_message = "❌ Gemini сервис недоступен."
+                final_text = "❌ Gemini сервис недоступен."
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-        await save_message_to_archive(user_id, 'numerology', final_message)
+        await save_message_to_archive(user_id, 'numerology', final_text)
         await add_numerology_count(user_id, -1)
 
         result_template = await get_text(user_id, 'numerology_result')
-        result_text = result_template.format(result=final_message)
+        result_text = result_template.format(result=final_text)
 
         await send_long_message(callback.message, result_text, reply_markup=get_main_menu_button(lang))
         await status_msg.delete()
